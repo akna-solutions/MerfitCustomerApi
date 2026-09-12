@@ -6,6 +6,7 @@ using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using EquipmentEntity = MerfitCustomerApi.Domain.Entities.Equipment;
 
 namespace MerfitCustomerApi.Business.Services.Workouts;
 
@@ -66,7 +67,7 @@ public class WorkoutService : IWorkoutService
         var equipmentSlugs = SplitCsv(request.Equipment);
         if (equipmentSlugs.Count > 0)
         {
-            var equipmentIds = await _unitOfWork.Repository<Equipment>()
+            var equipmentIds = await _unitOfWork.Repository<EquipmentEntity>()
                 .GetQueryable()
                 .Where(e => equipmentSlugs.Contains(e.Slug))
                 .Select(e => e.Id)
@@ -139,7 +140,7 @@ public class WorkoutService : IWorkoutService
             .GetQueryable()
             .Where(we => workoutIds.Contains(we.WorkoutId))
             .Join(
-                _unitOfWork.Repository<Equipment>().GetQueryable(),
+                _unitOfWork.Repository<EquipmentEntity>().GetQueryable(),
                 we => we.EquipmentId,
                 e => e.Id,
                 (we, e) => new { we.WorkoutId, e.Name })
@@ -171,7 +172,7 @@ public class WorkoutService : IWorkoutService
             .GetQueryable()
             .Where(we => we.WorkoutId == workoutId)
             .Join(
-                _unitOfWork.Repository<Equipment>().GetQueryable(),
+                _unitOfWork.Repository<EquipmentEntity>().GetQueryable(),
                 we => we.EquipmentId,
                 e => e.Id,
                 (we, e) => e.Name)

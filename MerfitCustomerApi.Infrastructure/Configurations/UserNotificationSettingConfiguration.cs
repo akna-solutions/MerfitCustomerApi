@@ -19,7 +19,7 @@ public class UserNotificationSettingConfiguration : IEntityTypeConfiguration<Use
     public void Configure(EntityTypeBuilder<UserNotificationSetting> builder)
     {
         // Tablo adini belirtir.
-        builder.ToTable("UserNotificationSetting", "notification");
+        builder.ToTable("UserNotificationSetting", "profile");
 
         // Birincil anahtari tanimlar.
         builder.HasKey(x => x.Id);

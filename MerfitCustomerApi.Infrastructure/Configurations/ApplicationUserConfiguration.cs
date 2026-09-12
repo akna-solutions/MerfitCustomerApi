@@ -58,7 +58,6 @@ public class ApplicationUserConfiguration : IEntityTypeConfiguration<Application
         builder.Property(x => x.Role)
             .IsRequired(true)
             .HasMaxLength(50)
-            .HasConversion<string>()
-            .HasDefaultValue(MerfitCustomerApi.Domain.Entities.Enums.UserRole.User);
+            .HasConversion<string>();
     }
 }

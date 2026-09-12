@@ -2,6 +2,7 @@ using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Auth;
 using MerfitCustomerApi.Business.Services.Dashboard;
+using MerfitCustomerApi.Business.Services.Equipment;
 using MerfitCustomerApi.Business.Services.Foods;
 using MerfitCustomerApi.Business.Services.Leaderboard;
 using MerfitCustomerApi.Business.Services.Nutrition;
@@ -81,6 +82,7 @@ builder.Services.AddScoped<IFoodService, FoodService>();
 builder.Services.AddScoped<IProgressService, ProgressService>();
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
+builder.Services.AddScoped<IEquipmentService, EquipmentService>();
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>() ?? new JwtSettings();
 

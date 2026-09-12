@@ -25,7 +25,7 @@ public class NutritionService : INutritionService
     {
         var goal = await GetOrCreateGoalAsync(userId, cancellationToken);
 
-        var dayStart = date.ToDateTime(TimeOnly.MinValue);
+        var dayStart = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
         var dayEnd = dayStart.AddDays(1);
 
         var meals = await _unitOfWork.Repository<Meal>()
@@ -111,7 +111,7 @@ public class NutritionService : INutritionService
             throw new NotFoundException(nameof(Food), request.FoodId);
         }
 
-        var date = (request.Date ?? DateOnly.FromDateTime(DateTime.UtcNow)).ToDateTime(TimeOnly.MinValue);
+        var date = (request.Date ?? DateOnly.FromDateTime(DateTime.UtcNow)).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
 
         var meal = await _unitOfWork.Repository<Meal>()
             .GetQueryable(asNoTracking: false)
@@ -159,7 +159,7 @@ public class NutritionService : INutritionService
 
     public async Task<CustomerWaterDto> LogWaterAsync(long userId, LogWaterRequest request, CancellationToken cancellationToken = default)
     {
-        var date = (request.Date ?? DateOnly.FromDateTime(DateTime.UtcNow)).ToDateTime(TimeOnly.MinValue);
+        var date = (request.Date ?? DateOnly.FromDateTime(DateTime.UtcNow)).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
 
         var log = new WaterLog
         {
