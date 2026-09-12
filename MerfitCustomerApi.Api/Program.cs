@@ -1,7 +1,15 @@
 using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Auth;
+using MerfitCustomerApi.Business.Services.Dashboard;
+using MerfitCustomerApi.Business.Services.Foods;
+using MerfitCustomerApi.Business.Services.Leaderboard;
+using MerfitCustomerApi.Business.Services.Nutrition;
+using MerfitCustomerApi.Business.Services.Profile;
+using MerfitCustomerApi.Business.Services.Progress;
 using MerfitCustomerApi.Business.Services.TokenService;
+using MerfitCustomerApi.Business.Services.WorkoutSessions;
+using MerfitCustomerApi.Business.Services.Workouts;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Interfaces;
 using MerfitCustomerApi.Infrastructure.Persistence;
@@ -64,6 +72,16 @@ builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSett
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 
+// MerfitNativeApp (mobil musteri uygulamasi) icin musteri-yuzlu servisler.
+builder.Services.AddScoped<IWorkoutService, WorkoutService>();
+builder.Services.AddScoped<IWorkoutSessionService, WorkoutSessionService>();
+builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<INutritionService, NutritionService>();
+builder.Services.AddScoped<IFoodService, FoodService>();
+builder.Services.AddScoped<IProgressService, ProgressService>();
+builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
+builder.Services.AddScoped<IProfileService, ProfileService>();
+
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>() ?? new JwtSettings();
 
 builder.Services.AddAuthentication(options =>
@@ -95,17 +113,25 @@ builder.Services.AddAuthorization(options =>
         policy.RequireRole(UserRole.Admin.ToString(), UserRole.SuperAdmin.ToString()));
 });
 
-// CORS - merfit-admin-app (CRA dev server, localhost:3000) buradan istek atabilsin diye.
-// Bearer token header ile calistigimiz (cookie tabanli auth kullanmadigimiz) icin
-// AllowCredentials'a ihtiyac yok; origin'i yine de sabit tutuyoruz.
+// CORS - gelistirme ortaminda Expo/web ve mobil istemcilerin erisebilmesi,
+// production'da ise yalnizca tanimli origin'lerin erisebilmesi icin yapilandirilir.
 const string AdminAppCorsPolicy = "AdminAppCorsPolicy";
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(AdminAppCorsPolicy, policy =>
     {
-        policy.WithOrigins("http://localhost:3000")
-              .AllowAnyHeader()
-              .AllowAnyMethod();
+        if (builder.Environment.IsDevelopment())
+        {
+            policy.AllowAnyOrigin()
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
+        else
+        {
+            policy.WithOrigins("http://localhost:3000")
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
     });
 });
 
@@ -125,8 +151,12 @@ if (app.Environment.IsDevelopment())
         options.RoutePrefix = "swagger"; // https://localhost:{port}/swagger
     });
 }
-
-app.UseHttpsRedirection();
+else
+{
+    // Mobil ve gelistirme ortamlarinda HTTP erisimi ve self-signed SSL guven sorunlarini onlemek icin
+    // HTTPS zorunlulugu yalnizca production ortaminda devreye girer.
+    app.UseHttpsRedirection();
+}
 
 app.UseCors(AdminAppCorsPolicy);
 

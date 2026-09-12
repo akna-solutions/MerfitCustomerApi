@@ -64,6 +64,10 @@ public class ExceptionHandlingMiddleware
                 HttpStatusCode.Conflict,
                 ApiResponse.Fail(conflictException.Message)),
 
+            UnauthorizedException unauthorizedException => (
+                HttpStatusCode.Unauthorized,
+                ApiResponse.Fail(unauthorizedException.Message)),
+
             _ => (HttpStatusCode.InternalServerError, HandleUnexpected(exception, traceId)),
         };
 
