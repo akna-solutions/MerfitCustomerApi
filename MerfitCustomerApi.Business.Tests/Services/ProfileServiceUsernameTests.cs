@@ -5,6 +5,7 @@ using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
+using MerfitCustomerApi.Domain.Interfaces.Repositories;
 using Moq;
 using Xunit;
 
@@ -28,6 +29,7 @@ public class ProfileServiceUsernameTests
         public required ProfileService Service { get; init; }
         public required List<ApplicationUser> Users { get; init; }
         public required List<UserProfile> Profiles { get; init; }
+        public required Mock<IGenericRepository<UserProfile>> ProfileRepo { get; init; }
     }
 
     private static Fixture CreateFixture()
@@ -42,9 +44,11 @@ public class ProfileServiceUsernameTests
         var sessions = new List<WorkoutSession>();
         var streaks = new List<UserStreak>();
 
+        var profileRepo = MockRepositoryFactory.Create(profiles);
+
         var unitOfWork = new Mock<IUnitOfWork>();
         unitOfWork.Setup(u => u.Repository<ApplicationUser>()).Returns(MockRepositoryFactory.Create(users).Object);
-        unitOfWork.Setup(u => u.Repository<UserProfile>()).Returns(MockRepositoryFactory.Create(profiles).Object);
+        unitOfWork.Setup(u => u.Repository<UserProfile>()).Returns(profileRepo.Object);
         unitOfWork.Setup(u => u.Repository<UserGoal>()).Returns(MockRepositoryFactory.Create(goals).Object);
         unitOfWork.Setup(u => u.Repository<UserPreference>()).Returns(MockRepositoryFactory.Create(preferences).Object);
         unitOfWork.Setup(u => u.Repository<UserNotificationSetting>()).Returns(MockRepositoryFactory.Create(notifications).Object);
@@ -59,6 +63,7 @@ public class ProfileServiceUsernameTests
             Service = new ProfileService(unitOfWork.Object),
             Users = users,
             Profiles = profiles,
+            ProfileRepo = profileRepo,
         };
     }
 
@@ -112,6 +117,25 @@ public class ProfileServiceUsernameTests
 
         Assert.Equal("Mehmet", result.FirstName);
         Assert.Equal("mert", result.Username);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_DoesNotRewriteUsername_WhenUsernameIsUnchanged()
+    {
+        // Regresyon testi: ProfileService daha once, degismis olsun olmasin, cekilen
+        // user/profile entity'lerini Repository.Update() ile TAMAMEN "Modified" isaretliyordu.
+        // Bu da her PUT /api/profile isteginde (orn. yalnizca tema degisse bile) Username'in de
+        // UPDATE cumlesine dahil olmasina yol aciyordu; UserProfile.Username uzerindeki veritabani
+        // unique index'i sayesinde bu, alakasiz alan guncellemelerinde bile "Bu kullanici adi zaten
+        // kullaniliyor" ConflictException'ina donusebiliyordu. user/profile zaten izlenen (tracked)
+        // entity'ler oldugundan Update() cagrisina hic gerek yok; bu test onun geri gelmedigini dogrular.
+        var fx = CreateFixture();
+        fx.Users.Add(MakeUser(1, "mert@example.com"));
+        fx.Profiles.Add(MakeProfile(1, "Mert", "Akpınar", "mert"));
+
+        await fx.Service.UpdateProfileAsync(1, new UpdateProfileRequest { Weight = 80 });
+
+        fx.ProfileRepo.Verify(r => r.Update(It.IsAny<UserProfile>()), Times.Never);
     }
 
     [Fact]
