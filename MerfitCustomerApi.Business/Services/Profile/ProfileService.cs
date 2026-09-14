@@ -213,6 +213,34 @@ public class ProfileService : IProfileService
         preference.Theme = parsed;
     }
 
+    public async Task<ThemePreferenceResponse> GetThemePreferenceAsync(long userId, CancellationToken cancellationToken = default)
+    {
+        var preference = await _unitOfWork.Repository<UserPreference>()
+            .FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken);
+
+        return new ThemePreferenceResponse
+        {
+            ThemeMode = (preference?.Theme ?? Theme.System).ToString(),
+        };
+    }
+
+    public async Task<ThemePreferenceResponse> UpdateThemePreferenceAsync(long userId, UpdateThemePreferenceRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!Enum.TryParse<Theme>(request.ThemeMode, ignoreCase: true, out var parsed))
+        {
+            throw new AppValidationException(
+                nameof(request.ThemeMode),
+                "ThemeMode yalnizca 'System', 'Light' veya 'Dark' olabilir.");
+        }
+
+        var preference = await GetOrCreatePreferenceAsync(userId, cancellationToken);
+        preference.Theme = parsed;
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return new ThemePreferenceResponse { ThemeMode = parsed.ToString() };
+    }
+
     private async Task<UserPreference> GetOrCreatePreferenceAsync(long userId, CancellationToken cancellationToken)
     {
         var preference = await _unitOfWork.Repository<UserPreference>()
@@ -221,7 +249,7 @@ public class ProfileService : IProfileService
 
         if (preference is null)
         {
-            preference = new UserPreference { UserId = userId, Language = "tr", CreatedAt = DateTime.UtcNow };
+            preference = new UserPreference { UserId = userId, Language = "tr", Theme = Theme.System, CreatedAt = DateTime.UtcNow };
             await _unitOfWork.Repository<UserPreference>().AddAsync(preference, cancellationToken);
         }
         else
@@ -332,7 +360,7 @@ public class ProfileService : IProfileService
             WorkoutDurationMin = profile.WorkoutDurationMin ?? 45,
             TrainingDays = BuildTrainingDaysDisplay(profile.TrainingDaysPerWeek ?? 3),
             UnitSystem = profile.UnitSystem.ToString().ToLowerInvariant(),
-            Appearance = preference?.Theme.ToString().ToLowerInvariant() ?? "dark",
+            Appearance = (preference?.Theme ?? Theme.System).ToString().ToLowerInvariant(),
             Notifications = notificationSettings is null
                 ? new CustomerNotificationSettingsDto
                 {

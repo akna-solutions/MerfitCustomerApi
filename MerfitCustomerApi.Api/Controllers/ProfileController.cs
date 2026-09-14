@@ -41,4 +41,24 @@ public class ProfileController : ControllerBase
         var result = await _profileService.UpdateProfileAsync(userId, request, cancellationToken);
         return Ok(result);
     }
+
+    /// <summary>Kullanicinin theme tercihini doner (kayit yoksa varsayilan "System").</summary>
+    [HttpGet("theme")]
+    public async Task<ActionResult<ThemePreferenceResponse>> GetThemePreference(CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        var result = await _profileService.GetThemePreferenceAsync(userId, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>Kullanicinin theme tercihini gunceller.</summary>
+    [HttpPut("theme")]
+    public async Task<ActionResult<ThemePreferenceResponse>> UpdateThemePreference(
+        [FromBody] UpdateThemePreferenceRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        var result = await _profileService.UpdateThemePreferenceAsync(userId, request, cancellationToken);
+        return Ok(result);
+    }
 }

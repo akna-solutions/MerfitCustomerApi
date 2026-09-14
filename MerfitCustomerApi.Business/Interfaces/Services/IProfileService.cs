@@ -14,4 +14,11 @@ public interface IProfileService
     /// <exception cref="Domain.Exceptions.ConflictException">Email veya kullanici adi baskasina aitse firlatilir.</exception>
     /// <exception cref="Domain.Exceptions.AppValidationException">Gonderilen enum/tarih degerleri gecersizse firlatilir.</exception>
     Task<CustomerProfileResponse> UpdateProfileAsync(long userId, UpdateProfileRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Kullanicinin theme tercihini doner; kayit yoksa varsayilan olarak "System" doner.</summary>
+    Task<ThemePreferenceResponse> GetThemePreferenceAsync(long userId, CancellationToken cancellationToken = default);
+
+    /// <summary>Kullanicinin theme tercihini gunceller.</summary>
+    /// <exception cref="Domain.Exceptions.AppValidationException">ThemeMode "System"/"Light"/"Dark" disinda bir degerse firlatilir.</exception>
+    Task<ThemePreferenceResponse> UpdateThemePreferenceAsync(long userId, UpdateThemePreferenceRequest request, CancellationToken cancellationToken = default);
 }
