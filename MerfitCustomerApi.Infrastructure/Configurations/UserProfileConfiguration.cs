@@ -35,14 +35,20 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
             .IsRequired(true)
             .HasMaxLength(200);
 
-        // Profilde gosterilen kullanici adi. BILINCLI URUN KARARI: bu kolon uzerinde herhangi bir
-        // veritabani index'i/unique constraint'i TANIMLANMAZ. Benzersizlik yalnizca uygulama
-        // katmaninda (bkz. AuthService.RegisterAsync ve ProfileService.ApplyIdentityChangesAsync
-        // icindeki AnyAsync kontrolleri) saglanir. Bunun es zamanli (concurrent) istekler icin
-        // teorik bir race condition penceresi biraktigi bilinerek kabul edilmistir.
+        // Profilde gosterilen kullanici adi.
         builder.Property(x => x.Username)
             .IsRequired(true)
             .HasMaxLength(300);
+
+        // Kullanici adi benzersiz olmalidir. Uygulama katmanindaki AnyAsync kontrolleri (bkz.
+        // AuthService.RegisterAsync ve ProfileService.ApplyIdentityChangesAsync) hizli/dostane bir
+        // hata mesaji icin gereklidir ama TEK BASINA yeterli degildir; bu veritabani seviyesindeki
+        // unique index, iki isteğin es zamanli (race condition) olarak ayni kullanici adini almasini
+        // kesin olarak engeller. AuthService/ProfileService, bu index ihlal edildiginde olusan
+        // DbUpdateException'i yakalayip ayni ConflictException'a ceviriyor (bkz. o dosyalardaki
+        // try/catch bloklari).
+        builder.HasIndex(x => x.Username)
+            .IsUnique();
 
         // Kullanicinin cinsiyeti.
         builder.Property(x => x.Gender)

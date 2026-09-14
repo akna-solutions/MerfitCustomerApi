@@ -23,9 +23,8 @@ public class RegisterRequest
 
     /// <summary>
     /// Kullanicinin kendi belirledigi kullanici adi (AccountStep). UserProfile.Username'e
-    /// dogrudan yazilir; benzersizligi AuthService.RegisterAsync icinde, BILINCLI OLARAK yalnizca
-    /// uygulama katmaninda kontrol edilir (bkz. UserProfileConfiguration.cs - bu kolonda veritabani
-    /// seviyesinde index/unique constraint KULLANILMAZ).
+    /// dogrudan yazilir; benzersizligi AuthService.RegisterAsync icinde (uygulama seviyesinde)
+    /// ve UserProfileConfiguration'daki unique index'te (veritabani seviyesinde) korunur.
     /// </summary>
     [Required(ErrorMessage = "Kullanici adi zorunludur.")]
     [StringLength(30, MinimumLength = 3, ErrorMessage = "Kullanici adi 3-30 karakter arasinda olmalidir.")]

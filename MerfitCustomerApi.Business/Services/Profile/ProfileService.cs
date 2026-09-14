@@ -79,7 +79,17 @@ public class ProfileService : IProfileService
             await UpdatePrivacySettingsAsync(userId, request.Privacy, cancellationToken);
         }
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // Yukaridaki AnyAsync kontrolu ile bu SaveChanges arasinda baska bir istek ayni
+            // kullanici adini almis olabilir (race condition); UserProfileConfiguration'daki
+            // veritabani unique index'i burada devreye girer.
+            throw new ConflictException("Bu kullanici adi zaten kullaniliyor.");
+        }
 
         return await BuildResponseAsync(user, profile, cancellationToken);
     }

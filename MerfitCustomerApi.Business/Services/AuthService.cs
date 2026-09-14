@@ -5,6 +5,7 @@ using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace MerfitCustomerApi.Business.Services.Auth;
@@ -54,11 +55,10 @@ public class AuthService : IAuthService
 
         // Kullanici adi karsilastirmalari her zaman kucuk harfe cevrilip yapilir/saklanir (bkz.
         // ProfileService.ApplyIdentityChangesAsync ve AuthService.FindUserByEmailOrUsernameAsync
-        // ile ayni normallesme kurali). Benzersizlik BILINCLI OLARAK yalnizca uygulama katmaninda
-        // (bu AnyAsync kontrolu) saglanir - UserProfile.Username uzerinde veritabani seviyesinde
-        // index/unique constraint KULLANILMAZ (urun karari). Bu, ayni kullanici adinin es zamanli
-        // iki kayitta alinmasina karsi teorik bir race condition penceresi birakir; kabul edilen
-        // bir sinirlamadir.
+        // ile ayni normallesme kurali). Bu kontrol hizli/dostane bir hata mesaji icin var ama tek
+        // basina yeterli degildir; UserProfileConfiguration'daki veritabani unique index'i, es
+        // zamanli (race condition) istekler icin asil garantiyi saglar (bkz. asagidaki commit
+        // sonrasi DbUpdateException yakalama).
         var normalizedUsername = request.Username.Trim().ToLowerInvariant();
         var usernameTaken = await _unitOfWork.Repository<UserProfile>()
             .AnyAsync(p => p.Username == normalizedUsername);
@@ -191,7 +191,21 @@ public class AuthService : IAuthService
         };
 
         await _unitOfWork.Repository<UserRefreshToken>().AddAsync(refreshToken);
-        await _unitOfWork.CommitTransactionAsync();
+
+        try
+        {
+            // CommitTransactionAsync basarisiz olursa transaction'i kendi icinde zaten geri alir
+            // (bkz. UnitOfWork.CommitTransactionAsync); burada yalnizca hatayi anlamli bir
+            // ConflictException'a ceviriyoruz.
+            await _unitOfWork.CommitTransactionAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Yukarida yaptigimiz AnyAsync kontrolu ile bu commit arasinda baska bir istek ayni
+            // kullanici adini alip kaydetmis olabilir (race condition). UserProfileConfiguration'daki
+            // veritabani unique index'i burada devreye girer; kullaniciya net bir hata donduruyoruz.
+            throw new ConflictException("Bu kullanici adi zaten kullaniliyor.");
+        }
 
         return new AuthResponse
         {
