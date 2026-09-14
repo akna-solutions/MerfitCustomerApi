@@ -15,10 +15,12 @@ namespace MerfitCustomerApi.Business.Services.Nutrition;
 public class NutritionService : INutritionService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly INutritionCalculator _nutritionCalculator;
 
-    public NutritionService(IUnitOfWork unitOfWork)
+    public NutritionService(IUnitOfWork unitOfWork, INutritionCalculator nutritionCalculator)
     {
         _unitOfWork = unitOfWork;
+        _nutritionCalculator = nutritionCalculator;
     }
 
     public async Task<CustomerNutritionResponse> GetDailyNutritionAsync(long userId, DateOnly date, CancellationToken cancellationToken = default)
@@ -207,70 +209,22 @@ public class NutritionService : INutritionService
             throw new NotFoundException(nameof(UserProfile), userId);
         }
 
-        var calculated = CalculateDefaultGoal(profile);
-
-        await _unitOfWork.Repository<NutritionGoal>().AddAsync(calculated, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return calculated;
-    }
-
-    private static NutritionGoal CalculateDefaultGoal(UserProfile profile)
-    {
-        var weightKg = profile.WeightKg ?? 70m;
-        var heightCm = profile.HeightCm ?? 170m;
-        var age = profile.DateOfBirth.HasValue
-            ? Math.Max(15, DateTime.UtcNow.Year - profile.DateOfBirth.Value.Year)
-            : 30;
-
-        // Mifflin-St Jeor BMR formulu.
-        var bmr = profile.Gender switch
-        {
-            Gender.Male => (10 * weightKg) + (6.25m * heightCm) - (5 * age) + 5,
-            Gender.Female => (10 * weightKg) + (6.25m * heightCm) - (5 * age) - 161,
-            _ => (10 * weightKg) + (6.25m * heightCm) - (5 * age) - 78,
-        };
-
-        var activityMultiplier = profile.ActivityLevel switch
-        {
-            ActivityLevel.Sedentary => 1.2m,
-            ActivityLevel.LightlyActive => 1.375m,
-            ActivityLevel.ModeratelyActive => 1.55m,
-            ActivityLevel.VeryActive => 1.725m,
-            ActivityLevel.ExtraActive => 1.9m,
-            _ => 1.375m,
-        };
-
-        var tdee = bmr * activityMultiplier;
-
-        var goalAdjustment = profile.Goal switch
-        {
-            FitnessGoal.LoseWeight => -500m,
-            FitnessGoal.BuildMuscle => 300m,
-            FitnessGoal.GetStronger => 200m,
-            _ => 0m,
-        };
-
-        var dailyCalories = Math.Max(1200m, tdee + goalAdjustment);
-
-        // Standart makro dagilimi: %30 protein, %40 karbonhidrat, %30 yag.
-        var proteinTarget = Math.Round((dailyCalories * 0.30m) / 4m, 0);
-        var carbsTarget = Math.Round((dailyCalories * 0.40m) / 4m, 0);
-        var fatTarget = Math.Round((dailyCalories * 0.30m) / 9m, 0);
-
-        // 35 ml/kg - yaygin kullanilan gunluk su tuketimi kurali.
-        var waterTargetMl = Math.Round(weightKg * 35m, 0);
-
-        return new NutritionGoal
+        var calculated = _nutritionCalculator.Calculate(profile);
+        var goal = new NutritionGoal
         {
             UserId = profile.UserId,
-            DailyCalories = Math.Round(dailyCalories, 0),
-            ProteinTarget = proteinTarget,
-            CarbsTarget = carbsTarget,
-            FatTarget = fatTarget,
-            WaterTargetMl = waterTargetMl,
+            DailyCalories = calculated.DailyCalories,
+            ProteinTarget = calculated.ProteinTarget,
+            CarbsTarget = calculated.CarbsTarget,
+            FatTarget = calculated.FatTarget,
+            WaterTargetMl = calculated.WaterTargetMl,
             CreatedAt = DateTime.UtcNow,
         };
+
+        await _unitOfWork.Repository<NutritionGoal>().AddAsync(goal, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return goal;
     }
 
     private static string MapMealType(MealType mealType) => mealType switch

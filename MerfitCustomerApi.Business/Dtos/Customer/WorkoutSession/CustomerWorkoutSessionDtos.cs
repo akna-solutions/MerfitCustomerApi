@@ -7,6 +7,14 @@ public class StartWorkoutSessionRequest
 {
     [Required(ErrorMessage = "WorkoutId alani zorunludur.")]
     public long WorkoutId { get; set; }
+
+    /// <summary>
+    /// Opsiyonel. Oturum, kullanicinin kisisel programindaki ("Bugünün Antrenmanı") bir
+    /// gunden baslatiliyorsa bu alan doldurulmalidir; boylece hedef set/tekrar/dinlenme
+    /// degerleri genel katalog yerine WorkoutPlanExercise'daki kisisel degerlerden okunur.
+    /// Genel antrenman kataloğundan (Workout Catalog) baslatilan oturumlarda bos birakilmalidir.
+    /// </summary>
+    public long? WorkoutPlanDayId { get; set; }
 }
 
 /// <summary>

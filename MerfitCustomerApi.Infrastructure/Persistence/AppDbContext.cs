@@ -1,5 +1,6 @@
-﻿using Microsoft.EntityFrameworkCore;
-using MerfitCustomerApi.Domain.Entities;
+﻿using MerfitCustomerApi.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+using System.Reflection.Emit;
 
 namespace MerfitCustomerApi.Infrastructure.Persistence;
 
@@ -114,6 +115,11 @@ public class AppDbContext : DbContext
     public DbSet<WorkoutPlanDay> WorkoutPlanDays => Set<WorkoutPlanDay>();
 
     /// <summary>
+    /// WorkoutPlanExercise kayitlarina erisim saglayan DbSet.
+    /// </summary>
+    public DbSet<WorkoutPlanExercise> WorkoutPlanExercises => Set<WorkoutPlanExercise>();
+
+    /// <summary>
     /// WorkoutSession kayitlarina erisim saglayan DbSet.
     /// </summary>
     public DbSet<WorkoutSession> WorkoutSessions => Set<WorkoutSession>();
@@ -154,6 +160,26 @@ public class AppDbContext : DbContext
     public DbSet<NutritionGoal> NutritionGoals => Set<NutritionGoal>();
 
     /// <summary>
+    /// NutritionPlan kayitlarina erisim saglayan DbSet.
+    /// </summary>
+    public DbSet<NutritionPlan> NutritionPlans => Set<NutritionPlan>();
+
+    /// <summary>
+    /// NutritionPlanDay kayitlarina erisim saglayan DbSet.
+    /// </summary>
+    public DbSet<NutritionPlanDay> NutritionPlanDays => Set<NutritionPlanDay>();
+
+    /// <summary>
+    /// NutritionPlanMeal kayitlarina erisim saglayan DbSet.
+    /// </summary>
+    public DbSet<NutritionPlanMeal> NutritionPlanMeals => Set<NutritionPlanMeal>();
+
+    /// <summary>
+    /// NutritionPlanMealItem kayitlarina erisim saglayan DbSet.
+    /// </summary>
+    public DbSet<NutritionPlanMealItem> NutritionPlanMealItems => Set<NutritionPlanMealItem>();
+
+    /// <summary>
     /// WaterLog kayitlarina erisim saglayan DbSet.
     /// </summary>
     public DbSet<WaterLog> WaterLogs => Set<WaterLog>();
@@ -172,6 +198,11 @@ public class AppDbContext : DbContext
     /// GoalHistory kayitlarina erisim saglayan DbSet.
     /// </summary>
     public DbSet<GoalHistory> GoalHistories => Set<GoalHistory>();
+
+    /// <summary>
+    /// PersonalizationJob kayitlarina erisim saglayan DbSet.
+    /// </summary>
+    public DbSet<PersonalizationJob> PersonalizationJobs => Set<PersonalizationJob>();
 
     /// <summary>
     /// UserStreak kayitlarina erisim saglayan DbSet.
@@ -325,5 +356,21 @@ public class AppDbContext : DbContext
         // Bu assembly icindeki (MerfitCustomerApi.Infrastructure.Configurations) tum
         // IEntityTypeConfiguration<T> siniflarini otomatik olarak model'e uygular.
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        // PersonalizationJob'un ayni anda birden fazla background worker instance'i tarafindan
+        // (aynen ya da farkli makinelerde) iki kere islenmesini engellemek icin PostgreSQL'in
+        // "xmin" sistem kolonunu optimistic concurrency token olarak kullaniyoruz: bir worker
+        // Pending -> Processing gecisini kaydederken, ayni satiri okuyup ayni gecisi yapmaya
+        // calisan ikinci bir worker'in SaveChanges'i DbUpdateConcurrencyException ile basarisiz
+        // olur (bkz. PersonalizationJobProcessor.TryClaimJobAsync). Bu mekanizma yalnizca
+        // PostgreSQL'de calisir; testlerde kullanilan Sqlite saglayicisinda atlanir (xmin sistem
+        // kolonu Sqlite'ta yoktur) - testler bu senaryoyu ayrica IUnitOfWork transaction'iyla dogrular.
+        if (Database.IsNpgsql())
+        {
+            modelBuilder.Entity<PersonalizationJob>()
+                .Property<uint>("xmin")
+                .HasColumnType("xid")
+                .IsRowVersion();
+        }
     }
 }

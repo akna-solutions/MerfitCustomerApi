@@ -23,6 +23,14 @@ public class WorkoutSession : BaseEntity
     public long WorkoutId { get; set; }
 
     /// <summary>
+    /// Oturum kisisellestirilmis bir plan gununden baslatildiysa, ilgili WorkoutPlanDay'in
+    /// kimligi; genel katalogdan (Workout Catalog) baslatilan oturumlarda null'dur. Doluysa,
+    /// oturumdaki hedef set/tekrar/dinlenme degerleri WorkoutExercise yerine bu gune ait
+    /// WorkoutPlanExercise kayitlarindan okunur.
+    /// </summary>
+    public long? WorkoutPlanDayId { get; set; }
+
+    /// <summary>
     /// Oturumun baslangic tarihi/saati.
     /// </summary>
     public DateTime StartedAt { get; set; }

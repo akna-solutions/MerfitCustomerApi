@@ -136,4 +136,12 @@ public class UnitOfWork : IUnitOfWork
 
         GC.SuppressFinalize(this);
     }
+
+    /// <summary>
+    /// Degisiklik izleyicisindeki tum tracked entity'leri Detached durumuna getirir.
+    /// </summary>
+    public void ClearTracking()
+    {
+        _dbContext.ChangeTracker.Clear();
+    }
 }

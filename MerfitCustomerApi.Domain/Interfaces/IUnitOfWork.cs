@@ -40,4 +40,13 @@ public interface IUnitOfWork : IDisposable
     /// </summary>
     /// <param name="cancellationToken">Islemi iptal etmek icin kullanilan token.</param>
     Task RollbackTransactionAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Degisiklik izleyicisindeki (change tracker) tum tracked entity'leri Detached durumuna
+    /// getirir. Basarisiz bir transaction rollback edildikten sonra, o transaction icinde
+    /// eklenmis (Added) ama hicbir zaman kalici olmamis entity'lerin bir sonraki SaveChanges
+    /// cagrisinda sehven tekrar eklenmeye calisilmasini onlemek icin kullanilir
+    /// (bkz. PersonalizationJobProcessor.FailOrRetryJobAsync).
+    /// </summary>
+    void ClearTracking();
 }

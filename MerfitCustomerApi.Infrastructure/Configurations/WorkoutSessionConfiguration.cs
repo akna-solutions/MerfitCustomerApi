@@ -52,5 +52,13 @@ public class WorkoutSessionConfiguration : IEntityTypeConfiguration<WorkoutSessi
             .WithMany()
             .HasForeignKey(x => x.WorkoutId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // Oturum kisisellestirilmis bir plan gununden baslatildiysa referans verdigi WorkoutPlanDay.
+        // Eski plan gunleri (yeni bir plan uretildiginde) silinirse gecmis oturum kaydi bozulmasin
+        // diye SetNull kullanilir; oturumun kendisi (ve loglanan setler) silinmez.
+        builder.HasOne<WorkoutPlanDay>()
+            .WithMany()
+            .HasForeignKey(x => x.WorkoutPlanDayId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

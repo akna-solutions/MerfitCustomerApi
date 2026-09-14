@@ -29,11 +29,47 @@ public class WorkoutSessionService : IWorkoutSessionService
             throw new NotFoundException(nameof(Workout), request.WorkoutId);
         }
 
-        var planExercises = await _unitOfWork.Repository<WorkoutExercise>()
-            .GetQueryable()
-            .Where(we => we.WorkoutId == workout.Id)
-            .OrderBy(we => we.Order)
-            .ToListAsync(cancellationToken);
+        // Faz 2: oturum kisisellestirilmis bir plan gununden ("Bugünün Antrenmanı" -> Başlat)
+        // baslatildiysa, hedef set/tekrar/dinlenme degerleri WorkoutExercise (genel katalog)
+        // yerine WorkoutPlanExercise'dan (kullaniciya ozel) okunur. Mevcut genel workout akisi
+        // (WorkoutPlanDayId gonderilmezse) hic degismez.
+        long? workoutPlanDayId = null;
+        List<(long ExerciseId, int Order)> exerciseOrder;
+
+        if (request.WorkoutPlanDayId.HasValue)
+        {
+            var planDay = await _unitOfWork.Repository<WorkoutPlanDay>()
+                .GetByIdAsync(request.WorkoutPlanDayId.Value, cancellationToken);
+            if (planDay is null || planDay.WorkoutId != request.WorkoutId)
+            {
+                throw new AppValidationException(nameof(request.WorkoutPlanDayId), "Belirtilen plan günü bu antrenmana ait değil.");
+            }
+
+            var ownerPlan = await _unitOfWork.Repository<WorkoutPlan>()
+                .FirstOrDefaultAsync(p => p.Id == planDay.WorkoutPlanId && p.UserId == userId, cancellationToken);
+            if (ownerPlan is null)
+            {
+                // Kaydin varligini sizdirmamak icin NotFound (IDOR korumasi) - baska kullanicinin plan gunu.
+                throw new NotFoundException(nameof(WorkoutPlanDay), request.WorkoutPlanDayId.Value);
+            }
+
+            workoutPlanDayId = planDay.Id;
+            var planExercises = await _unitOfWork.Repository<WorkoutPlanExercise>()
+                .GetQueryable()
+                .Where(pe => pe.WorkoutPlanDayId == planDay.Id)
+                .OrderBy(pe => pe.Order)
+                .ToListAsync(cancellationToken);
+            exerciseOrder = planExercises.Select(pe => (pe.ExerciseId, pe.Order)).ToList();
+        }
+        else
+        {
+            var catalogExercises = await _unitOfWork.Repository<WorkoutExercise>()
+                .GetQueryable()
+                .Where(we => we.WorkoutId == workout.Id)
+                .OrderBy(we => we.Order)
+                .ToListAsync(cancellationToken);
+            exerciseOrder = catalogExercises.Select(we => (we.ExerciseId, we.Order)).ToList();
+        }
 
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
@@ -41,6 +77,7 @@ public class WorkoutSessionService : IWorkoutSessionService
         {
             UserId = userId,
             WorkoutId = workout.Id,
+            WorkoutPlanDayId = workoutPlanDayId,
             StartedAt = DateTime.UtcNow,
             Status = WorkoutSessionStatus.Started,
             CreatedAt = DateTime.UtcNow,
@@ -49,7 +86,7 @@ public class WorkoutSessionService : IWorkoutSessionService
         await _unitOfWork.Repository<WorkoutSession>().AddAsync(session, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        var sessionExercises = planExercises.Select(pe => new WorkoutSessionExercise
+        var sessionExercises = exerciseOrder.Select(pe => new WorkoutSessionExercise
         {
             WorkoutSessionId = session.Id,
             ExerciseId = pe.ExerciseId,
@@ -60,7 +97,8 @@ public class WorkoutSessionService : IWorkoutSessionService
         await _unitOfWork.Repository<WorkoutSessionExercise>().AddRangeAsync(sessionExercises, cancellationToken);
         await _unitOfWork.CommitTransactionAsync(cancellationToken);
 
-        return await BuildSessionDtoAsync(session, planExercises, sessionExercises, userId, cancellationToken);
+        var targets = await GetExerciseTargetsAsync(session, cancellationToken);
+        return await BuildSessionDtoAsync(session, targets, sessionExercises, userId, cancellationToken);
     }
 
     public async Task<CustomerWorkoutSessionDto> GetSessionAsync(long userId, long sessionId, CancellationToken cancellationToken = default)
@@ -68,10 +106,7 @@ public class WorkoutSessionService : IWorkoutSessionService
         var session = await GetOwnedSessionAsync(userId, sessionId, cancellationToken);
         var workout = await _unitOfWork.Repository<Workout>().GetByIdAsync(session.WorkoutId, cancellationToken);
 
-        var planExercises = await _unitOfWork.Repository<WorkoutExercise>()
-            .GetQueryable()
-            .Where(we => we.WorkoutId == session.WorkoutId)
-            .ToListAsync(cancellationToken);
+        var targets = await GetExerciseTargetsAsync(session, cancellationToken);
 
         var sessionExercises = await _unitOfWork.Repository<WorkoutSessionExercise>()
             .GetQueryable()
@@ -79,7 +114,7 @@ public class WorkoutSessionService : IWorkoutSessionService
             .OrderBy(se => se.Order)
             .ToListAsync(cancellationToken);
 
-        return await BuildSessionDtoAsync(session, planExercises, sessionExercises, userId, cancellationToken, workout?.Title);
+        return await BuildSessionDtoAsync(session, targets, sessionExercises, userId, cancellationToken, workout?.Title);
     }
 
     public async Task<CustomerWorkoutSessionExerciseDto> LogSetAsync(
@@ -138,8 +173,7 @@ public class WorkoutSessionService : IWorkoutSessionService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         var exercise = await _unitOfWork.Repository<Exercise>().GetByIdAsync(sessionExercise.ExerciseId, cancellationToken);
-        var planExercise = await _unitOfWork.Repository<WorkoutExercise>()
-            .FirstOrDefaultAsync(we => we.WorkoutId == session.WorkoutId && we.ExerciseId == sessionExercise.ExerciseId, cancellationToken);
+        var targets = await GetExerciseTargetsAsync(session, cancellationToken);
         var setLogs = await _unitOfWork.Repository<WorkoutSetLog>()
             .GetQueryable()
             .Where(s => s.WorkoutSessionExerciseId == sessionExerciseId)
@@ -147,7 +181,8 @@ public class WorkoutSessionService : IWorkoutSessionService
             .ToListAsync(cancellationToken);
         var previousBest = await GetPreviousBestAsync(userId, sessionExercise.ExerciseId, cancellationToken);
 
-        return MapSessionExercise(sessionExercise, exercise, planExercise, setLogs, previousBest);
+        var target = targets.TryGetValue(sessionExercise.ExerciseId, out var t) ? t : (ExerciseTargetValues?)null;
+        return MapSessionExercise(sessionExercise, exercise, target, setLogs, previousBest);
     }
 
     public async Task<CustomerWorkoutSessionSummaryDto> CompleteSessionAsync(
@@ -221,7 +256,7 @@ public class WorkoutSessionService : IWorkoutSessionService
 
     private async Task<CustomerWorkoutSessionDto> BuildSessionDtoAsync(
         WorkoutSession session,
-        List<WorkoutExercise> planExercises,
+        Dictionary<long, ExerciseTargetValues> targets,
         List<WorkoutSessionExercise> sessionExercises,
         long userId,
         CancellationToken cancellationToken,
@@ -248,12 +283,12 @@ public class WorkoutSessionService : IWorkoutSessionService
 
         var exerciseDtos = sessionExercises.Select(se =>
         {
-            var planExercise = planExercises.FirstOrDefault(pe => pe.ExerciseId == se.ExerciseId);
+            var target = targets.TryGetValue(se.ExerciseId, out var t) ? t : (ExerciseTargetValues?)null;
             var exercise = exercises.GetValueOrDefault(se.ExerciseId);
             var setLogs = allSetLogs.Where(s => s.WorkoutSessionExerciseId == se.Id).ToList();
             var previousBest = previousBests.GetValueOrDefault(se.ExerciseId);
 
-            return MapSessionExercise(se, exercise, planExercise, setLogs, previousBest);
+            return MapSessionExercise(se, exercise, target, setLogs, previousBest);
         }).ToList();
 
         return new CustomerWorkoutSessionDto
@@ -270,10 +305,46 @@ public class WorkoutSessionService : IWorkoutSessionService
         };
     }
 
+    /// <summary>
+    /// Bir egzersizin hedef set/tekrar/dinlenme/sure degerlerini kaynaktan (genel katalog -
+    /// WorkoutExercise - veya kisisellestirilmis plan - WorkoutPlanExercise) bagimsiz olarak
+    /// tasir; MapSessionExercise bu iki kaynagi ayirt etmek zorunda kalmaz.
+    /// </summary>
+    private readonly record struct ExerciseTargetValues(int Sets, int? Reps, int? RestSeconds, int? DurationSeconds);
+
+    /// <summary>
+    /// Bir oturumun hedef degerlerini, oturumun hangi kaynaktan baslatildigina gore
+    /// (WorkoutPlanDayId doluysa kisisellestirilmis WorkoutPlanExercise, degilse genel
+    /// katalog WorkoutExercise) ExerciseId'ye gore dictionary olarak dondurur.
+    /// </summary>
+    private async Task<Dictionary<long, ExerciseTargetValues>> GetExerciseTargetsAsync(WorkoutSession session, CancellationToken cancellationToken)
+    {
+        if (session.WorkoutPlanDayId.HasValue)
+        {
+            var planExercises = await _unitOfWork.Repository<WorkoutPlanExercise>()
+                .GetQueryable()
+                .Where(pe => pe.WorkoutPlanDayId == session.WorkoutPlanDayId.Value)
+                .ToListAsync(cancellationToken);
+
+            return planExercises
+                .GroupBy(pe => pe.ExerciseId)
+                .ToDictionary(g => g.Key, g => new ExerciseTargetValues(g.First().Sets, g.First().Reps, g.First().RestSeconds, g.First().DurationSeconds));
+        }
+
+        var catalogExercises = await _unitOfWork.Repository<WorkoutExercise>()
+            .GetQueryable()
+            .Where(we => we.WorkoutId == session.WorkoutId)
+            .ToListAsync(cancellationToken);
+
+        return catalogExercises
+            .GroupBy(we => we.ExerciseId)
+            .ToDictionary(g => g.Key, g => new ExerciseTargetValues(g.First().Sets, g.First().Reps, g.First().RestSeconds, g.First().DurationSeconds));
+    }
+
     private static CustomerWorkoutSessionExerciseDto MapSessionExercise(
         WorkoutSessionExercise sessionExercise,
         Exercise? exercise,
-        WorkoutExercise? planExercise,
+        ExerciseTargetValues? target,
         List<WorkoutSetLog> setLogs,
         CustomerPreviousBestDto? previousBest)
     {
@@ -283,10 +354,10 @@ public class WorkoutSessionService : IWorkoutSessionService
             ExerciseId = sessionExercise.ExerciseId,
             Name = exercise?.Name ?? string.Empty,
             Order = sessionExercise.Order,
-            TargetSets = planExercise?.Sets ?? 0,
-            TargetReps = planExercise?.Reps,
-            RestSeconds = planExercise?.RestSeconds,
-            DurationSeconds = planExercise?.DurationSeconds,
+            TargetSets = target?.Sets ?? 0,
+            TargetReps = target?.Reps,
+            RestSeconds = target?.RestSeconds,
+            DurationSeconds = target?.DurationSeconds,
             VideoUrl = exercise?.VideoUrl,
             ImageUrl = exercise?.ImageUrl,
             CompletedSets = setLogs.Select(s => new CustomerWorkoutSetLogDto

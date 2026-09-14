@@ -15,14 +15,27 @@ namespace MerfitCustomerApi.Business.Services.Auth;
 /// </summary>
 public class AuthService : IAuthService
 {
+    /// <summary>
+    /// Kayit sirasinda UserProfile.Goal bos birakildiginde UserGoal.GoalType icin kullanilan
+    /// guvenli varsayilan hedef. UserGoal.GoalType (FitnessGoal, non-nullable) alanini,
+    /// mevcut kayit davranisini bozmadan doldurabilmek icin "notr" bir hedef secilmistir.
+    /// </summary>
+    private const FitnessGoal DefaultGoalType = FitnessGoal.MaintainWeight;
+
     private readonly IUnitOfWork _unitOfWork;
     private readonly ITokenService _tokenService;
+    private readonly INutritionCalculator _nutritionCalculator;
     private readonly JwtSettings _jwtSettings;
 
-    public AuthService(IUnitOfWork unitOfWork, ITokenService tokenService, IOptions<JwtSettings> jwtSettings)
+    public AuthService(
+        IUnitOfWork unitOfWork,
+        ITokenService tokenService,
+        INutritionCalculator nutritionCalculator,
+        IOptions<JwtSettings> jwtSettings)
     {
         _unitOfWork = unitOfWork;
         _tokenService = tokenService;
+        _nutritionCalculator = nutritionCalculator;
         _jwtSettings = jwtSettings.Value;
     }
 
@@ -106,6 +119,49 @@ public class AuthService : IAuthService
             await _unitOfWork.Repository<UserEquipment>().AddRangeAsync(userEquipments);
         }
 
+        // --- Kisisellestirme altyapisi (FAZ 1) ---
+        // Kayit tamamlandiginda, ileride kisiye ozel antrenman/beslenme programi uretebilmek icin
+        // gereken temel kayitlari (UserGoal, NutritionGoal, PersonalizationJob) olustur. Bu asamada
+        // gercek bir plan uretilmez; sadece veri altyapisi hazirlanir (bkz. IPersonalizationService
+        // ihtiyaci ileride ikinci fazda arka plan islemcisiyle birlikte eklenecektir).
+        var userGoal = new UserGoal
+        {
+            UserId = user.Id,
+            GoalType = profile.Goal ?? DefaultGoalType,
+            StartingWeightKg = profile.WeightKg,
+            CurrentWeightKg = profile.WeightKg,
+            TargetWeightKg = profile.TargetWeightKg,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await _unitOfWork.Repository<UserGoal>().AddAsync(userGoal);
+
+        var nutritionCalculation = _nutritionCalculator.Calculate(profile);
+        var nutritionGoal = new NutritionGoal
+        {
+            UserId = user.Id,
+            DailyCalories = nutritionCalculation.DailyCalories,
+            ProteinTarget = nutritionCalculation.ProteinTarget,
+            CarbsTarget = nutritionCalculation.CarbsTarget,
+            FatTarget = nutritionCalculation.FatTarget,
+            WaterTargetMl = nutritionCalculation.WaterTargetMl,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await _unitOfWork.Repository<NutritionGoal>().AddAsync(nutritionGoal);
+
+        var personalizationJob = new PersonalizationJob
+        {
+            UserId = user.Id,
+            Status = PersonalizationJobStatus.Pending,
+            AttemptCount = 0,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await _unitOfWork.Repository<PersonalizationJob>().AddAsync(personalizationJob);
+        // --- Kisisellestirme altyapisi sonu ---
+
         var (accessToken, expiresAt) = _tokenService.GenerateAccessToken(user);
         var refreshTokenValue = _tokenService.GenerateRefreshToken();
 
@@ -132,6 +188,7 @@ public class AuthService : IAuthService
             AccessToken = accessToken,
             RefreshToken = refreshTokenValue,
             AccessTokenExpiresAt = expiresAt,
+            PersonalizationStatus = personalizationJob.Status.ToString(),
         };
     }
 
