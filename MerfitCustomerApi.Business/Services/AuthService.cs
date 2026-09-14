@@ -5,7 +5,6 @@ using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace MerfitCustomerApi.Business.Services.Auth;
@@ -55,8 +54,11 @@ public class AuthService : IAuthService
 
         // Kullanici adi karsilastirmalari her zaman kucuk harfe cevrilip yapilir/saklanir (bkz.
         // ProfileService.ApplyIdentityChangesAsync ve AuthService.FindUserByEmailOrUsernameAsync
-        // ile ayni normallesme kurali). Uygulama seviyesindeki bu kontrol, race condition'a karsi
-        // UserProfileConfiguration'daki veritabani unique index'i ile birlikte calisir.
+        // ile ayni normallesme kurali). Benzersizlik BILINCLI OLARAK yalnizca uygulama katmaninda
+        // (bu AnyAsync kontrolu) saglanir - UserProfile.Username uzerinde veritabani seviyesinde
+        // index/unique constraint KULLANILMAZ (urun karari). Bu, ayni kullanici adinin es zamanli
+        // iki kayitta alinmasina karsi teorik bir race condition penceresi birakir; kabul edilen
+        // bir sinirlamadir.
         var normalizedUsername = request.Username.Trim().ToLowerInvariant();
         var usernameTaken = await _unitOfWork.Repository<UserProfile>()
             .AnyAsync(p => p.Username == normalizedUsername);
@@ -72,7 +74,8 @@ public class AuthService : IAuthService
             ? UnitSystem.Imperial
             : UnitSystem.Metric;
 
-        var (firstName, lastName) = SplitName(request.Name);
+        var firstName = request.FirstName.Trim();
+        var lastName = request.LastName.Trim();
 
         var equipmentIds = (request.EquipmentIds ?? new List<long>()).Distinct().ToList();
 
@@ -188,28 +191,13 @@ public class AuthService : IAuthService
         };
 
         await _unitOfWork.Repository<UserRefreshToken>().AddAsync(refreshToken);
-
-        try
-        {
-            // CommitTransactionAsync basarisiz olursa transaction'i kendi icinde zaten geri alir
-            // (bkz. UnitOfWork.CommitTransactionAsync); burada yalnizca hatayi anlamli bir
-            // ConflictException'a ceviriyoruz.
-            await _unitOfWork.CommitTransactionAsync();
-        }
-        catch (DbUpdateException)
-        {
-            // Yukarida yaptigimiz AnyAsync kontrolu ile bu commit arasinda baska bir istek ayni
-            // kullanici adini alip kaydetmis olabilir (race condition). Uygulama seviyesindeki
-            // kontrol tek basina yeterli degildir; UserProfileConfiguration'daki veritabani
-            // unique index'i burada devreye girer ve bu durumda kullaniciya net bir hata donduruyoruz.
-            throw new ConflictException("Bu kullanici adi zaten kullaniliyor.");
-        }
+        await _unitOfWork.CommitTransactionAsync();
 
         return new AuthResponse
         {
             UserId = user.Id,
             Email = user.Email,
-            Name = request.Name.Trim(),
+            Name = $"{firstName} {lastName}".Trim(),
             Username = normalizedUsername,
             AccessToken = accessToken,
             RefreshToken = refreshTokenValue,
@@ -326,19 +314,6 @@ public class AuthService : IAuthService
         return request.WeightUnit.Equals("lb", StringComparison.OrdinalIgnoreCase)
             ? Math.Round(request.Weight.Value * 0.453592m, 2)
             : request.Weight;
-    }
-
-    private static (string FirstName, string LastName) SplitName(string fullName)
-    {
-        var trimmed = fullName.Trim();
-        var parts = trimmed.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-
-        return parts.Length switch
-        {
-            0 => (string.Empty, string.Empty),
-            1 => (parts[0], string.Empty),
-            _ => (parts[0], parts[1]),
-        };
     }
 
     private static Gender? ParseGender(string? genderStr)
