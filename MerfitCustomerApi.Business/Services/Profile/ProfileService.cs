@@ -51,8 +51,16 @@ public class ProfileService : IProfileService
         ApplyBodyAndGoalChanges(profile, request);
         ApplyTrainingPreferenceChanges(profile, request);
 
-        _unitOfWork.Repository<ApplicationUser>().Update(user);
-        _unitOfWork.Repository<UserProfile>().Update(profile);
+        // NOT: user/profile yukarida AsNoTracking OLMADAN cekildi, yani EF change tracker
+        // ikisini de zaten izliyor - buradaki alan atamalari SaveChangesAsync'te otomatik
+        // algilanir. Daha once burada ekstra bir Repository.Update(user/profile) cagrisi
+        // vardi; DbSet.Update() zaten izlenen bir entity'de TUM alanlari (Username dahil,
+        // degismis olsun olmasin) "Modified" isaretledigi icin, kullanici sadece temayi
+        // (Appearance) veya baska alakasiz bir alani degistirse bile UPDATE cumlesi
+        // Username'i de yeniden yaziyordu - bu da UserProfile.Username uzerindeki veritabani
+        // unique index'ine carpip asagidaki catch bloguyla (alakasiz olmasina ragmen) "Bu
+        // kullanici adi zaten kullaniliyor" hatasi olarak donuyordu. Update() cagrisi
+        // kaldirilinca Username yalnizca GERCEKTEN degistiginde UPDATE'e dahil olur.
 
         if (request.TargetWeight.HasValue)
         {
