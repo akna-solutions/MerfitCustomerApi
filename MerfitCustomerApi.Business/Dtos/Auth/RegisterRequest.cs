@@ -4,21 +4,28 @@ namespace MerfitCustomerApi.Business.Dtos.Auth;
 
 /// <summary>
 /// Kayit (register) istegi icin kullanilan DTO.
-/// Alanlar, MerfitNativeApp'teki onboarding akisinin (NameStep, GenderStep, AgeStep, HeightStep,
-/// WeightStep, GoalStep, ActivityStep, ExperienceStep, FrequencyStep, EquipmentStep, AccountStep)
-/// topladigi tek parcali OnboardingData objesiyle birebir eslesecek sekilde tasarlanmistir.
+/// Alanlar, MerfitNativeApp'teki onboarding akisinin (NameStep, LastNameStep, GenderStep, AgeStep,
+/// HeightStep, WeightStep, GoalStep, ActivityStep, ExperienceStep, FrequencyStep, EquipmentStep,
+/// AccountStep) topladigi tek parcali OnboardingData objesiyle birebir eslesecek sekilde
+/// tasarlanmistir.
 /// </summary>
 public class RegisterRequest
 {
-    /// <summary>Kullanicinin tam adi (NameStep).</summary>
+    /// <summary>Kullanicinin adi (NameStep). UserProfile.FirstName'e dogrudan yazilir.</summary>
     [Required(ErrorMessage = "Ad alani zorunludur.")]
     [StringLength(200, MinimumLength = 2, ErrorMessage = "Ad 2-200 karakter arasinda olmalidir.")]
-    public string Name { get; set; } = string.Empty;
+    public string FirstName { get; set; } = string.Empty;
+
+    /// <summary>Kullanicinin soyadi (LastNameStep). UserProfile.LastName'e dogrudan yazilir.</summary>
+    [Required(ErrorMessage = "Soyad alani zorunludur.")]
+    [StringLength(200, MinimumLength = 2, ErrorMessage = "Soyad 2-200 karakter arasinda olmalidir.")]
+    public string LastName { get; set; } = string.Empty;
 
     /// <summary>
     /// Kullanicinin kendi belirledigi kullanici adi (AccountStep). UserProfile.Username'e
-    /// dogrudan yazilir; benzersizligi AuthService.RegisterAsync icinde (uygulama seviyesinde)
-    /// ve UserProfileConfiguration'daki unique index'te (veritabani seviyesinde) korunur.
+    /// dogrudan yazilir; benzersizligi AuthService.RegisterAsync icinde, BILINCLI OLARAK yalnizca
+    /// uygulama katmaninda kontrol edilir (bkz. UserProfileConfiguration.cs - bu kolonda veritabani
+    /// seviyesinde index/unique constraint KULLANILMAZ).
     /// </summary>
     [Required(ErrorMessage = "Kullanici adi zorunludur.")]
     [StringLength(30, MinimumLength = 3, ErrorMessage = "Kullanici adi 3-30 karakter arasinda olmalidir.")]
