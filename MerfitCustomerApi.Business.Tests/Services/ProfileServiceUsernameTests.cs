@@ -16,9 +16,10 @@ namespace MerfitCustomerApi.Business.Tests.Services;
 /// uretmedigini dogrular (bkz. ProfileService.ApplyIdentityChangesAsync). Ayrica FirstName/LastName
 /// alanlarinin dogru sekilde okunup yazildigini kapsar.
 ///
-/// Not: Username icin BILINCLI OLARAK veritabani seviyesinde bir unique index/constraint
-/// KULLANILMIYOR (bkz. UserProfileConfiguration.cs) - benzersizlik tamamen bu servisteki
-/// AnyAsync kontrolleriyle, uygulama katmaninda saglaniyor.
+/// Not: Bu testler yalnizca uygulama katmanindaki (AnyAsync) kontrolu dogrular; mock repository
+/// gercek bir veritabani unique constraint'i uygulamadigindan, UserProfileConfiguration'daki
+/// unique index'in (race condition korumasi) es zamanlilik davranisi burada test EDILEMEZ - bu,
+/// gercek bir DB'ye karsi calisan bir entegrasyon testi gerektirir.
 /// </summary>
 public class ProfileServiceUsernameTests
 {
