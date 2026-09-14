@@ -64,87 +64,61 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             .Select(ue => ue.EquipmentId)
             .ToListAsync(cancellationToken);
 
-        // Hard-rule 1-4: aktif + zorluk seviyesi uygun + sure toleransi icinde.
-        var candidates = await _unitOfWork.Repository<Workout>()
-            .GetQueryable()
-            .Where(w => w.IsActive && w.Difficulty == targetDifficulty && w.DurationMin <= maxDuration)
-            .OrderBy(w => w.Id) // deterministik temel siralama; Random KULLANILMAZ
-            .ToListAsync(cancellationToken);
-
-        if (candidates.Count == 0)
-        {
-            throw new PersonalizationGenerationException(
-                $"Kullanicinin deneyim seviyesine ({experience}) ve sure tercihine uygun aktif bir antrenman bulunamadi.");
-        }
-
-        var candidateIds = candidates.Select(c => c.Id).ToList();
-
-        // Hard-rule: gerekli ekipman kullanicida bulunmali. Ekipman gerektirmeyen (WorkoutEquipment
-        // kaydi olmayan) antrenmanlar herkes icin uygundur.
-        var requiredEquipmentByWorkout = await _unitOfWork.Repository<WorkoutEquipment>()
-            .GetQueryable()
-            .Where(we => candidateIds.Contains(we.WorkoutId))
-            .GroupBy(we => we.WorkoutId)
-            .Select(g => new { WorkoutId = g.Key, EquipmentIds = g.Select(x => x.EquipmentId).ToList() })
-            .ToListAsync(cancellationToken);
-
-        var requiredEquipmentMap = requiredEquipmentByWorkout.ToDictionary(x => x.WorkoutId, x => x.EquipmentIds);
         var ownedSet = ownedEquipmentIds.ToHashSet();
 
-        var eligible = candidates
-            .Where(w => !requiredEquipmentMap.TryGetValue(w.Id, out var required) || required.All(ownedSet.Contains))
-            .ToList();
+        // Hard-rule 1-3: aktif + zorluk seviyesi uygun + sure toleransi icinde (birincil aday havuzu).
+        var primaryCandidates = await GetActiveWorkoutsAsync(new[] { targetDifficulty }, maxDuration, cancellationToken);
+        var eligible = await FilterByOwnedEquipmentAsync(primaryCandidates, ownedSet, cancellationToken);
 
-        // Fallback-1: Birincil zorluk seviyesinde ekipman uyusmazligi olursa, bitisik seviyeleri de
-        // aday havuzuna dahil ederek tekrar dene. (Beginner -> Intermediate, Advanced -> Intermediate,
+        // Fallback-1: Birincil zorluk seviyesinde uygun aday bulunamazsa (once) veya bulunan
+        // adaylarin hicbiri kullanicinin ekipmanina uymazsa, bitisik zorluk seviyelerini de aday
+        // havuzuna dahil ederek tekrar dene. (Beginner -> Intermediate, Advanced -> Intermediate,
         // Intermediate -> her ikisi de.) Puanlama asamasinda sure/featured bonuslariyla siralama
         // yapildiginden birebir eslesen adaylar zaten one cikacaktir.
+        //
+        // NOT: Bu asama, birincil aday havuzu bastan bos olsa bile (orn. kullanicinin sure
+        // tercihine uyan Beginner antrenman kalmamissa) calisir - onceki surumde ilk havuz bos
+        // oldugunda islem burada hic denenmeden hemen hata firlatiliyordu; bu da ekipmani yeterli
+        // olan kullanicilarin bile gereksiz yere "uygun antrenman bulunamadi" hatasi almasina
+        // neden oluyordu. Artik zorluk/sure ve ekipman fallback'leri TEK bir kademeli zincir
+        // olarak calisiyor.
         if (eligible.Count == 0)
         {
             var fallbackDifficulties = GetFallbackDifficulties(targetDifficulty);
-            var expandedCandidates = await _unitOfWork.Repository<Workout>()
-                .GetQueryable()
-                .Where(w => w.IsActive && fallbackDifficulties.Contains(w.Difficulty) && w.DurationMin <= maxDuration)
-                .OrderBy(w => w.Id)
-                .ToListAsync(cancellationToken);
-
-            var expandedIds = expandedCandidates.Select(c => c.Id).ToList();
-            var expandedEquipmentByWorkout = await _unitOfWork.Repository<WorkoutEquipment>()
-                .GetQueryable()
-                .Where(we => expandedIds.Contains(we.WorkoutId))
-                .GroupBy(we => we.WorkoutId)
-                .Select(g => new { WorkoutId = g.Key, EquipmentIds = g.Select(x => x.EquipmentId).ToList() })
-                .ToListAsync(cancellationToken);
-
-            var expandedEquipmentMap = expandedEquipmentByWorkout.ToDictionary(x => x.WorkoutId, x => x.EquipmentIds);
-
-            eligible = expandedCandidates
-                .Where(w => !expandedEquipmentMap.TryGetValue(w.Id, out var required) || required.All(ownedSet.Contains))
-                .ToList();
+            var expandedCandidates = await GetActiveWorkoutsAsync(fallbackDifficulties, maxDuration, cancellationToken);
+            eligible = await FilterByOwnedEquipmentAsync(expandedCandidates, ownedSet, cancellationToken);
         }
 
         // Fallback-2: Hala uygun aday yoksa, hic ekipman gerektirmeyen (WorkoutEquipment kaydi
-        // olmayan) tum aktif antrenmanlar son care olarak kullanilir. Sure filtresi de burada
-        // genisletilir; kullanicinin hic antrenman gorememesi durumunun onune gecilir.
+        // olmayan - yani bodyweight) tum aktif antrenmanlar son care olarak kullanilir. Zorluk ve
+        // sure filtresi de burada genisletilir; ozellikle "Ekipman yok" secen kullanicilarin hic
+        // antrenman gorememesi durumunun onune gecer (bkz. is kurali: ekipmansiz kullanici da
+        // mutlaka bodyweight bir program alabilmeli).
         if (eligible.Count == 0)
         {
-            var workoutIdsWithEquipment = await _unitOfWork.Repository<WorkoutEquipment>()
-                .GetQueryable()
-                .Select(we => we.WorkoutId)
-                .Distinct()
-                .ToListAsync(cancellationToken);
-
-            eligible = await _unitOfWork.Repository<Workout>()
-                .GetQueryable()
-                .Where(w => w.IsActive && !workoutIdsWithEquipment.Contains(w.Id))
-                .OrderBy(w => w.Id)
-                .ToListAsync(cancellationToken);
+            eligible = await GetEquipmentFreeActiveWorkoutsAsync(cancellationToken);
         }
 
         if (eligible.Count == 0)
         {
+            // Iki farkli basarisizlik nedeni birbirinden ayirt edilir (bkz. is kurali: generic
+            // "ekipman yetersiz" mesaji her zaman gercegi yansitmaz): katalogda hic aktif antrenman
+            // yoksa bu bir veri/seed sorunudur; aktif antrenman varsa ama hicbiri kullanicinin
+            // ekipmanina uymuyorsa bu gercekten bir ekipman uyusmazligidir. Her iki durum da
+            // PersonalizationJob.ErrorMessage'a farkli, dogru metinle yazilir (bkz.
+            // PersonalizationJobProcessor.FailOrRetryJobAsync) - frontend'e her zaman ayni generic
+            // hata gonderilmez.
+            var anyActiveWorkoutExists = await _unitOfWork.Repository<Workout>()
+                .AnyAsync(w => w.IsActive, cancellationToken);
+
+            if (!anyActiveWorkoutExists)
+            {
+                throw new PersonalizationGenerationException(
+                    "Aktif antrenman kataloğunda hiç kayıt bulunamadığı için kullanıcı profiline uygun antrenman bulunamadı.");
+            }
+
             throw new PersonalizationGenerationException(
-                "Kullanicinin sahip oldugu ekipmanlarla yapilabilecek uygun bir antrenman bulunamadi. Lutfen ekipman tercihlerinizi guncelleyin.");
+                "Kullanicinin sahip oldugu ekipmanlarla karsilanabilecek hicbir aktif antrenmanin ekipman gereksinimi saglanamadi. Lutfen ekipman tercihlerinizi guncelleyin.");
         }
 
         // Skorlama (deterministik matematiksel kurallar; ML/AI YOK).
@@ -218,6 +192,68 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             Days = days,
             Summary = summary,
         };
+    }
+
+    /// <summary>Verilen zorluk seviyeleri ve azami sure icinde, aktif Workout'lari getirir.</summary>
+    private async Task<List<Workout>> GetActiveWorkoutsAsync(
+        IReadOnlyCollection<DifficultyLevel> difficulties,
+        int maxDuration,
+        CancellationToken cancellationToken)
+    {
+        return await _unitOfWork.Repository<Workout>()
+            .GetQueryable()
+            .Where(w => w.IsActive && difficulties.Contains(w.Difficulty) && w.DurationMin <= maxDuration)
+            .OrderBy(w => w.Id) // deterministik temel siralama; Random KULLANILMAZ
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Verilen aday listesini, kullanicinin sahip oldugu ekipmana gore filtreler. Bir Workout'un
+    /// WorkoutEquipment kaydi yoksa (ekipman gerektirmiyorsa) herkes icin uygundur; kaydi varsa
+    /// gereken TUM ekipmanlarin kullanicida bulunmasi gerekir.
+    /// </summary>
+    private async Task<List<Workout>> FilterByOwnedEquipmentAsync(
+        List<Workout> candidates,
+        HashSet<long> ownedEquipmentIds,
+        CancellationToken cancellationToken)
+    {
+        if (candidates.Count == 0)
+        {
+            return candidates;
+        }
+
+        var candidateIds = candidates.Select(c => c.Id).ToList();
+        var requiredEquipmentByWorkout = await _unitOfWork.Repository<WorkoutEquipment>()
+            .GetQueryable()
+            .Where(we => candidateIds.Contains(we.WorkoutId))
+            .GroupBy(we => we.WorkoutId)
+            .Select(g => new { WorkoutId = g.Key, EquipmentIds = g.Select(x => x.EquipmentId).ToList() })
+            .ToListAsync(cancellationToken);
+
+        var requiredEquipmentMap = requiredEquipmentByWorkout.ToDictionary(x => x.WorkoutId, x => x.EquipmentIds);
+
+        return candidates
+            .Where(w => !requiredEquipmentMap.TryGetValue(w.Id, out var required) || required.All(ownedEquipmentIds.Contains))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Hic WorkoutEquipment kaydi olmayan (yani tamamen bodyweight) tum aktif Workout'lari getirir.
+    /// Son care fallback olarak kullanilir; zorluk/sure filtresi bilincli olarak uygulanmaz.
+    /// </summary>
+    private async Task<List<Workout>> GetEquipmentFreeActiveWorkoutsAsync(CancellationToken cancellationToken)
+    {
+        var workoutIdsWithEquipment = await _unitOfWork.Repository<WorkoutEquipment>()
+            .GetQueryable()
+            .Select(we => we.WorkoutId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return await _unitOfWork.Repository<Workout>()
+            .GetQueryable()
+            .Where(w => w.IsActive && !workoutIdsWithEquipment.Contains(w.Id))
+            .OrderBy(w => w.Id)
+            .ToListAsync(cancellationToken);
     }
 
     private int BaseScore(Workout workout, int durationPreference)

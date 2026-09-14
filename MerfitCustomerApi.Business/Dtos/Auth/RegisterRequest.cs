@@ -15,6 +15,16 @@ public class RegisterRequest
     [StringLength(200, MinimumLength = 2, ErrorMessage = "Ad 2-200 karakter arasinda olmalidir.")]
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Kullanicinin kendi belirledigi kullanici adi (AccountStep). UserProfile.Username'e
+    /// dogrudan yazilir; benzersizligi AuthService.RegisterAsync icinde (uygulama seviyesinde)
+    /// ve UserProfileConfiguration'daki unique index'te (veritabani seviyesinde) korunur.
+    /// </summary>
+    [Required(ErrorMessage = "Kullanici adi zorunludur.")]
+    [StringLength(30, MinimumLength = 3, ErrorMessage = "Kullanici adi 3-30 karakter arasinda olmalidir.")]
+    [RegularExpression("^[a-zA-Z0-9_]+$", ErrorMessage = "Kullanici adi yalnizca harf, rakam ve alt cizgi (_) icerebilir.")]
+    public string Username { get; set; } = string.Empty;
+
     /// <summary>Kullanicinin e-posta adresi (AccountStep).</summary>
     [Required(ErrorMessage = "E-posta alani zorunludur.")]
     [EmailAddress(ErrorMessage = "Gecerli bir e-posta adresi giriniz.")]
