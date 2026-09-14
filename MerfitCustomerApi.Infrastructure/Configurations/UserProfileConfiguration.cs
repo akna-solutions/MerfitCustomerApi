@@ -40,6 +40,13 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
             .IsRequired(true)
             .HasMaxLength(300);
 
+        // Kullanici adi benzersiz olmalidir. Uygulama katmanindaki AnyAsync kontrolu (bkz.
+        // AuthService.RegisterAsync / ProfileService.ApplyIdentityChangesAsync) tek basina race
+        // condition'a karsi yeterli degildir; bu veritabani seviyesindeki unique index, iki
+        // istegin ayni kullanici adini es zamanli almasini kesin olarak engeller.
+        builder.HasIndex(x => x.Username)
+            .IsUnique();
+
         // Kullanicinin cinsiyeti.
         builder.Property(x => x.Gender)
             .HasConversion<string>()

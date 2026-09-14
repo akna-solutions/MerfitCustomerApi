@@ -5,6 +5,7 @@ using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace MerfitCustomerApi.Business.Services.Auth;
@@ -52,6 +53,18 @@ public class AuthService : IAuthService
             throw new ConflictException("Bu e-posta adresi ile kayitli bir hesap zaten mevcut.");
         }
 
+        // Kullanici adi karsilastirmalari her zaman kucuk harfe cevrilip yapilir/saklanir (bkz.
+        // ProfileService.ApplyIdentityChangesAsync ve AuthService.FindUserByEmailOrUsernameAsync
+        // ile ayni normallesme kurali). Uygulama seviyesindeki bu kontrol, race condition'a karsi
+        // UserProfileConfiguration'daki veritabani unique index'i ile birlikte calisir.
+        var normalizedUsername = request.Username.Trim().ToLowerInvariant();
+        var usernameTaken = await _unitOfWork.Repository<UserProfile>()
+            .AnyAsync(p => p.Username == normalizedUsername);
+        if (usernameTaken)
+        {
+            throw new ConflictException("Bu kullanici adi zaten kullaniliyor.");
+        }
+
         var heightCm = ResolveHeightCm(request);
         var weightKg = ResolveWeightKg(request);
         var unitSystem = request.HeightUnit.Equals("ft_in", StringComparison.OrdinalIgnoreCase)
@@ -82,14 +95,12 @@ public class AuthService : IAuthService
         await userRepo.AddAsync(user);
         await _unitOfWork.SaveChangesAsync();
 
-        var username = await GenerateUniqueUsernameAsync(request.Email);
-
         var profile = new UserProfile
         {
             UserId = user.Id,
             FirstName = firstName,
             LastName = lastName,
-            Username = username,
+            Username = normalizedUsername,
             DateOfBirth = request.Age.HasValue
                 ? DateTime.UtcNow.Date.AddYears(-request.Age.Value)
                 : null,
@@ -178,13 +189,28 @@ public class AuthService : IAuthService
 
         await _unitOfWork.Repository<UserRefreshToken>().AddAsync(refreshToken);
 
-        await _unitOfWork.CommitTransactionAsync();
+        try
+        {
+            // CommitTransactionAsync basarisiz olursa transaction'i kendi icinde zaten geri alir
+            // (bkz. UnitOfWork.CommitTransactionAsync); burada yalnizca hatayi anlamli bir
+            // ConflictException'a ceviriyoruz.
+            await _unitOfWork.CommitTransactionAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Yukarida yaptigimiz AnyAsync kontrolu ile bu commit arasinda baska bir istek ayni
+            // kullanici adini alip kaydetmis olabilir (race condition). Uygulama seviyesindeki
+            // kontrol tek basina yeterli degildir; UserProfileConfiguration'daki veritabani
+            // unique index'i burada devreye girer ve bu durumda kullaniciya net bir hata donduruyoruz.
+            throw new ConflictException("Bu kullanici adi zaten kullaniliyor.");
+        }
 
         return new AuthResponse
         {
             UserId = user.Id,
             Email = user.Email,
             Name = request.Name.Trim(),
+            Username = normalizedUsername,
             AccessToken = accessToken,
             RefreshToken = refreshTokenValue,
             AccessTokenExpiresAt = expiresAt,
@@ -235,6 +261,7 @@ public class AuthService : IAuthService
             UserId = user.Id,
             Email = user.Email,
             Name = profile is not null ? $"{profile.FirstName} {profile.LastName}".Trim() : string.Empty,
+            Username = profile?.Username ?? string.Empty,
             AccessToken = accessToken,
             RefreshToken = refreshTokenValue,
             AccessTokenExpiresAt = expiresAt,
@@ -312,37 +339,6 @@ public class AuthService : IAuthService
             1 => (parts[0], string.Empty),
             _ => (parts[0], parts[1]),
         };
-    }
-
-    /// <summary>
-    /// RN onboarding akisi ayrica bir "kullanici adi" toplamadigindan, e-postanin
-    /// yerel kismindan (@'den once) benzersiz bir kullanici adi turetir.
-    /// </summary>
-    private async Task<string> GenerateUniqueUsernameAsync(string email)
-    {
-        var baseUsername = email.Split('@')[0].Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(baseUsername))
-        {
-            baseUsername = "user";
-        }
-
-        var profileRepo = _unitOfWork.Repository<UserProfile>();
-        var candidate = baseUsername;
-        var attempt = 0;
-
-        while (await profileRepo.AnyAsync(p => p.Username == candidate))
-        {
-            attempt++;
-            candidate = $"{baseUsername}{Random.Shared.Next(1000, 9999)}";
-
-            if (attempt > 10)
-            {
-                candidate = $"{baseUsername}{Guid.NewGuid():N}"[..30];
-                break;
-            }
-        }
-
-        return candidate;
     }
 
     private static Gender? ParseGender(string? genderStr)

@@ -12,6 +12,12 @@ public class AuthResponse
 
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>
+    /// UserProfile.Username - Register'da kullanicinin AccountStep'te sectigi deger, Login'de
+    /// veritabanindaki gercek deger. RN tarafi bunu "@username" seklinde gosterebilir.
+    /// </summary>
+    public string Username { get; set; } = string.Empty;
+
     /// <summary>API isteklerinde Authorization: Bearer header'inda kullanilacak JWT.</summary>
     public string AccessToken { get; set; } = string.Empty;
 

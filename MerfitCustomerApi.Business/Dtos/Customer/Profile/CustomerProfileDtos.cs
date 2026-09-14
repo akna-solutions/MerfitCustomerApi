@@ -94,7 +94,8 @@ public class UpdateProfileRequest
     [StringLength(100)]
     public string? LastName { get; set; }
 
-    [StringLength(50)]
+    [StringLength(30, MinimumLength = 3, ErrorMessage = "Kullanici adi 3-30 karakter arasinda olmalidir.")]
+    [RegularExpression("^[a-zA-Z0-9_]+$", ErrorMessage = "Kullanici adi yalnizca harf, rakam ve alt cizgi (_) icerebilir.")]
     public string? Username { get; set; }
 
     [EmailAddress]
