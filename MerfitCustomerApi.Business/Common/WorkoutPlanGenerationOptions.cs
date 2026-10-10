@@ -28,6 +28,12 @@ public class WorkoutPlanGenerationOptions
     /// <summary>Zorluk seviyesi tam eslestiginde eklenen puan.</summary>
     public int ExperienceMatchScore { get; set; } = 30;
 
+    /// <summary>
+    /// Zorluk seviyesi kullanicinin seviyesine bitisik oldugunda (fallback havuzlarindan gelen
+    /// adaylar) eklenen kismi puan. Daha uzak seviyeler deneyim puani almaz.
+    /// </summary>
+    public int AdjacentExperienceMatchScore { get; set; } = 15;
+
     /// <summary>Sure kullanicinin tercihine yakinsa (tolerans icinde) eklenen puan.</summary>
     public int DurationMatchScore { get; set; } = 20;
 
@@ -39,6 +45,30 @@ public class WorkoutPlanGenerationOptions
 
     /// <summary>Ayni ana kas grubu bir onceki plan gununde de kullanildiysa dusulen puan (kas dengesi).</summary>
     public int ConsecutiveMuscleGroupPenaltyScore { get; set; } = 15;
+
+    // --- Hedef uyumu (antrenman ozellik puanlari x hedef agirliklari) ---
+
+    /// <summary>
+    /// Hedef uyum puaninin (FitScore, 0-100) toplam skora en fazla ne kadar katki yapacagi.
+    /// Katki = FitScore * GoalFitMaxScore / 100. Hic ozellik puani olmayan antrenmanlar bu katkiyi
+    /// almaz ve yalnizca mevcut kriterlerle (deneyim, sure, featured) siralanir.
+    /// </summary>
+    public int GoalFitMaxScore { get; set; } = 40;
+
+    /// <summary>
+    /// FitnessGoal basina antrenman ozellik agirliklari (yuzde, toplam 100). Kullanicinin hedefi
+    /// (aktif UserGoal -> UserProfile.Goal -> MaintainWeight) bu tablodan bir agirlik profili secer.
+    /// Degerler urunun ilk surumu icin baslangic degerleridir; bilimsel olarak dogrulanmis degildir.
+    /// </summary>
+    public Dictionary<FitnessGoal, GoalAttributeWeights> AttributeWeightsByGoal { get; set; } = new()
+    {
+        [FitnessGoal.BuildMuscle] = new() { Hypertrophy = 50, Strength = 20, Cardio = 5, Endurance = 5, Mobility = 10, CoreStability = 10 },
+        [FitnessGoal.GetStronger] = new() { Hypertrophy = 15, Strength = 50, Cardio = 5, Endurance = 5, Mobility = 10, CoreStability = 15 },
+        [FitnessGoal.LoseWeight] = new() { Hypertrophy = 10, Strength = 10, Cardio = 35, Endurance = 25, Mobility = 10, CoreStability = 10 },
+        [FitnessGoal.ImproveFitness] = new() { Hypertrophy = 15, Strength = 15, Cardio = 25, Endurance = 20, Mobility = 10, CoreStability = 15 },
+        [FitnessGoal.MaintainWeight] = new() { Hypertrophy = 15, Strength = 15, Cardio = 25, Endurance = 20, Mobility = 10, CoreStability = 15 },
+        [FitnessGoal.ImproveEndurance] = new() { Hypertrophy = 10, Strength = 10, Cardio = 25, Endurance = 35, Mobility = 10, CoreStability = 10 },
+    };
 
     // --- Set/tekrar kurallari (hedef x deneyim seviyesine gore) ---
 

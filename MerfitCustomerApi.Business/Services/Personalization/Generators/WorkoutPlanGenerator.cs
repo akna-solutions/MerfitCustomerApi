@@ -6,6 +6,7 @@ using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace MerfitCustomerApi.Business.Services.Personalization.Generators;
@@ -16,9 +17,13 @@ namespace MerfitCustomerApi.Business.Services.Personalization.Generators;
 ///
 /// Algoritma ozet:
 /// 1) Hard-rule filtreleme: aktif, kullanicinin deneyim seviyesine uygun zorlukta, kullanicida
-///    olan ekipmanla yapilabilen ve tercih edilen sureyi (tolerans dahil) asmayan Workout'lar.
-/// 2) Skorlama: deneyim uyumu + sure uyumu + one cikan icerik bonusu; gun atarken ayrica
-///    tekrar-onleme (repeat) ve kas grubu dengesi (consecutive muscle group) cezalari uygulanir.
+///    olan ekipmanla yapilabilen, tercih edilen sureyi (tolerans dahil) asmayan ve kullanicinin
+///    abonelik durumuyla erisebildigi (Premium yalnizca aktif Plus uyelere) Workout'lar.
+///    Hedef uyum puani bu filtrelerin YERINE GECMEZ: uygun olmayan bir antrenman, yuksek
+///    FitScore'u olsa bile aday havuzuna hic girmez.
+/// 2) Skorlama: deneyim uyumu + sure uyumu + one cikan icerik bonusu + hedef uyumu (FitScore,
+///    bkz. WorkoutGoalFitCalculator); gun atarken ayrica tekrar-onleme (repeat) ve kas grubu
+///    dengesi (consecutive muscle group) cezalari uygulanir.
 /// 3) Haftalik gun sayisina gore sabit (deterministik) DayOfWeek deseni kullanilarak her gune
 ///    en yuksek skorlu, henuz kullanilmamis/uygun aday atanir.
 /// 4) Her gunun Workout'undaki WorkoutExercise katalog satirlarindan, kullanicinin hedef/deneyim
@@ -33,11 +38,16 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly WorkoutPlanGenerationOptions _options;
+    private readonly ILogger<WorkoutPlanGenerator> _logger;
 
-    public WorkoutPlanGenerator(IUnitOfWork unitOfWork, IOptions<WorkoutPlanGenerationOptions> options)
+    public WorkoutPlanGenerator(
+        IUnitOfWork unitOfWork,
+        IOptions<WorkoutPlanGenerationOptions> options,
+        ILogger<WorkoutPlanGenerator> logger)
     {
         _unitOfWork = unitOfWork;
         _options = options.Value;
+        _logger = logger;
     }
 
     public async Task<WorkoutPlanGenerationResult> GenerateAsync(long userId, CancellationToken cancellationToken = default)
@@ -52,6 +62,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         var activeGoal = await _unitOfWork.Repository<UserGoal>()
             .FirstOrDefaultAsync(g => g.UserId == userId && g.IsActive, cancellationToken);
         var goalType = activeGoal?.GoalType ?? profile.Goal ?? FitnessGoal.MaintainWeight;
+        var goalWeights = ResolveGoalWeights(goalType);
         var experience = profile.ExperienceLevel ?? ExperienceLevel.Beginner;
         var targetDifficulty = MapExperienceToDifficulty(experience);
         var trainingDays = Math.Clamp(profile.TrainingDaysPerWeek ?? _options.DefaultTrainingDaysPerWeek, 2, 7);
@@ -66,8 +77,12 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
 
         var ownedSet = ownedEquipmentIds.ToHashSet();
 
+        // Premium (yalnizca Plus) antrenmanlar, aktif aboneligi olmayan kullanicinin hicbir aday
+        // havuzuna (fallback'ler dahil) girmez.
+        var includePremium = await HasActivePlusSubscriptionAsync(userId, cancellationToken);
+
         // Hard-rule 1-3: aktif + zorluk seviyesi uygun + sure toleransi icinde (birincil aday havuzu).
-        var primaryCandidates = await GetActiveWorkoutsAsync(new[] { targetDifficulty }, maxDuration, cancellationToken);
+        var primaryCandidates = await GetActiveWorkoutsAsync(new[] { targetDifficulty }, maxDuration, includePremium, cancellationToken);
         var eligible = await FilterByOwnedEquipmentAsync(primaryCandidates, ownedSet, cancellationToken);
 
         // Fallback-1: Birincil zorluk seviyesinde uygun aday bulunamazsa (once) veya bulunan
@@ -85,7 +100,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         if (eligible.Count == 0)
         {
             var fallbackDifficulties = GetFallbackDifficulties(targetDifficulty);
-            var expandedCandidates = await GetActiveWorkoutsAsync(fallbackDifficulties, maxDuration, cancellationToken);
+            var expandedCandidates = await GetActiveWorkoutsAsync(fallbackDifficulties, maxDuration, includePremium, cancellationToken);
             eligible = await FilterByOwnedEquipmentAsync(expandedCandidates, ownedSet, cancellationToken);
         }
 
@@ -96,7 +111,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         // mutlaka bodyweight bir program alabilmeli).
         if (eligible.Count == 0)
         {
-            eligible = await GetEquipmentFreeActiveWorkoutsAsync(cancellationToken);
+            eligible = await GetEquipmentFreeActiveWorkoutsAsync(includePremium, cancellationToken);
         }
 
         if (eligible.Count == 0)
@@ -122,8 +137,9 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         }
 
         // Skorlama (deterministik matematiksel kurallar; ML/AI YOK).
+        var fitScores = await CalculateGoalFitScoresAsync(eligible, goalType, goalWeights, cancellationToken);
         var scored = eligible
-            .Select(w => new ScoredWorkout(w, BaseScore(w, durationPreference)))
+            .Select(w => new ScoredWorkout(w, BaseScore(w, durationPreference, targetDifficulty, fitScores[w.Id])))
             .OrderByDescending(s => s.Score)
             .ThenBy(s => s.Workout.Id) // esit skorda deterministik tie-break
             .ToList();
@@ -194,15 +210,104 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         };
     }
 
-    /// <summary>Verilen zorluk seviyeleri ve azami sure icinde, aktif Workout'lari getirir.</summary>
+    /// <summary>
+    /// Kullanicinin hedefine ait agirlik profilini dondurur. Konfigurasyon baslangicta dogrulandigi
+    /// icin (bkz. WorkoutPlanGenerationOptionsValidator) eksik profil beklenmez; yine de eksikse
+    /// sessizce yanlis puanlama yapmak yerine hata firlatilir.
+    /// </summary>
+    private GoalAttributeWeights ResolveGoalWeights(FitnessGoal goalType)
+    {
+        if (_options.AttributeWeightsByGoal.TryGetValue(goalType, out var weights) && weights is not null)
+        {
+            return weights;
+        }
+
+        throw new InvalidOperationException(
+            $"{goalType} hedefi icin antrenman ozellik agirliklari yapilandirilmamis ({WorkoutPlanGenerationOptions.SectionName}:{nameof(WorkoutPlanGenerationOptions.AttributeWeightsByGoal)}).");
+    }
+
+    /// <summary>
+    /// Kullanicinin aktif bir Plus aboneligi olup olmadigini dondurur. Kural, admin tarafindaki
+    /// "Plus kullanici" tanimiyla aynidir: Status = Active ve suresi dolmamis (ExpiresAt bos veya ileride).
+    /// </summary>
+    private async Task<bool> HasActivePlusSubscriptionAsync(long userId, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        return await _unitOfWork.Repository<Subscription>()
+            .AnyAsync(
+                s => s.UserId == userId
+                    && s.Status == SubscriptionStatus.Active
+                    && (s.ExpiresAt == null || s.ExpiresAt > now),
+                cancellationToken);
+    }
+
+    /// <summary>
+    /// Uygun adaylarin ozellik puanlarini TEK sorguyla okuyup her aday icin hedef uyum puanini
+    /// (FitScore) hesaplar. Puani hesaplanamayan (hic puan kaydi olmayan) adaylar icin null doner.
+    /// Eksik puan durumu, aday basina degil uretim basina tek bir log satiriyla raporlanir.
+    /// </summary>
+    private async Task<Dictionary<long, decimal?>> CalculateGoalFitScoresAsync(
+        List<Workout> candidates,
+        FitnessGoal goalType,
+        GoalAttributeWeights goalWeights,
+        CancellationToken cancellationToken)
+    {
+        var candidateIds = candidates.Select(c => c.Id).ToList();
+        var attributeScores = await _unitOfWork.Repository<WorkoutAttributeScore>()
+            .GetQueryable()
+            .Where(s => candidateIds.Contains(s.WorkoutId))
+            .Select(s => new { s.WorkoutId, s.AttributeType, s.Score })
+            .ToListAsync(cancellationToken);
+
+        var scoresByWorkout = attributeScores
+            .GroupBy(s => s.WorkoutId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyDictionary<WorkoutAttributeType, int>)g.ToDictionary(x => x.AttributeType, x => x.Score));
+
+        var attributeTypeCount = Enum.GetValues<WorkoutAttributeType>().Length;
+        var unscoredCount = 0;
+        var partiallyScoredCount = 0;
+        var fitScores = new Dictionary<long, decimal?>(candidates.Count);
+
+        foreach (var candidate in candidates)
+        {
+            if (!scoresByWorkout.TryGetValue(candidate.Id, out var scores))
+            {
+                unscoredCount++;
+                fitScores[candidate.Id] = null;
+                continue;
+            }
+
+            if (scores.Count < attributeTypeCount)
+            {
+                partiallyScoredCount++;
+            }
+
+            fitScores[candidate.Id] = WorkoutGoalFitCalculator.Calculate(scores, goalWeights);
+        }
+
+        if (unscoredCount > 0 || partiallyScoredCount > 0)
+        {
+            _logger.LogInformation(
+                "Workout goal-fit scoring ({Goal}): {UnscoredCount} of {CandidateCount} eligible workouts have no attribute scores (ranked without goal fit), {PartialCount} are partially scored (weights normalized)",
+                goalType, unscoredCount, candidates.Count, partiallyScoredCount);
+        }
+
+        return fitScores;
+    }
+
+    /// <summary>Verilen zorluk seviyeleri ve azami sure icinde, kullanicinin erisebildigi aktif Workout'lari getirir.</summary>
     private async Task<List<Workout>> GetActiveWorkoutsAsync(
         IReadOnlyCollection<DifficultyLevel> difficulties,
         int maxDuration,
+        bool includePremium,
         CancellationToken cancellationToken)
     {
         return await _unitOfWork.Repository<Workout>()
             .GetQueryable()
             .Where(w => w.IsActive && difficulties.Contains(w.Difficulty) && w.DurationMin <= maxDuration)
+            .Where(w => includePremium || !w.IsPremium)
             .OrderBy(w => w.Id) // deterministik temel siralama; Random KULLANILMAZ
             .ToListAsync(cancellationToken);
     }
@@ -239,9 +344,10 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
 
     /// <summary>
     /// Hic WorkoutEquipment kaydi olmayan (yani tamamen bodyweight) tum aktif Workout'lari getirir.
-    /// Son care fallback olarak kullanilir; zorluk/sure filtresi bilincli olarak uygulanmaz.
+    /// Son care fallback olarak kullanilir; zorluk/sure filtresi bilincli olarak uygulanmaz,
+    /// Premium erisim kurali ise uygulanir.
     /// </summary>
-    private async Task<List<Workout>> GetEquipmentFreeActiveWorkoutsAsync(CancellationToken cancellationToken)
+    private async Task<List<Workout>> GetEquipmentFreeActiveWorkoutsAsync(bool includePremium, CancellationToken cancellationToken)
     {
         var workoutIdsWithEquipment = await _unitOfWork.Repository<WorkoutEquipment>()
             .GetQueryable()
@@ -252,13 +358,18 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         return await _unitOfWork.Repository<Workout>()
             .GetQueryable()
             .Where(w => w.IsActive && !workoutIdsWithEquipment.Contains(w.Id))
+            .Where(w => includePremium || !w.IsPremium)
             .OrderBy(w => w.Id)
             .ToListAsync(cancellationToken);
     }
 
-    private int BaseScore(Workout workout, int durationPreference)
+    /// <summary>
+    /// Bir adayin gun atamasindan bagimsiz temel skorunu hesaplar. Her kriter ayri ve bir kez
+    /// sayilir: deneyim (zorluk) uyumu, sure uyumu, featured bonusu ve hedef uyumu (FitScore).
+    /// </summary>
+    private decimal BaseScore(Workout workout, int durationPreference, DifficultyLevel targetDifficulty, decimal? goalFitScore)
     {
-        var score = _options.ExperienceMatchScore; // hard-rule ile zaten filtrelendi, tam puan.
+        decimal score = ExperienceScore(workout.Difficulty, targetDifficulty);
 
         if (workout.DurationMin <= durationPreference)
         {
@@ -271,7 +382,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             var toleranceRatio = _options.DurationToleranceMin == 0
                 ? 0m
                 : 1m - ((decimal)overBy / _options.DurationToleranceMin);
-            score += (int)Math.Round(_options.DurationMatchScore * Math.Max(0m, toleranceRatio));
+            score += Math.Round(_options.DurationMatchScore * Math.Max(0m, toleranceRatio));
         }
 
         if (workout.IsFeatured)
@@ -279,7 +390,30 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             score += _options.FeaturedBonusScore;
         }
 
+        // FitScore hesaplanamiyorsa (puan kaydi yok) hedef uyum katkisi eklenmez; aday mevcut
+        // kriterlerle siralanmaya devam eder. Hicbir adayin puani yoksa siralama eskisiyle aynidir.
+        if (goalFitScore is not null)
+        {
+            score += goalFitScore.Value * _options.GoalFitMaxScore / 100m;
+        }
+
         return score;
+    }
+
+    /// <summary>
+    /// Zorluk seviyesi kullanicinin seviyesiyle birebir eslesiyorsa tam deneyim puani, bitisik
+    /// seviyedeyse (fallback havuzlari) kismi puan, daha uzaksa (yalnizca bodyweight fallback'inde
+    /// gorulebilir) puan vermez.
+    /// </summary>
+    private int ExperienceScore(DifficultyLevel workoutDifficulty, DifficultyLevel targetDifficulty)
+    {
+        var distance = Math.Abs((int)workoutDifficulty - (int)targetDifficulty);
+        return distance switch
+        {
+            0 => _options.ExperienceMatchScore,
+            1 => _options.AdjacentExperienceMatchScore,
+            _ => 0,
+        };
     }
 
     /// <summary>
@@ -416,5 +550,5 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         return $"{experienceCapitalized} seviyene, haftada {trainingDays} gün antrenman tercihine ve {equipmentPhrase} hazırlandı.";
     }
 
-    private readonly record struct ScoredWorkout(Workout Workout, int Score);
+    private readonly record struct ScoredWorkout(Workout Workout, decimal Score);
 }

@@ -28,7 +28,7 @@ internal sealed class TestAsyncEnumerable<T> : EnumerableQuery<T>, IAsyncEnumera
     public IAsyncEnumerator<T> GetAsyncEnumerator(CancellationToken cancellationToken = default)
         => new TestAsyncEnumerator<T>(this.AsEnumerable().GetEnumerator());
 
-    IQueryProvider IQueryable.Provider => new TestAsyncQueryProvider<T>(this);
+    IQueryProvider IQueryable.Provider => new TestAsyncQueryProvider<T>((IQueryProvider)this);
 }
 
 internal sealed class TestAsyncEnumerator<T> : IAsyncEnumerator<T>
@@ -55,9 +55,12 @@ internal sealed class TestAsyncQueryProvider<TEntity> : IAsyncQueryProvider
 {
     private readonly IQueryProvider _inner;
 
-    internal TestAsyncQueryProvider(IQueryable source)
+    // Not: kaynak IQueryable'in Provider'i burada okunmamalidir; TestAsyncEnumerable.Provider bu
+    // sinifi tekrar olusturdugu icin sonsuz ozyineleme (stack overflow) olusur. Bunun yerine
+    // EnumerableQuery'nin kendi (senkron) IQueryProvider implementasyonu dogrudan alinir.
+    internal TestAsyncQueryProvider(IQueryProvider inner)
     {
-        _inner = source.Provider;
+        _inner = inner;
     }
 
     public IQueryable CreateQuery(Expression expression) => new TestAsyncEnumerable<TEntity>(expression);

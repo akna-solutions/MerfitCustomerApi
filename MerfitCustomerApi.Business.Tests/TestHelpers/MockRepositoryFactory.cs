@@ -40,6 +40,14 @@ public static class MockRepositoryFactory
 
         repo.Setup(r => r.Update(It.IsAny<T>()));
         repo.Setup(r => r.Remove(It.IsAny<T>())).Callback<T>(e => items.Remove(e));
+        repo.Setup(r => r.RemoveRange(It.IsAny<IEnumerable<T>>()))
+            .Callback<IEnumerable<T>>(entities =>
+            {
+                foreach (var entity in entities.ToList())
+                {
+                    items.Remove(entity);
+                }
+            });
 
         return repo;
     }

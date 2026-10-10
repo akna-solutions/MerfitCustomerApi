@@ -26,6 +26,7 @@ public class AuthServiceRegistrationTests
         public required AuthService Service { get; init; }
         public required List<ApplicationUser> Users { get; init; }
         public required List<UserProfile> Profiles { get; init; }
+        public required List<PersonalizationJob> Jobs { get; init; }
     }
 
     private static Fixture CreateFixture()
@@ -73,6 +74,7 @@ public class AuthServiceRegistrationTests
             Service = new AuthService(unitOfWork.Object, tokenService.Object, nutritionCalculator.Object, jwtSettings),
             Users = users,
             Profiles = profiles,
+            Jobs = jobs,
         };
     }
 
@@ -104,6 +106,23 @@ public class AuthServiceRegistrationTests
         var profile = Assert.Single(fx.Profiles);
         Assert.Equal("Mert", profile.FirstName);
         Assert.Equal("Akpınar", profile.LastName);
+    }
+
+    /// <summary>
+    /// Kayit sirasinda plan uretilmez; yalnizca Pending bir PersonalizationJob olusturulur ve program
+    /// arka planda (PersonalizationJobProcessor) uretilir. Antrenman puanlama sistemi bu akisi degistirmez.
+    /// </summary>
+    [Fact]
+    public async Task RegisterAsync_CreatesPendingPersonalizationJob_WithoutGeneratingPlanSynchronously()
+    {
+        var fx = CreateFixture();
+
+        var result = await fx.Service.RegisterAsync(MakeRequest(), ipAddress: null);
+
+        var job = Assert.Single(fx.Jobs);
+        Assert.Equal(PersonalizationJobStatus.Pending, job.Status);
+        Assert.Equal(0, job.AttemptCount);
+        Assert.Equal(result.UserId, job.UserId);
     }
 
     [Fact]

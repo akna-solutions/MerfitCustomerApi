@@ -49,3 +49,35 @@ public enum WorkoutSessionStatus
     /// </summary>
     Abandoned
 }
+
+/// <summary>
+/// Bir antrenmanin katalog seviyesinde 0-100 arasi puanlandigi bagimsiz ozellik turlerini ifade eder.
+/// Bu puanlar kullaniciya degil antrenmana aittir (bkz. WorkoutAttributeScore).
+/// </summary>
+public enum WorkoutAttributeType
+{
+    /// <summary>
+    /// Kas gelistirme.
+    /// </summary>
+    Hypertrophy,
+    /// <summary>
+    /// Kuvvet.
+    /// </summary>
+    Strength,
+    /// <summary>
+    /// Kardiyo.
+    /// </summary>
+    Cardio,
+    /// <summary>
+    /// Dayaniklilik.
+    /// </summary>
+    Endurance,
+    /// <summary>
+    /// Hareketlilik ve esneklik.
+    /// </summary>
+    Mobility,
+    /// <summary>
+    /// Merkez bolge dayanikliligi ve kontrolu.
+    /// </summary>
+    CoreStability
+}
