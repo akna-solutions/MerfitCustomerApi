@@ -20,6 +20,7 @@ using MerfitCustomerApi.Api.BackgroundJobs;
 using MerfitCustomerApi.Api.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
@@ -93,9 +94,17 @@ builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IEquipmentService, EquipmentService>();
 
+// Antrenman ozellik puanlarinin (WorkoutAttributeScore) admin yonetimi.
+builder.Services.AddScoped<IWorkoutAttributeScoreService, WorkoutAttributeScoreService>();
+
 // Kisisellestirme altyapisi (FAZ 2): kurallara dayali (AI/ML KULLANMAYAN) antrenman + beslenme
 // programi uretimi, arka planda isleme (worker) ve kisisel plan/durum okuma servisleri.
-builder.Services.Configure<WorkoutPlanGenerationOptions>(builder.Configuration.GetSection(WorkoutPlanGenerationOptions.SectionName));
+// Hedef agirlik profilleri (AttributeWeightsByGoal) hatali/eksikse uygulama baslangicta acik bir
+// hatayla durur; sessizce yanlis puanlama yapilmaz (bkz. WorkoutPlanGenerationOptionsValidator).
+builder.Services.AddOptions<WorkoutPlanGenerationOptions>()
+    .Bind(builder.Configuration.GetSection(WorkoutPlanGenerationOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<WorkoutPlanGenerationOptions>, WorkoutPlanGenerationOptionsValidator>();
 builder.Services.Configure<NutritionPlanGenerationOptions>(builder.Configuration.GetSection(NutritionPlanGenerationOptions.SectionName));
 builder.Services.Configure<PersonalizationJobProcessingOptions>(builder.Configuration.GetSection(PersonalizationJobProcessingOptions.SectionName));
 

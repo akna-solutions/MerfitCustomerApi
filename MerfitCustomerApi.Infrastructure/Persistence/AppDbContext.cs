@@ -100,6 +100,11 @@ public class AppDbContext : DbContext
     public DbSet<WorkoutEquipment> WorkoutEquipments => Set<WorkoutEquipment>();
 
     /// <summary>
+    /// WorkoutAttributeScore kayitlarina erisim saglayan DbSet.
+    /// </summary>
+    public DbSet<WorkoutAttributeScore> WorkoutAttributeScores => Set<WorkoutAttributeScore>();
+
+    /// <summary>
     /// WorkoutExercise kayitlarina erisim saglayan DbSet.
     /// </summary>
     public DbSet<WorkoutExercise> WorkoutExercises => Set<WorkoutExercise>();
