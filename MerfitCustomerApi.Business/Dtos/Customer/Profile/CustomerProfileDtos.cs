@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace MerfitCustomerApi.Business.Dtos.Customer.Profile;
 
@@ -32,18 +32,23 @@ public class CustomerProfileResponse
     public string ExperienceLevel { get; set; } = string.Empty;
 
     /// <summary>
-    /// "FULL_GYM" | "HOME_GYM" | "BODYWEIGHT" | "MINIMAL_EQUIPMENT" - kullanicinin gercek
+    /// "FULL_GYM" | "HOME_GYM" | "BODYWEIGHT" | "MINIMAL_EQUIPMENT" - TrainingLocation ve
     /// UserEquipment kayitlarindan turetilen kaba bir kategori (bkz. ProfileService.DeriveEquipmentCategory).
-    /// Granuler ekipman listesi (onboarding'de toplanan) bu alanda kaybolur; PUT ile geri yazilmaz.
+    /// Salt okunur; PUT ile geri yazilmaz (antrenman yeri icin TrainingLocation kullanilir).
     /// </summary>
     public string Equipment { get; set; } = string.Empty;
+
+    /// <summary>"gym" | "home" | "outdoor"; kayitta secilmediyse null.</summary>
+    public string? TrainingLocation { get; set; }
+
+    /// <summary>Kayitta secilen haftalik antrenman gunu sayisi (UserProfile.TrainingDaysPerWeek).</summary>
+    public int TrainingDaysPerWeek { get; set; }
 
     public int WorkoutDurationMin { get; set; }
 
     /// <summary>
-    /// "Mon".."Sun" - UserProfile yalnizca haftalik GUN SAYISINI (TrainingDaysPerWeek) sakladigindan,
-    /// buradaki spesifik gunler sadece dogru SAYIYI yansitmak icin turetilmis bir temsildir; hangi
-    /// gunlerin secildigi ayrica saklanmaz (bkz. FINAL RAPOR - Remaining Work).
+    /// "Mon".."Sun" - aktif antrenman programindaki (WorkoutPlanDay) gunler. Program henuz
+    /// hazirlanmadiysa bos liste doner.
     /// </summary>
     public List<string> TrainingDays { get; set; } = new();
 
@@ -123,8 +128,14 @@ public class UpdateProfileRequest
     [Range(5, 240)]
     public int? WorkoutDurationMin { get; set; }
 
-    /// <summary>"Mon".."Sun" - yalnizca uzunlugu (haftalik gun sayisi) kalici olarak saklanir.</summary>
+    [Range(1, 7)]
+    public int? TrainingDaysPerWeek { get; set; }
+
+    /// <summary>Eski istemciler icin: TrainingDaysPerWeek gonderilmezse liste uzunlugu gun sayisi olarak kaydedilir.</summary>
     public List<string>? TrainingDays { get; set; }
+
+    /// <summary>"gym" | "home" | "outdoor".</summary>
+    public string? TrainingLocation { get; set; }
 
     public string? UnitSystem { get; set; }
     public string? Appearance { get; set; }
