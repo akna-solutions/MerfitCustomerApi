@@ -1,4 +1,4 @@
-using MerfitCustomerApi.Business.Dtos.Customer.Profile;
+﻿using MerfitCustomerApi.Business.Dtos.Customer.Profile;
 using MerfitCustomerApi.Business.Services.Profile;
 using MerfitCustomerApi.Business.Tests.TestHelpers;
 using MerfitCustomerApi.Domain.Entities;
@@ -56,6 +56,8 @@ public class ProfileServiceUsernameTests
         unitOfWork.Setup(u => u.Repository<UserEquipment>()).Returns(MockRepositoryFactory.Create(equipment).Object);
         unitOfWork.Setup(u => u.Repository<WorkoutSession>()).Returns(MockRepositoryFactory.Create(sessions).Object);
         unitOfWork.Setup(u => u.Repository<UserStreak>()).Returns(MockRepositoryFactory.Create(streaks).Object);
+        unitOfWork.Setup(u => u.Repository<WorkoutPlan>()).Returns(MockRepositoryFactory.Create(new List<WorkoutPlan>()).Object);
+        unitOfWork.Setup(u => u.Repository<WorkoutPlanDay>()).Returns(MockRepositoryFactory.Create(new List<WorkoutPlanDay>()).Object);
         unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
         return new Fixture

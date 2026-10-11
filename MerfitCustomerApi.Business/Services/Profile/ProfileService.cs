@@ -1,4 +1,4 @@
-using MerfitCustomerApi.Business.Dtos.Customer.Profile;
+﻿using MerfitCustomerApi.Business.Dtos.Customer.Profile;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
@@ -169,16 +169,35 @@ public class ProfileService : IProfileService
             profile.WorkoutDurationMin = request.WorkoutDurationMin.Value;
         }
 
-        // NOT: UserProfile yalnizca haftalik gun SAYISINI saklar; hangi spesifik gunlerin
-        // secildigi ayri bir tabloda tutulmadigindan burada sadece uzunluk kalici olur.
-        if (request.TrainingDays is not null)
+        // UserProfile yalnizca haftalik gun SAYISINI saklar. Hangi gunlerde antrenman yapilacagi
+        // aktif WorkoutPlan'in WorkoutPlanDay kayitlarindan gelir (bkz. BuildResponseAsync).
+        if (request.TrainingDaysPerWeek.HasValue)
         {
+            profile.TrainingDaysPerWeek = request.TrainingDaysPerWeek.Value;
+        }
+        else if (request.TrainingDays is not null && request.TrainingDays.Count > 0)
+        {
+            // Eski istemciler icin geriye uyumluluk: liste uzunlugu gun sayisi olarak yorumlanir.
             profile.TrainingDaysPerWeek = request.TrainingDays.Count;
+        }
+
+        if (request.TrainingLocation is not null
+            && Enum.TryParse<TrainingLocation>(request.TrainingLocation, ignoreCase: true, out var location))
+        {
+            profile.TrainingLocation = location;
         }
     }
 
     private async Task UpdateActiveGoalTargetWeightAsync(long userId, decimal targetWeight, CancellationToken cancellationToken)
     {
+        var profile = await _unitOfWork.Repository<UserProfile>()
+            .GetQueryable(asNoTracking: false)
+            .FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken);
+        if (profile is not null)
+        {
+            profile.TargetWeightKg = targetWeight;
+        }
+
         var goal = await _unitOfWork.Repository<UserGoal>()
             .GetQueryable(asNoTracking: false)
             .FirstOrDefaultAsync(g => g.UserId == userId && g.IsActive, cancellationToken);
@@ -355,6 +374,8 @@ public class ProfileService : IProfileService
         var streak = await _unitOfWork.Repository<UserStreak>()
             .FirstOrDefaultAsync(s => s.UserId == user.Id, cancellationToken);
 
+        var trainingDays = await GetActivePlanTrainingDaysAsync(user.Id, cancellationToken);
+
         var age = profile.DateOfBirth.HasValue
             ? Math.Max(0, DateTime.UtcNow.Year - profile.DateOfBirth.Value.Year -
                 (DateTime.UtcNow.DayOfYear < profile.DateOfBirth.Value.DayOfYear ? 1 : 0))
@@ -371,12 +392,15 @@ public class ProfileService : IProfileService
             Age = age,
             Height = profile.HeightCm ?? 0,
             Weight = profile.WeightKg ?? 0,
-            TargetWeight = activeGoal?.TargetWeightKg ?? profile.WeightKg ?? 0,
+            // Hedef kilo kayitta sorulmuyor; belirlenmemisse 0 doner (istemci "Belirlenmedi" gosterir).
+            TargetWeight = activeGoal?.TargetWeightKg ?? profile.TargetWeightKg ?? 0,
             Goal = MapGoalToDisplay(profile.Goal),
             ExperienceLevel = profile.ExperienceLevel?.ToString().ToUpperInvariant() ?? "BEGINNER",
-            Equipment = DeriveEquipmentCategory(equipmentCount),
+            Equipment = DeriveEquipmentCategory(profile.TrainingLocation, equipmentCount),
+            TrainingLocation = profile.TrainingLocation?.ToString().ToLowerInvariant(),
             WorkoutDurationMin = profile.WorkoutDurationMin ?? 45,
-            TrainingDays = BuildTrainingDaysDisplay(profile.TrainingDaysPerWeek ?? 3),
+            TrainingDaysPerWeek = profile.TrainingDaysPerWeek ?? trainingDays.Count,
+            TrainingDays = trainingDays,
             UnitSystem = profile.UnitSystem.ToString().ToLowerInvariant(),
             Appearance = (preference?.Theme ?? Theme.System).ToString().ToLowerInvariant(),
             Notifications = notificationSettings is null
@@ -419,20 +443,50 @@ public class ProfileService : IProfileService
         };
     }
 
-    /// <summary>Kullanicinin secili ekipman sayisindan kaba bir kategori turetir (bkz. DTO'daki not).</summary>
-    private static string DeriveEquipmentCategory(int equipmentCount) => equipmentCount switch
+    /// <summary>
+    /// Kayitta secilen antrenman yeri (TrainingLocation) ve UserEquipment kayitlarindan kaba bir
+    /// kategori turetir. Salon secen kullanici ekipman isaretlemese bile FULL_GYM'dir.
+    /// </summary>
+    private static string DeriveEquipmentCategory(TrainingLocation? location, int equipmentCount) => location switch
     {
-        0 => "BODYWEIGHT",
-        1 => "MINIMAL_EQUIPMENT",
-        <= 3 => "HOME_GYM",
-        _ => "FULL_GYM",
+        TrainingLocation.Gym => "FULL_GYM",
+        TrainingLocation.Outdoor => equipmentCount == 0 ? "BODYWEIGHT" : "MINIMAL_EQUIPMENT",
+        _ => equipmentCount switch
+        {
+            0 => "BODYWEIGHT",
+            <= 2 => "MINIMAL_EQUIPMENT",
+            _ => "HOME_GYM",
+        },
     };
 
-    /// <summary>Sadece dogru SAYIYI yansitan, sabit bir haftalik gun dagilimi uretir (bkz. DTO'daki not).</summary>
-    private static List<string> BuildTrainingDaysDisplay(int count)
+    /// <summary>
+    /// Kullanicinin gercek antrenman gunleri: aktif WorkoutPlan'in WorkoutPlanDay kayitlari
+    /// (Pazartesi'den Pazar'a sirali). Plan henuz uretilmediyse bos liste doner; gunler
+    /// UserProfile'da ayrica saklanmaz.
+    /// </summary>
+    private async Task<List<string>> GetActivePlanTrainingDaysAsync(long userId, CancellationToken cancellationToken)
     {
-        var clamped = Math.Clamp(count, 0, 7);
-        return WeekdayCodes.Take(clamped).ToList();
+        var activePlan = await _unitOfWork.Repository<WorkoutPlan>()
+            .GetQueryable()
+            .Where(p => p.UserId == userId && p.IsActive)
+            .OrderByDescending(p => p.StartDate)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (activePlan is null)
+        {
+            return new List<string>();
+        }
+
+        var days = await _unitOfWork.Repository<WorkoutPlanDay>()
+            .GetQueryable()
+            .Where(d => d.WorkoutPlanId == activePlan.Id)
+            .Select(d => d.DayOfWeek)
+            .ToListAsync(cancellationToken);
+
+        return days
+            .Distinct()
+            .OrderBy(d => ((int)d + 6) % 7) // Pazartesi = 0 ... Pazar = 6
+            .Select(d => WeekdayCodes[((int)d + 6) % 7])
+            .ToList();
     }
 
     private static Gender? MapGenderToDomain(string display) => display switch
