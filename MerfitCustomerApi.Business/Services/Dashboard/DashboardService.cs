@@ -44,10 +44,17 @@ public class DashboardService : IDashboardService
             .ToListAsync(cancellationToken);
 
         var hasCompletedFirstWorkout = completedSessions.Count > 0;
-        var workoutsCompletedThisWeek = completedSessions.Count(s => s.CompletedAt.HasValue && s.CompletedAt.Value.Date >= weekStart);
+        // Haftalik hedef "haftada X gun" oldugu icin ayni gun yapilan birden fazla antrenman tek gun sayilir.
+        var workoutsCompletedThisWeek = completedSessions
+            .Where(s => s.CompletedAt.HasValue && s.CompletedAt.Value.Date >= weekStart)
+            .Select(s => s.CompletedAt!.Value.Date)
+            .Distinct()
+            .Count();
         var caloriesToday = completedSessions
             .Where(s => s.CompletedAt.HasValue && s.CompletedAt.Value.Date == today)
             .Sum(s => s.CaloriesBurned ?? 0);
+
+        var weeklyTarget = await GetWeeklyWorkoutTargetAsync(userId, profile, cancellationToken);
 
         var streak = await _unitOfWork.Repository<UserStreak>()
             .FirstOrDefaultAsync(s => s.UserId == userId, cancellationToken);
@@ -124,7 +131,7 @@ public class DashboardService : IDashboardService
             TodayProgress = new CustomerTodayProgressDto
             {
                 WorkoutsCompleted = workoutsCompletedThisWeek,
-                WorkoutsTarget = profile.TrainingDaysPerWeek ?? 3,
+                WorkoutsTarget = weeklyTarget,
                 Calories = (int)caloriesToday,
             },
             TodayWorkout = todayWorkout,
@@ -139,6 +146,31 @@ public class DashboardService : IDashboardService
                 },
             Recommended = recommended,
         };
+    }
+
+    /// <summary>
+    /// Haftalik antrenman hedefi: aktif kisisel planda kac antrenman gunu varsa o (kullaniciya gercekte
+    /// verilen program), plan yoksa profildeki haftalik gun sayisi, o da yoksa 3.
+    /// </summary>
+    private async Task<int> GetWeeklyWorkoutTargetAsync(long userId, UserProfile profile, CancellationToken cancellationToken)
+    {
+        var activePlan = await _unitOfWork.Repository<WorkoutPlan>()
+            .FirstOrDefaultAsync(p => p.UserId == userId && p.IsActive, cancellationToken);
+        if (activePlan is not null)
+        {
+            var planDayCount = await _unitOfWork.Repository<WorkoutPlanDay>()
+                .GetQueryable()
+                .Where(d => d.WorkoutPlanId == activePlan.Id)
+                .Select(d => d.DayOfWeek)
+                .Distinct()
+                .CountAsync(cancellationToken);
+            if (planDayCount > 0)
+            {
+                return planDayCount;
+            }
+        }
+
+        return profile.TrainingDaysPerWeek ?? 3;
     }
 
     private static CustomerDashboardWorkoutDto MapToDashboardWorkout(CustomerWorkoutListItemDto workout) => new()

@@ -25,10 +25,10 @@ public class CustomerDashboardResponse
 
 public class CustomerTodayProgressDto
 {
-    /// <summary>Bu hafta tamamlanan antrenman sayisi.</summary>
+    /// <summary>Bu hafta (Pazartesi'den itibaren) antrenman yapilan gun sayisi.</summary>
     public int WorkoutsCompleted { get; set; }
 
-    /// <summary>Kullanicinin profilindeki haftalik antrenman hedefi (varsayilan 3).</summary>
+    /// <summary>Haftalik antrenman gunu hedefi: aktif plandaki gun sayisi, plan yoksa profildeki deger (varsayilan 3).</summary>
     public int WorkoutsTarget { get; set; }
 
     /// <summary>Bugun tamamlanan oturumlardan yakilan toplam tahmini kalori.</summary>
