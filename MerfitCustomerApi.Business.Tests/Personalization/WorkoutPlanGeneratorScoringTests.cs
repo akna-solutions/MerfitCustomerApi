@@ -227,6 +227,35 @@ public class WorkoutPlanGeneratorScoringTests
     }
 
     [Fact]
+    public async Task PremiumWorkout_IsLastResort_WhenFreePoolIsEmpty_ForFreeUser()
+    {
+        var catalog = new Catalog();
+        catalog.Profile(goal: FitnessGoal.BuildMuscle, trainingDays: 2);
+        // Ucretsiz antrenmanin ekipmani kullanicida yok ve ekipmansiz ucretsiz antrenman da yok:
+        // normal zincir bos kalir, Premium (ekipmansiz) antrenman son care olarak kullanilir.
+        catalog.Workout(1); catalog.RequireEquipment(1, equipmentId: 77);
+        catalog.Workout(2, isPremium: true);
+
+        var picks = await catalog.GeneratePickedWorkoutIdsAsync();
+
+        Assert.NotEmpty(picks);
+        Assert.All(picks, id => Assert.Equal(2L, id));
+    }
+
+    [Fact]
+    public async Task PremiumWorkout_StaysExcluded_WhenFreePoolHasAnyCandidate_ForFreeUser()
+    {
+        var catalog = new Catalog();
+        catalog.Profile(goal: FitnessGoal.BuildMuscle, trainingDays: 2);
+        catalog.Workout(1, isPremium: true); catalog.Scores(1, hypertrophy: 100, strength: 100);
+        catalog.Workout(2);
+
+        var picks = await catalog.GeneratePickedWorkoutIdsAsync();
+
+        Assert.DoesNotContain(1L, picks);
+    }
+
+    [Fact]
     public async Task PremiumWorkout_IsAvailable_ForActivePlusSubscriber()
     {
         var catalog = new Catalog();

@@ -77,41 +77,65 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
 
         var ownedSet = ownedEquipmentIds.ToHashSet();
 
-        // Premium (yalnizca Plus) antrenmanlar, aktif aboneligi olmayan kullanicinin hicbir aday
-        // havuzuna (fallback'ler dahil) girmez.
+        // Premium (yalnizca Plus) antrenmanlar, aktif aboneligi olmayan kullanicinin normal aday
+        // havuzlarina (zorluk/ekipman fallback'leri dahil) girmez; yalnizca ucretsiz havuz tamamen
+        // bos kalirsa Fallback-3 ile son care olarak acilir.
         var includePremium = await HasActivePlusSubscriptionAsync(userId, cancellationToken);
 
-        // Hard-rule 1-3: aktif + zorluk seviyesi uygun + sure toleransi icinde (birincil aday havuzu).
-        var primaryCandidates = await GetActiveWorkoutsAsync(new[] { targetDifficulty }, maxDuration, includePremium, cancellationToken);
-        var eligible = await FilterByOwnedEquipmentAsync(primaryCandidates, ownedSet, cancellationToken);
-
-        // Fallback-1: Birincil zorluk seviyesinde uygun aday bulunamazsa (once) veya bulunan
-        // adaylarin hicbiri kullanicinin ekipmanina uymazsa, bitisik zorluk seviyelerini de aday
-        // havuzuna dahil ederek tekrar dene. (Beginner -> Intermediate, Advanced -> Intermediate,
-        // Intermediate -> her ikisi de.) Puanlama asamasinda sure/featured bonuslariyla siralama
-        // yapildiginden birebir eslesen adaylar zaten one cikacaktir.
-        //
-        // NOT: Bu asama, birincil aday havuzu bastan bos olsa bile (orn. kullanicinin sure
-        // tercihine uyan Beginner antrenman kalmamissa) calisir - onceki surumde ilk havuz bos
-        // oldugunda islem burada hic denenmeden hemen hata firlatiliyordu; bu da ekipmani yeterli
-        // olan kullanicilarin bile gereksiz yere "uygun antrenman bulunamadi" hatasi almasina
-        // neden oluyordu. Artik zorluk/sure ve ekipman fallback'leri TEK bir kademeli zincir
-        // olarak calisiyor.
-        if (eligible.Count == 0)
+        // Aday secimi (zorluk/sure + ekipman fallback zinciri) includePremium bayragiyla calisir.
+        async Task<List<Workout>> SelectEligibleAsync(bool allowPremium)
         {
-            var fallbackDifficulties = GetFallbackDifficulties(targetDifficulty);
-            var expandedCandidates = await GetActiveWorkoutsAsync(fallbackDifficulties, maxDuration, includePremium, cancellationToken);
-            eligible = await FilterByOwnedEquipmentAsync(expandedCandidates, ownedSet, cancellationToken);
+            // Hard-rule 1-3: aktif + zorluk seviyesi uygun + sure toleransi icinde (birincil aday havuzu).
+            var primaryCandidates = await GetActiveWorkoutsAsync(new[] { targetDifficulty }, maxDuration, allowPremium, cancellationToken);
+            var eligible = await FilterByOwnedEquipmentAsync(primaryCandidates, ownedSet, cancellationToken);
+
+            // Fallback-1: Birincil zorluk seviyesinde uygun aday bulunamazsa (once) veya bulunan
+            // adaylarin hicbiri kullanicinin ekipmanina uymazsa, bitisik zorluk seviyelerini de aday
+            // havuzuna dahil ederek tekrar dene. (Beginner -> Intermediate, Advanced -> Intermediate,
+            // Intermediate -> her ikisi de.) Puanlama asamasinda sure/featured bonuslariyla siralama
+            // yapildiginden birebir eslesen adaylar zaten one cikacaktir.
+            //
+            // NOT: Bu asama, birincil aday havuzu bastan bos olsa bile (orn. kullanicinin sure
+            // tercihine uyan Beginner antrenman kalmamissa) calisir - onceki surumde ilk havuz bos
+            // oldugunda islem burada hic denenmeden hemen hata firlatiliyordu; bu da ekipmani yeterli
+            // olan kullanicilarin bile gereksiz yere "uygun antrenman bulunamadi" hatasi almasina
+            // neden oluyordu. Artik zorluk/sure ve ekipman fallback'leri TEK bir kademeli zincir
+            // olarak calisiyor.
+            if (eligible.Count == 0)
+            {
+                var fallbackDifficulties = GetFallbackDifficulties(targetDifficulty);
+                var expandedCandidates = await GetActiveWorkoutsAsync(fallbackDifficulties, maxDuration, allowPremium, cancellationToken);
+                eligible = await FilterByOwnedEquipmentAsync(expandedCandidates, ownedSet, cancellationToken);
+            }
+
+            // Fallback-2: Hala uygun aday yoksa, hic ekipman gerektirmeyen (WorkoutEquipment kaydi
+            // olmayan - yani bodyweight) tum aktif antrenmanlar son care olarak kullanilir. Zorluk ve
+            // sure filtresi de burada genisletilir; ozellikle "Ekipman yok" secen kullanicilarin hic
+            // antrenman gorememesi durumunun onune gecer (bkz. is kurali: ekipmansiz kullanici da
+            // mutlaka bodyweight bir program alabilmeli).
+            if (eligible.Count == 0)
+            {
+                eligible = await GetEquipmentFreeActiveWorkoutsAsync(allowPremium, cancellationToken);
+            }
+
+            return eligible;
         }
 
-        // Fallback-2: Hala uygun aday yoksa, hic ekipman gerektirmeyen (WorkoutEquipment kaydi
-        // olmayan - yani bodyweight) tum aktif antrenmanlar son care olarak kullanilir. Zorluk ve
-        // sure filtresi de burada genisletilir; ozellikle "Ekipman yok" secen kullanicilarin hic
-        // antrenman gorememesi durumunun onune gecer (bkz. is kurali: ekipmansiz kullanici da
-        // mutlaka bodyweight bir program alabilmeli).
-        if (eligible.Count == 0)
+        var eligible = await SelectEligibleAsync(includePremium);
+
+        // Fallback-3 (son care): Premium'a erisimi olmayan kullanicinin ucretsiz havuzu bostur
+        // (orn. ucretsiz antrenmanlarin hicbiri kullanicinin ekipmanina uymuyor). Program
+        // uretilemeden hata vermek yerine Premium antrenmanlar da aday havuzuna acilir. Bu, ucretsiz
+        // havuzda hic aday varsa hic devreye girmez; yalnizca "hic program yok" durumunu onler.
+        if (eligible.Count == 0 && !includePremium)
         {
-            eligible = await GetEquipmentFreeActiveWorkoutsAsync(includePremium, cancellationToken);
+            eligible = await SelectEligibleAsync(allowPremium: true);
+            if (eligible.Count > 0)
+            {
+                _logger.LogWarning(
+                    "Kullanici {UserId} icin ucretsiz antrenman havuzu bos kaldi; Premium antrenmanlar son care olarak aday havuzuna acildi.",
+                    userId);
+            }
         }
 
         if (eligible.Count == 0)
