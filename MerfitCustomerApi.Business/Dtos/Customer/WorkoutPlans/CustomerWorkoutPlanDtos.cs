@@ -67,6 +67,12 @@ public class CustomerTodayWorkoutPlanResponse
 
     public CustomerWorkoutPlanDayDto? Day { get; set; }
 
+    /// <summary>
+    /// Bugunun plan antrenmani (bu WorkoutPlanDay'den baslatilan bir oturum) bugun zaten tamamlandiysa true.
+    /// Uygulama bu durumda "Antrenmana Başla" yerine "Bugünün antrenmanı tamamlandı" gosterir.
+    /// </summary>
+    public bool IsCompletedToday { get; set; }
+
     /// <summary>WorkoutSession baslatirken kullanilacak WorkoutPlanDay kimligi (kisisellestirilmis hedeflerin session'a tasinmasi icin).</summary>
     public long? WorkoutPlanDayId { get; set; }
 }

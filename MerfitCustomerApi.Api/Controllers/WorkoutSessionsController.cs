@@ -1,4 +1,5 @@
 using MerfitCustomerApi.Api.Extensions;
+using MerfitCustomerApi.Business.Common.Pagination;
 using MerfitCustomerApi.Business.Dtos.Customer.WorkoutSessions;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -31,6 +32,17 @@ public class WorkoutSessionsController : ControllerBase
         var userId = User.GetUserId()!.Value;
         var result = await _workoutSessionService.StartSessionAsync(userId, request, cancellationToken);
         return StatusCode(StatusCodes.Status201Created, result);
+    }
+
+    /// <summary>Tamamlanmis antrenmanlarin gecmisini (en yeniden eskiye, sayfali) dondurur.</summary>
+    [HttpGet]
+    public async Task<ActionResult<PagedResult<CustomerWorkoutSessionHistoryItemDto>>> GetHistory(
+        [FromQuery] PagedRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        var result = await _workoutSessionService.GetHistoryAsync(userId, request, cancellationToken);
+        return Ok(result);
     }
 
     /// <summary>Devam eden veya gecmis bir oturumun guncel durumunu dondurur.</summary>

@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Common.Pagination;
 using MerfitCustomerApi.Business.Dtos.Customer.WorkoutSessions;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Domain.Entities;
@@ -14,6 +15,15 @@ namespace MerfitCustomerApi.Business.Services.WorkoutSessions;
 /// </summary>
 public class WorkoutSessionService : IWorkoutSessionService
 {
+    /// <summary>
+    /// Exercise.EquipmentType serbest metin oldugu icin vucut agirligi egzersizleri bu ifadelerle
+    /// taninir. EquipmentType bos ise de egzersiz vucut agirligi kabul edilir (agirlik opsiyonel).
+    /// </summary>
+    private static readonly string[] BodyweightEquipmentMarkers =
+    {
+        "bodyweight", "body weight", "body_weight", "vücut ağırlığı", "vucut agirligi", "ekipmansız", "ekipmansiz", "none", "yok",
+    };
+
     private readonly IUnitOfWork _unitOfWork;
 
     public WorkoutSessionService(IUnitOfWork unitOfWork)
@@ -101,6 +111,66 @@ public class WorkoutSessionService : IWorkoutSessionService
         return await BuildSessionDtoAsync(session, targets, sessionExercises, userId, cancellationToken);
     }
 
+    public async Task<PagedResult<CustomerWorkoutSessionHistoryItemDto>> GetHistoryAsync(long userId, PagedRequest request, CancellationToken cancellationToken = default)
+    {
+        var query = _unitOfWork.Repository<WorkoutSession>()
+            .GetQueryable()
+            .Where(s => s.UserId == userId && s.Status == WorkoutSessionStatus.Completed && s.CompletedAt != null)
+            .OrderByDescending(s => s.CompletedAt);
+
+        var page = await query.ToPagedResultAsync(request.Page, request.PageSize, cancellationToken);
+        var sessions = page.Items;
+        if (sessions.Count == 0)
+        {
+            return PagedResult<CustomerWorkoutSessionHistoryItemDto>.Create(
+                Array.Empty<CustomerWorkoutSessionHistoryItemDto>(), page.Page, page.PageSize, page.TotalCount);
+        }
+
+        var sessionIds = sessions.Select(s => s.Id).ToList();
+        var workoutIds = sessions.Select(s => s.WorkoutId).Distinct().ToList();
+
+        var workoutTitles = await _unitOfWork.Repository<Workout>()
+            .GetQueryable()
+            .Where(w => workoutIds.Contains(w.Id))
+            .ToDictionaryAsync(w => w.Id, w => w.Title, cancellationToken);
+
+        var sessionExercises = await _unitOfWork.Repository<WorkoutSessionExercise>()
+            .GetQueryable()
+            .Where(se => sessionIds.Contains(se.WorkoutSessionId))
+            .ToListAsync(cancellationToken);
+        var sessionExerciseIds = sessionExercises.Select(se => se.Id).ToList();
+
+        var setLogs = await _unitOfWork.Repository<WorkoutSetLog>()
+            .GetQueryable()
+            .Where(l => sessionExerciseIds.Contains(l.WorkoutSessionExerciseId))
+            .ToListAsync(cancellationToken);
+        var sessionIdBySessionExercise = sessionExercises.ToDictionary(se => se.Id, se => se.WorkoutSessionId);
+        var setsBySession = setLogs.ToLookup(l => sessionIdBySessionExercise[l.WorkoutSessionExerciseId]);
+
+        var items = sessions.Select(s =>
+        {
+            var sets = setsBySession[s.Id].ToList();
+            var weights = sets.Where(l => l.WeightKg is > 0).Select(l => l.WeightKg!.Value).ToList();
+            return new CustomerWorkoutSessionHistoryItemDto
+            {
+                Id = s.Id,
+                WorkoutId = s.WorkoutId,
+                Title = workoutTitles.GetValueOrDefault(s.WorkoutId, string.Empty),
+                StartedAt = s.StartedAt,
+                CompletedAt = s.CompletedAt!.Value,
+                DurationSeconds = s.DurationSeconds,
+                CaloriesBurned = s.CaloriesBurned,
+                // Yalnizca en az bir seti loglanan egzersizler sayilir (atlanan egzersizler degil).
+                ExerciseCount = sets.Select(l => l.WorkoutSessionExerciseId).Distinct().Count(),
+                SetCount = sets.Count,
+                TotalVolumeKg = sets.Sum(l => (l.WeightKg ?? 0) * (l.Reps ?? 0)),
+                MaxWeightKg = weights.Count > 0 ? weights.Max() : null,
+            };
+        }).ToList();
+
+        return PagedResult<CustomerWorkoutSessionHistoryItemDto>.Create(items, page.Page, page.PageSize, page.TotalCount);
+    }
+
     public async Task<CustomerWorkoutSessionDto> GetSessionAsync(long userId, long sessionId, CancellationToken cancellationToken = default)
     {
         var session = await GetOwnedSessionAsync(userId, sessionId, cancellationToken);
@@ -134,6 +204,9 @@ public class WorkoutSessionService : IWorkoutSessionService
             throw new NotFoundException(nameof(WorkoutSessionExercise), sessionExerciseId);
         }
 
+        var exercise = await _unitOfWork.Repository<Exercise>().GetByIdAsync(sessionExercise.ExerciseId, cancellationToken);
+        var weightKg = NormalizeWeight(request, exercise);
+
         if (sessionExercise.StartedAt is null)
         {
             sessionExercise.StartedAt = DateTime.UtcNow;
@@ -151,7 +224,7 @@ public class WorkoutSessionService : IWorkoutSessionService
             {
                 WorkoutSessionExerciseId = sessionExerciseId,
                 SetNumber = request.SetNumber,
-                WeightKg = request.WeightKg,
+                WeightKg = weightKg,
                 Reps = request.Reps,
                 DurationSeconds = request.DurationSeconds,
                 Rpe = request.Rpe,
@@ -162,7 +235,7 @@ public class WorkoutSessionService : IWorkoutSessionService
         }
         else
         {
-            existingSet.WeightKg = request.WeightKg;
+            existingSet.WeightKg = weightKg;
             existingSet.Reps = request.Reps;
             existingSet.DurationSeconds = request.DurationSeconds;
             existingSet.Rpe = request.Rpe;
@@ -172,7 +245,6 @@ public class WorkoutSessionService : IWorkoutSessionService
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        var exercise = await _unitOfWork.Repository<Exercise>().GetByIdAsync(sessionExercise.ExerciseId, cancellationToken);
         var targets = await GetExerciseTargetsAsync(session, cancellationToken);
         var setLogs = await _unitOfWork.Repository<WorkoutSetLog>()
             .GetQueryable()
@@ -180,9 +252,10 @@ public class WorkoutSessionService : IWorkoutSessionService
             .OrderBy(s => s.SetNumber)
             .ToListAsync(cancellationToken);
         var previousBest = await GetPreviousBestAsync(userId, sessionExercise.ExerciseId, cancellationToken);
+        var lastPerformances = await GetLastPerformancesAsync(userId, session, new List<long> { sessionExercise.ExerciseId }, cancellationToken);
 
         var target = targets.TryGetValue(sessionExercise.ExerciseId, out var t) ? t : (ExerciseTargetValues?)null;
-        return MapSessionExercise(sessionExercise, exercise, target, setLogs, previousBest);
+        return MapSessionExercise(sessionExercise, exercise, target, setLogs, previousBest, lastPerformances.GetValueOrDefault(sessionExercise.ExerciseId));
     }
 
     public async Task<CustomerWorkoutSessionSummaryDto> CompleteSessionAsync(
@@ -193,6 +266,20 @@ public class WorkoutSessionService : IWorkoutSessionService
     {
         var session = await GetOwnedSessionAsync(userId, sessionId, cancellationToken, forUpdate: true);
         EnsureSessionIsActive(session);
+
+        // Hic set kaydi olmayan bir oturum "tamamlandi" sayilirsa dashboard ilk antrenmani yapilmis
+        // gibi davranir ve gecmiste bos bir kayit gorunur; bu yuzden en az bir set zorunludur.
+        var hasAnySet = await (
+            from log in _unitOfWork.Repository<WorkoutSetLog>().GetQueryable()
+            join se in _unitOfWork.Repository<WorkoutSessionExercise>().GetQueryable()
+                on log.WorkoutSessionExerciseId equals se.Id
+            where se.WorkoutSessionId == session.Id
+            select log.Id
+        ).AnyAsync(cancellationToken);
+        if (!hasAnySet)
+        {
+            throw new AppValidationException("En az bir set kaydetmeden antrenman tamamlanamaz.");
+        }
 
         session.Status = WorkoutSessionStatus.Completed;
         session.CompletedAt = DateTime.UtcNow;
@@ -276,6 +363,7 @@ public class WorkoutSessionService : IWorkoutSessionService
             .ToListAsync(cancellationToken);
 
         var previousBests = await GetPreviousBestsAsync(userId, exerciseIds, cancellationToken);
+        var lastPerformances = await GetLastPerformancesAsync(userId, session, exerciseIds, cancellationToken);
 
         var workout = workoutTitleFallback is null
             ? await _unitOfWork.Repository<Workout>().GetByIdAsync(session.WorkoutId, cancellationToken)
@@ -288,7 +376,7 @@ public class WorkoutSessionService : IWorkoutSessionService
             var setLogs = allSetLogs.Where(s => s.WorkoutSessionExerciseId == se.Id).ToList();
             var previousBest = previousBests.GetValueOrDefault(se.ExerciseId);
 
-            return MapSessionExercise(se, exercise, target, setLogs, previousBest);
+            return MapSessionExercise(se, exercise, target, setLogs, previousBest, lastPerformances.GetValueOrDefault(se.ExerciseId));
         }).ToList();
 
         return new CustomerWorkoutSessionDto
@@ -346,7 +434,8 @@ public class WorkoutSessionService : IWorkoutSessionService
         Exercise? exercise,
         ExerciseTargetValues? target,
         List<WorkoutSetLog> setLogs,
-        CustomerPreviousBestDto? previousBest)
+        CustomerPreviousBestDto? previousBest,
+        CustomerLastPerformanceDto? lastPerformance)
     {
         return new CustomerWorkoutSessionExerciseDto
         {
@@ -360,16 +449,56 @@ public class WorkoutSessionService : IWorkoutSessionService
             DurationSeconds = target?.DurationSeconds,
             VideoUrl = exercise?.VideoUrl,
             ImageUrl = exercise?.ImageUrl,
-            CompletedSets = setLogs.Select(s => new CustomerWorkoutSetLogDto
-            {
-                SetNumber = s.SetNumber,
-                WeightKg = s.WeightKg,
-                Reps = s.Reps,
-                DurationSeconds = s.DurationSeconds,
-                Rpe = s.Rpe,
-            }).ToList(),
+            CompletedSets = setLogs.Select(MapSetLog).ToList(),
             PreviousBest = previousBest,
+            RequiresWeight = RequiresWeight(exercise),
+            LastPerformance = lastPerformance,
         };
+    }
+
+    private static CustomerWorkoutSetLogDto MapSetLog(WorkoutSetLog s) => new()
+    {
+        SetNumber = s.SetNumber,
+        WeightKg = s.WeightKg,
+        Reps = s.Reps,
+        DurationSeconds = s.DurationSeconds,
+        Rpe = s.Rpe,
+    };
+
+    /// <summary>Egzersiz harici agirlik gerektiriyor mu (bkz. <see cref="BodyweightEquipmentMarkers"/>).</summary>
+    private static bool RequiresWeight(Exercise? exercise)
+    {
+        var equipment = exercise?.EquipmentType;
+        if (string.IsNullOrWhiteSpace(equipment))
+        {
+            return false;
+        }
+
+        return !BodyweightEquipmentMarkers.Any(m => equipment.Contains(m, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Set agirligini dogrular: agirlik gerektiren egzersizde 0/bos agirlik reddedilir; vucut agirligi
+    /// egzersizinde 0 "ek agirlik yok" demektir ve null olarak saklanir (rekor/hacim hesaplarini bozmasin).
+    /// </summary>
+    private static decimal? NormalizeWeight(LogWorkoutSetRequest request, Exercise? exercise)
+    {
+        if (request.Reps is null && request.DurationSeconds is null)
+        {
+            throw new AppValidationException(nameof(request.Reps), "Tekrar sayisi veya sure girilmelidir.");
+        }
+
+        if (request.WeightKg is > 0)
+        {
+            return request.WeightKg;
+        }
+
+        if (RequiresWeight(exercise))
+        {
+            throw new AppValidationException(nameof(request.WeightKg), "Bu egzersiz icin 0'dan buyuk bir agirlik girilmelidir.");
+        }
+
+        return null;
     }
 
     private async Task<CustomerPreviousBestDto?> GetPreviousBestAsync(long userId, long exerciseId, CancellationToken cancellationToken)
@@ -381,6 +510,72 @@ public class WorkoutSessionService : IWorkoutSessionService
             .FirstOrDefaultAsync(cancellationToken);
 
         return record is null ? null : new CustomerPreviousBestDto { WeightKg = record.WeightKg, Reps = record.Reps };
+    }
+
+    /// <summary>
+    /// Her egzersiz icin kullanicinin bu oturumdan once tamamladigi en son oturumdaki setleri getirir
+    /// ("Geçen sefer: 3x10 @ 40 kg"). Uygulama bunu ilk deger ve referans olarak gosterir.
+    /// </summary>
+    private async Task<Dictionary<long, CustomerLastPerformanceDto>> GetLastPerformancesAsync(
+        long userId,
+        WorkoutSession currentSession,
+        List<long> exerciseIds,
+        CancellationToken cancellationToken)
+    {
+        if (exerciseIds.Count == 0)
+        {
+            return new Dictionary<long, CustomerLastPerformanceDto>();
+        }
+
+        var cutoff = currentSession.CompletedAt ?? currentSession.StartedAt;
+        var currentSessionId = currentSession.Id;
+        var candidates = await (
+            from se in _unitOfWork.Repository<WorkoutSessionExercise>().GetQueryable()
+            join s in _unitOfWork.Repository<WorkoutSession>().GetQueryable()
+                on se.WorkoutSessionId equals s.Id
+            where s.UserId == userId
+                && s.Id != currentSessionId
+                && s.Status == WorkoutSessionStatus.Completed
+                && s.CompletedAt != null
+                && s.CompletedAt <= cutoff
+                && exerciseIds.Contains(se.ExerciseId)
+            select new { SessionExerciseId = se.Id, se.ExerciseId, SessionId = s.Id, CompletedAt = s.CompletedAt!.Value }
+        ).ToListAsync(cancellationToken);
+
+        if (candidates.Count == 0)
+        {
+            return new Dictionary<long, CustomerLastPerformanceDto>();
+        }
+
+        var candidateIds = candidates.Select(c => c.SessionExerciseId).ToList();
+        var logs = await _unitOfWork.Repository<WorkoutSetLog>()
+            .GetQueryable()
+            .Where(l => candidateIds.Contains(l.WorkoutSessionExerciseId))
+            .ToListAsync(cancellationToken);
+        var logsBySessionExercise = logs.ToLookup(l => l.WorkoutSessionExerciseId);
+
+        var result = new Dictionary<long, CustomerLastPerformanceDto>();
+        foreach (var group in candidates.GroupBy(c => c.ExerciseId))
+        {
+            // Setsiz (atlanmis) egzersiz kayitlarini gec; en son gercekten yapilan oturumu al.
+            var latest = group
+                .Where(c => logsBySessionExercise[c.SessionExerciseId].Any())
+                .OrderByDescending(c => c.CompletedAt)
+                .FirstOrDefault();
+            if (latest is null)
+            {
+                continue;
+            }
+
+            result[group.Key] = new CustomerLastPerformanceDto
+            {
+                SessionId = latest.SessionId,
+                CompletedAt = latest.CompletedAt,
+                Sets = logsBySessionExercise[latest.SessionExerciseId].OrderBy(l => l.SetNumber).Select(MapSetLog).ToList(),
+            };
+        }
+
+        return result;
     }
 
     private async Task<Dictionary<long, CustomerPreviousBestDto>> GetPreviousBestsAsync(long userId, List<long> exerciseIds, CancellationToken cancellationToken)

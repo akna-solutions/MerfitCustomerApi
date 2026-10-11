@@ -1,6 +1,7 @@
 using MerfitCustomerApi.Business.Dtos.Customer.WorkoutPlans;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Domain.Entities;
+using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -70,10 +71,19 @@ public class MyPlanService : IMyPlanService
 
         var dayDtos = await BuildDayDtosAsync(new List<WorkoutPlanDay> { day }, cancellationToken);
 
+        var todayStart = DateTime.UtcNow.Date;
+        var isCompletedToday = await _unitOfWork.Repository<WorkoutSession>().AnyAsync(
+            s => s.UserId == userId
+                && s.WorkoutPlanDayId == day.Id
+                && s.Status == WorkoutSessionStatus.Completed
+                && s.CompletedAt >= todayStart,
+            cancellationToken);
+
         return new CustomerTodayWorkoutPlanResponse
         {
             HasActivePlan = true,
             HasWorkoutToday = true,
+            IsCompletedToday = isCompletedToday,
             Day = dayDtos.FirstOrDefault(),
             WorkoutPlanDayId = day.Id,
         };
