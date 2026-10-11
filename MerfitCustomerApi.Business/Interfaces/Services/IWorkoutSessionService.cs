@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Common.Pagination;
 using MerfitCustomerApi.Business.Dtos.Customer.WorkoutSessions;
 
 namespace MerfitCustomerApi.Business.Interfaces.Services;
@@ -14,6 +15,12 @@ public interface IWorkoutSessionService
     /// </summary>
     /// <exception cref="Domain.Exceptions.NotFoundException">Workout bulunamaz veya pasifse firlatilir.</exception>
     Task<CustomerWorkoutSessionDto> StartSessionAsync(long userId, StartWorkoutSessionRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Kullanicinin tamamlanmis antrenman oturumlarini en yeniden eskiye sayfali olarak dondurur
+    /// (antrenman gecmisi ekrani).
+    /// </summary>
+    Task<PagedResult<CustomerWorkoutSessionHistoryItemDto>> GetHistoryAsync(long userId, PagedRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Devam eden (veya gecmis) bir oturumun guncel durumunu dondurur; ekran yeniden acildiginda

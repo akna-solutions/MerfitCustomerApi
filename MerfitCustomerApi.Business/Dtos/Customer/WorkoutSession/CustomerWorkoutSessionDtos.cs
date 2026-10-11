@@ -58,6 +58,22 @@ public class CustomerWorkoutSessionExerciseDto
 
     /// <summary>Kullanicinin bu egzersizdeki onceki en iyi performansi ("YENI REKOR" rozeti icin); hic yoksa null.</summary>
     public CustomerPreviousBestDto? PreviousBest { get; set; }
+
+    /// <summary>
+    /// Egzersiz harici agirlik gerektiriyorsa (Exercise.EquipmentType bodyweight degilse) true. True iken
+    /// 0 / bos agirlik kabul edilmez; false iken (vucut agirligi egzersizi) agirlik opsiyoneldir.
+    /// </summary>
+    public bool RequiresWeight { get; set; }
+
+    /// <summary>Kullanicinin bu egzersizi en son tamamladigi oturumdaki setleri ("Geçen sefer"); hic yoksa null.</summary>
+    public CustomerLastPerformanceDto? LastPerformance { get; set; }
+}
+
+public class CustomerLastPerformanceDto
+{
+    public long SessionId { get; set; }
+    public DateTime CompletedAt { get; set; }
+    public List<CustomerWorkoutSetLogDto> Sets { get; set; } = new();
 }
 
 public class CustomerWorkoutSetLogDto
@@ -84,7 +100,7 @@ public class LogWorkoutSetRequest
     [Range(0, 1000, ErrorMessage = "WeightKg gecerli bir deger olmalidir.")]
     public decimal? WeightKg { get; set; }
 
-    [Range(0, 1000, ErrorMessage = "Reps gecerli bir deger olmalidir.")]
+    [Range(1, 1000, ErrorMessage = "Tekrar sayisi en az 1 olmalidir.")]
     public int? Reps { get; set; }
 
     [Range(0, 36000, ErrorMessage = "DurationSeconds gecerli bir deger olmalidir.")]
@@ -125,4 +141,27 @@ public class CustomerNewPersonalRecordDto
     public string ExerciseName { get; set; } = string.Empty;
     public decimal WeightKg { get; set; }
     public int Reps { get; set; }
+}
+
+/// <summary>
+/// GET /api/workout-sessions (gecmis) listesindeki tek bir tamamlanmis oturum. Detay (egzersiz ve
+/// set bazinda kilo/tekrar) icin GET /api/workout-sessions/{id} kullanilir.
+/// </summary>
+public class CustomerWorkoutSessionHistoryItemDto
+{
+    public long Id { get; set; }
+    public long WorkoutId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public DateTime StartedAt { get; set; }
+    public DateTime CompletedAt { get; set; }
+    public int? DurationSeconds { get; set; }
+    public decimal? CaloriesBurned { get; set; }
+    public int ExerciseCount { get; set; }
+    public int SetCount { get; set; }
+
+    /// <summary>Toplam hacim: tum setlerde agirlik x tekrar toplami (kg).</summary>
+    public decimal TotalVolumeKg { get; set; }
+
+    /// <summary>Oturumda kaldirilan en yuksek agirlik; agirlikli set yoksa null.</summary>
+    public decimal? MaxWeightKg { get; set; }
 }
