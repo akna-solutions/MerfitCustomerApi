@@ -24,8 +24,11 @@ public class CustomerLeaderboardResponse
 
     public List<CustomerRewardDto> Rewards { get; set; } = new();
 
-    /// <summary>Secili donem icin aktif bir LeaderboardPeriod yoksa null (mobil taraf odul bolumunu gizler).</summary>
+    /// <summary>Secili donem icin bugunu kapsayan aktif bir LeaderboardPeriod ya da ona bagli odul yoksa null (mobil taraf odul bolumunu gizler).</summary>
     public DateTime? RewardsResetAt { get; set; }
+
+    /// <summary>Kullanicinin kazandigi hediyeler (UserReward), en yeniden eskiye.</summary>
+    public List<CustomerEarnedRewardDto> EarnedRewards { get; set; } = new();
 }
 
 public class CustomerCurrentUserSummaryDto
@@ -33,6 +36,10 @@ public class CustomerCurrentUserSummaryDto
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public int Points { get; set; }
+
+    /// <summary>Secili donemdeki sira; donemde hic puani yoksa null.</summary>
+    public int? Rank { get; set; }
+
     public int WeeklyChange { get; set; }
     public int BestRank { get; set; }
     public string BestRankMonthLabel { get; set; } = string.Empty;
@@ -80,4 +87,21 @@ public class CustomerRewardDto
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string Icon { get; set; } = string.Empty;
+    public string? ImageUrl { get; set; }
+    public string? Value { get; set; }
+}
+
+/// <summary>Kullanicinin kazandigi bir hediye. Status: "pending" | "claimed" | "expired".</summary>
+public class CustomerEarnedRewardDto
+{
+    public long Id { get; set; }
+    public int? Rank { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string Icon { get; set; } = string.Empty;
+    public string? ImageUrl { get; set; }
+    public string? Value { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateTime EarnedAt { get; set; }
+    public DateTime? ClaimedAt { get; set; }
 }

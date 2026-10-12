@@ -22,9 +22,12 @@ public class ProgressService : IProgressService
 
     private readonly IUnitOfWork _unitOfWork;
 
-    public ProgressService(IUnitOfWork unitOfWork)
+    private readonly IMerfitScoreService _scoreService;
+
+    public ProgressService(IUnitOfWork unitOfWork, IMerfitScoreService scoreService)
     {
         _unitOfWork = unitOfWork;
+        _scoreService = scoreService;
     }
 
     public async Task<CustomerProgressResponse> GetProgressAsync(long userId, string range, CancellationToken cancellationToken = default)
@@ -158,43 +161,23 @@ public class ProgressService : IProgressService
         };
     }
 
-    private async Task<CustomerScoreSummaryDto?> BuildScoreSummaryAsync(long userId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Tum zamanlar MB FIT puani ve sirasi (LeaderboardScreen'deki "Tüm Zamanlar" ile ayni hesap).
+    /// Hic puani olmayan kullanici icin de 0 puanla doner ki ScoreCard ve siralamaya giris gorunsun.
+    /// </summary>
+    private async Task<CustomerScoreSummaryDto> BuildScoreSummaryAsync(long userId, CancellationToken cancellationToken)
     {
-        var latestScore = await _unitOfWork.Repository<MerfitScore>()
-            .GetQueryable()
-            .Where(s => s.UserId == userId)
-            .OrderByDescending(s => s.CalculatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
+        var ranked = await _scoreService.RankUsersAsync(null, null, cancellationToken);
+        var current = ranked.FirstOrDefault(r => r.UserId == userId);
 
-        if (latestScore is null)
-        {
-            return null;
-        }
-
-        var weekAgo = latestScore.CalculatedAt.AddDays(-7);
-        var pastScore = await _unitOfWork.Repository<MerfitScoreHistory>()
-            .GetQueryable()
-            .Where(h => h.UserId == userId && h.RecordedAt <= weekAgo)
-            .OrderByDescending(h => h.RecordedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        var weeklyChange = pastScore is not null
-            ? (int)Math.Round(latestScore.Score - pastScore.Score)
-            : 0;
-
-        var activeEntry = await (
-            from entry in _unitOfWork.Repository<LeaderboardEntry>().GetQueryable()
-            join period in _unitOfWork.Repository<LeaderboardPeriod>().GetQueryable()
-                on entry.LeaderboardPeriodId equals period.Id
-            where entry.UserId == userId && period.IsActive
-            select (int?)entry.Rank
-        ).FirstOrDefaultAsync(cancellationToken);
+        var weekAgo = DateTime.UtcNow.AddDays(-7);
+        var weeklyEvents = await _scoreService.GetPointEventsAsync(weekAgo, null, userId, cancellationToken);
 
         return new CustomerScoreSummaryDto
         {
-            Points = (int)Math.Round(latestScore.Score),
-            WeeklyChange = weeklyChange,
-            Rank = activeEntry,
+            Points = current?.Points ?? 0,
+            WeeklyChange = weeklyEvents.Sum(e => e.Points),
+            Rank = current?.Rank,
         };
     }
 

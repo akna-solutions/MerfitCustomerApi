@@ -6,6 +6,7 @@ using MerfitCustomerApi.Business.Services.Dashboard;
 using MerfitCustomerApi.Business.Services.Equipment;
 using MerfitCustomerApi.Business.Services.Foods;
 using MerfitCustomerApi.Business.Services.Leaderboard;
+using MerfitCustomerApi.Business.Services.Scoring;
 using MerfitCustomerApi.Business.Services.Nutrition;
 using MerfitCustomerApi.Business.Services.Personalization;
 using MerfitCustomerApi.Business.Services.Personalization.Generators;
@@ -94,6 +95,9 @@ builder.Services.AddScoped<INutritionService, NutritionService>();
 builder.Services.AddScoped<IFoodService, FoodService>();
 builder.Services.AddScoped<IProgressService, ProgressService>();
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
+// MB FIT puan motoru: kullanicinin aksiyonlarindan puan, siralama ve basari hesaplar.
+builder.Services.Configure<MerfitScoringOptions>(builder.Configuration.GetSection(MerfitScoringOptions.SectionName));
+builder.Services.AddScoped<IMerfitScoreService, MerfitScoreService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IEquipmentService, EquipmentService>();
 

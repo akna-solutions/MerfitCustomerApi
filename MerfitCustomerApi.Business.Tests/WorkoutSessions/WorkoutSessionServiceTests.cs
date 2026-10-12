@@ -1,5 +1,6 @@
 using MerfitCustomerApi.Business.Common.Pagination;
 using MerfitCustomerApi.Business.Dtos.Customer.WorkoutSessions;
+using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Personalization;
 using MerfitCustomerApi.Business.Services.WorkoutSessions;
 using MerfitCustomerApi.Business.Tests.TestHelpers;
@@ -43,6 +44,7 @@ public class WorkoutSessionServiceTests
     private readonly List<WorkoutPlanDay> _planDays = new();
 
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
+    private readonly Mock<IMerfitScoreService> _scoreService = new();
 
     public WorkoutSessionServiceTests()
     {
@@ -60,7 +62,7 @@ public class WorkoutSessionServiceTests
         _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
     }
 
-    private WorkoutSessionService CreateService() => new(_unitOfWork.Object);
+    private WorkoutSessionService CreateService() => new(_unitOfWork.Object, _scoreService.Object);
 
     /// <summary>Aktif (Started) bir oturum ve iki egzersiz kaydi ekler; bench = 11, sinav = 12.</summary>
     private WorkoutSession SeedActiveSession(long sessionId = 10)
@@ -158,6 +160,7 @@ public class WorkoutSessionServiceTests
 
         Assert.Equal(WorkoutSessionStatus.Completed, session.Status);
         Assert.NotNull(session.CompletedAt);
+        _scoreService.Verify(s => s.TryRefreshUserAsync(UserId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
