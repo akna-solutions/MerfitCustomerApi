@@ -2,6 +2,8 @@
 using MerfitCustomerApi.Business.Dtos.Customer.Profile;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Nutrition;
+using MerfitCustomerApi.Business.Services.Personalization;
+using MerfitCustomerApi.Business.Services.Progress;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
@@ -56,22 +58,30 @@ public class ProfileService : IProfileService
         ApplyTrainingPreferenceChanges(profile, request);
         await ApplyNutritionPreferenceChangesAsync(profile, request, cancellationToken);
 
+        if (request.Weight.HasValue)
+        {
+            // Profilden girilen kilo da gunluk kilo gecmisine (ilerleme grafigi) yazilir.
+            await WeightTracking.UpsertDailyWeightAsync(
+                _unitOfWork, userId, DateOnly.FromDateTime(DateTime.UtcNow), request.Weight.Value, profile.HeightCm, cancellationToken);
+        }
+
         var planInputsAfter = PlanInputs.From(profile);
         var nutritionInputsAfter = NutritionInputs.From(profile);
+        var goalChanged = planInputsAfter.Goal != planInputsBefore.Goal && profile.Goal.HasValue;
         if (planInputsAfter != planInputsBefore)
         {
-            if (planInputsAfter.Goal != planInputsBefore.Goal && profile.Goal.HasValue)
+            if (goalChanged)
             {
-                await UpdateActiveGoalTypeAsync(userId, profile.Goal.Value, cancellationToken);
+                await StartNewActiveGoalAsync(profile, profile.Goal!.Value, request.TargetWeight, cancellationToken);
             }
 
-            await EnqueuePlanRegenerationAsync(userId, nutritionOnly: false, cancellationToken);
+            await PlanRegenerationQueue.EnqueueAsync(_unitOfWork, userId, nutritionOnly: false, cancellationToken);
         }
         else if (nutritionInputsAfter != nutritionInputsBefore)
         {
             // Yalnizca beslenme hedeflerini/menuyu etkileyen alanlar (kilo, boy, yas, aktivite, alerji...)
             // degisti: antrenman programina dokunmadan beslenme programi ve hedefleri yeniden uretilir.
-            await EnqueuePlanRegenerationAsync(userId, nutritionOnly: true, cancellationToken);
+            await PlanRegenerationQueue.EnqueueAsync(_unitOfWork, userId, nutritionOnly: true, cancellationToken);
         }
 
         // NOT: user/profile yukarida AsNoTracking OLMADAN cekildi, yani EF change tracker
@@ -85,9 +95,14 @@ public class ProfileService : IProfileService
         // kullanici adi zaten kullaniliyor" hatasi olarak donuyordu. Update() cagrisi
         // kaldirilinca Username yalnizca GERCEKTEN degistiginde UPDATE'e dahil olur.
 
-        if (request.TargetWeight.HasValue)
+        // Hedef degistiyse hedef kilo StartNewActiveGoalAsync icinde zaten ayarlandi.
+        if (!goalChanged && request.TargetWeight.HasValue)
         {
             await UpdateActiveGoalTargetWeightAsync(userId, request.TargetWeight.Value, cancellationToken);
+        }
+        else if (!goalChanged && request.Weight.HasValue)
+        {
+            await UpdateActiveGoalCurrentWeightAsync(userId, request.Weight.Value, cancellationToken);
         }
 
         if (request.UnitSystem is not null)
@@ -354,50 +369,39 @@ public class ProfileService : IProfileService
             profile.TrainingLocation);
     }
 
-    private async Task UpdateActiveGoalTypeAsync(long userId, FitnessGoal goalType, CancellationToken cancellationToken)
+    /// <summary>
+    /// Hedef degisti: aktif hedef bugunden yeniden baslar ve hedef kilo yeni hedefe gore otomatik
+    /// hesaplanir (bkz. TargetWeightCalculator). Ayni istekte elle hedef kilo verildiyse o kullanilir.
+    /// </summary>
+    private async Task StartNewActiveGoalAsync(UserProfile profile, FitnessGoal goalType, decimal? manualTargetWeight, CancellationToken cancellationToken)
+    {
+        var goal = await _unitOfWork.Repository<UserGoal>()
+            .GetQueryable(asNoTracking: false)
+            .FirstOrDefaultAsync(g => g.UserId == profile.UserId && g.IsActive, cancellationToken);
+        if (goal is null)
+        {
+            goal = new UserGoal { UserId = profile.UserId, IsActive = true, CreatedAt = DateTime.UtcNow };
+            await _unitOfWork.Repository<UserGoal>().AddAsync(goal, cancellationToken);
+        }
+
+        WeightTracking.ResetForNewGoal(goal, profile, goalType, profile.WeightKg);
+        if (manualTargetWeight.HasValue)
+        {
+            goal.TargetWeightKg = manualTargetWeight;
+            profile.TargetWeightKg = manualTargetWeight;
+        }
+    }
+
+    private async Task UpdateActiveGoalCurrentWeightAsync(long userId, decimal weightKg, CancellationToken cancellationToken)
     {
         var goal = await _unitOfWork.Repository<UserGoal>()
             .GetQueryable(asNoTracking: false)
             .FirstOrDefaultAsync(g => g.UserId == userId && g.IsActive, cancellationToken);
-        if (goal is not null && goal.GoalType != goalType)
+        if (goal is not null)
         {
-            goal.GoalType = goalType;
+            goal.CurrentWeightKg = weightKg;
             goal.UpdatedAt = DateTime.UtcNow;
         }
-    }
-
-    /// <summary>
-    /// Kayittaki ile ayni sekilde bir PersonalizationJob kuyruga alir; arka plan islemcisi yeni
-    /// plan(lar)i uretip eski aktif planlari pasiflestirir. Bekleyen (Pending) bir is zaten varsa yenisi
-    /// eklenmez, o is guncel profili okuyacaktir (gerekirse kapsami tam yenilemeye genisletilir). Islenmekte
-    /// (Processing) olan is eski profili okumus olabilecegi icin yeni is eklenir; islemci ayni kullanicinin
-    /// islerini sirayla isler.
-    /// </summary>
-    private async Task EnqueuePlanRegenerationAsync(long userId, bool nutritionOnly, CancellationToken cancellationToken)
-    {
-        var jobs = _unitOfWork.Repository<PersonalizationJob>();
-        var pendingJob = await jobs.GetQueryable(asNoTracking: false)
-            .Where(j => j.UserId == userId && j.Status == PersonalizationJobStatus.Pending)
-            .OrderBy(j => j.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (pendingJob is not null)
-        {
-            if (!nutritionOnly && pendingJob.NutritionOnly)
-            {
-                pendingJob.NutritionOnly = false;
-                pendingJob.UpdatedAt = DateTime.UtcNow;
-            }
-
-            return;
-        }
-
-        await jobs.AddAsync(new PersonalizationJob
-        {
-            UserId = userId,
-            Status = PersonalizationJobStatus.Pending,
-            NutritionOnly = nutritionOnly,
-            CreatedAt = DateTime.UtcNow,
-        }, cancellationToken);
     }
 
     private async Task UpdateActiveGoalTargetWeightAsync(long userId, decimal targetWeight, CancellationToken cancellationToken)
@@ -417,14 +421,18 @@ public class ProfileService : IProfileService
         if (goal is not null)
         {
             goal.TargetWeightKg = targetWeight;
-            _unitOfWork.Repository<UserGoal>().Update(goal);
+            goal.UpdatedAt = DateTime.UtcNow;
+            if (profile?.WeightKg is not null) goal.CurrentWeightKg = profile.WeightKg;
+            goal.StartingWeightKg ??= profile?.WeightKg;
         }
         else
         {
             await _unitOfWork.Repository<UserGoal>().AddAsync(new UserGoal
             {
                 UserId = userId,
-                GoalType = FitnessGoal.MaintainWeight,
+                GoalType = profile?.Goal ?? FitnessGoal.MaintainWeight,
+                StartingWeightKg = profile?.WeightKg,
+                CurrentWeightKg = profile?.WeightKg,
                 TargetWeightKg = targetWeight,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
@@ -617,7 +625,8 @@ public class ProfileService : IProfileService
             Age = age,
             Height = profile.HeightCm ?? 0,
             Weight = profile.WeightKg ?? 0,
-            // Hedef kilo kayitta sorulmuyor; belirlenmemisse 0 doner (istemci "Belirlenmedi" gosterir).
+            // Hedef kilo kayitta ve hedef degisince otomatik hesaplanir; boy/kilo yoksa 0 doner
+            // (istemci "Belirlenmedi" gosterir).
             TargetWeight = activeGoal?.TargetWeightKg ?? profile.TargetWeightKg ?? 0,
             Goal = MapGoalToDisplay(profile.Goal),
             ExperienceLevel = profile.ExperienceLevel?.ToString().ToUpperInvariant() ?? "BEGINNER",

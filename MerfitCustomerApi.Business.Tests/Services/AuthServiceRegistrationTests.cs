@@ -27,6 +27,8 @@ public class AuthServiceRegistrationTests
         public required List<ApplicationUser> Users { get; init; }
         public required List<UserProfile> Profiles { get; init; }
         public required List<PersonalizationJob> Jobs { get; init; }
+        public required List<UserGoal> Goals { get; init; }
+        public required List<BodyMeasurement> Measurements { get; init; }
     }
 
     private static Fixture CreateFixture()
@@ -44,6 +46,8 @@ public class AuthServiceRegistrationTests
         unitOfWork.Setup(u => u.Repository<UserProfile>()).Returns(MockRepositoryFactory.Create(profiles).Object);
         unitOfWork.Setup(u => u.Repository<UserEquipment>()).Returns(MockRepositoryFactory.Create(equipment).Object);
         unitOfWork.Setup(u => u.Repository<UserGoal>()).Returns(MockRepositoryFactory.Create(goals).Object);
+        var measurements = new List<BodyMeasurement>();
+        unitOfWork.Setup(u => u.Repository<BodyMeasurement>()).Returns(MockRepositoryFactory.Create(measurements).Object);
         unitOfWork.Setup(u => u.Repository<NutritionGoal>()).Returns(MockRepositoryFactory.Create(nutritionGoals).Object);
         unitOfWork.Setup(u => u.Repository<PersonalizationJob>()).Returns(MockRepositoryFactory.Create(jobs).Object);
         unitOfWork.Setup(u => u.Repository<UserRefreshToken>()).Returns(MockRepositoryFactory.Create(refreshTokens).Object);
@@ -75,6 +79,8 @@ public class AuthServiceRegistrationTests
             Users = users,
             Profiles = profiles,
             Jobs = jobs,
+            Goals = goals,
+            Measurements = measurements,
         };
     }
 
@@ -123,6 +129,24 @@ public class AuthServiceRegistrationTests
         Assert.Equal(PersonalizationJobStatus.Pending, job.Status);
         Assert.Equal(0, job.AttemptCount);
         Assert.Equal(result.UserId, job.UserId);
+    }
+
+    [Theory]
+    [InlineData("lose_weight", 95, 71.5)]
+    [InlineData("build_muscle", 70, 74)]
+    [InlineData("maintain_weight", 78, 78)]
+    public async Task RegisterAsync_SetsTargetWeightFromGoal_AndFirstWeightEntry(string goal, double weight, double expectedTarget)
+    {
+        var fx = CreateFixture();
+        var request = MakeRequest();
+        request.Goal = goal;
+        request.Weight = (decimal)weight;
+
+        await fx.Service.RegisterAsync(request, ipAddress: null);
+
+        Assert.Equal((decimal)expectedTarget, Assert.Single(fx.Profiles).TargetWeightKg);
+        Assert.Equal((decimal)expectedTarget, Assert.Single(fx.Goals).TargetWeightKg);
+        Assert.Equal((decimal)weight, Assert.Single(fx.Measurements).WeightKg);
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using MerfitCustomerApi.Business.Dtos.Customer.Dashboard;
 using MerfitCustomerApi.Business.Dtos.Customer.Workouts;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.Progress;
 using MerfitCustomerApi.Business.Services.Workouts;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
@@ -69,6 +70,12 @@ public class DashboardService : IDashboardService
             .FirstOrDefaultAsync(cancellationToken);
 
         var currentWeightKg = latestMeasurement?.WeightKg ?? profile.WeightKg;
+
+        // Eski kayitlarda hedef kilo bos olabilir: hedefe gore otomatik hesaplanip kaydedilir.
+        if (activeGoal is not null && WeightTracking.EnsureWeightGoal(activeGoal, profile, latestMeasurement?.WeightKg))
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
 
         var recommendedPage = await _workoutService.GetWorkoutsAsync(
             userId,
