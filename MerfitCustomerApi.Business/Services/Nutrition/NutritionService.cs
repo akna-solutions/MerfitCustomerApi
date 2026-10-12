@@ -1,6 +1,7 @@
-using MerfitCustomerApi.Business.Common;
+﻿using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Customer.Nutrition;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.Notifications.Engine;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
@@ -20,11 +21,14 @@ public class NutritionService : INutritionService
 
     private readonly IMerfitScoreService _scoreService;
 
-    public NutritionService(IUnitOfWork unitOfWork, INutritionCalculator nutritionCalculator, IMerfitScoreService scoreService)
+    private readonly INotificationReminderCanceller? _reminderCanceller;
+
+    public NutritionService(IUnitOfWork unitOfWork, INutritionCalculator nutritionCalculator, IMerfitScoreService scoreService, INotificationReminderCanceller? reminderCanceller = null)
     {
         _unitOfWork = unitOfWork;
         _nutritionCalculator = nutritionCalculator;
         _scoreService = scoreService;
+        _reminderCanceller = reminderCanceller;
     }
 
     public async Task<CustomerNutritionResponse> GetDailyNutritionAsync(long userId, DateOnly date, CancellationToken cancellationToken = default)
@@ -155,6 +159,10 @@ public class NutritionService : INutritionService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         await _scoreService.TryRefreshUserAsync(userId, cancellationToken);
+
+        // Bu ogun icin bekleyen hatirlatmayi iptal et (hata ogun kaydini bozmaz).
+        await NotificationReminderCancellation.TryRunAsync(_unitOfWork, _reminderCanceller,
+            c => c.CancelMealRemindersAsync(userId, DateOnly.FromDateTime(date), mealType, cancellationToken), cancellationToken);
 
         return new CustomerMealEntryDto
         {

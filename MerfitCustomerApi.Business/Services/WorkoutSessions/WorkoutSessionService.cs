@@ -1,6 +1,7 @@
-using MerfitCustomerApi.Business.Common.Pagination;
+﻿using MerfitCustomerApi.Business.Common.Pagination;
 using MerfitCustomerApi.Business.Dtos.Customer.WorkoutSessions;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.Notifications.Engine;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
@@ -27,10 +28,13 @@ public class WorkoutSessionService : IWorkoutSessionService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMerfitScoreService _scoreService;
 
-    public WorkoutSessionService(IUnitOfWork unitOfWork, IMerfitScoreService scoreService)
+    private readonly INotificationReminderCanceller? _reminderCanceller;
+
+    public WorkoutSessionService(IUnitOfWork unitOfWork, IMerfitScoreService scoreService, INotificationReminderCanceller? reminderCanceller = null)
     {
         _unitOfWork = unitOfWork;
         _scoreService = scoreService;
+        _reminderCanceller = reminderCanceller;
     }
 
     public async Task<CustomerWorkoutSessionDto> StartSessionAsync(long userId, StartWorkoutSessionRequest request, CancellationToken cancellationToken = default)
@@ -297,6 +301,11 @@ public class WorkoutSessionService : IWorkoutSessionService
 
         // MB FIT puani: basarilari ver, puan ozetini guncelle (hata antrenman kaydini bozmaz).
         await _scoreService.TryRefreshUserAsync(userId, cancellationToken);
+
+        // Bugunun bekleyen antrenman hatirlatmasini iptal et (hata antrenman kaydini bozmaz; gonderici
+        // zaten gonderimden once antrenmanin tamamlanip tamamlanmadigini kontrol eder).
+        await NotificationReminderCancellation.TryRunAsync(_unitOfWork, _reminderCanceller,
+            c => c.CancelWorkoutRemindersAsync(userId, session.CompletedAt!.Value, cancellationToken), cancellationToken);
 
         return new CustomerWorkoutSessionSummaryDto
         {

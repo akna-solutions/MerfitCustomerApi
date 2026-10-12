@@ -1,4 +1,4 @@
-using MerfitCustomerApi.Business.Dtos.Customer.Notifications;
+﻿using MerfitCustomerApi.Business.Dtos.Customer.Notifications;
 using MerfitCustomerApi.Business.Services.Notifications;
 using MerfitCustomerApi.Business.Tests.TestHelpers;
 using MerfitCustomerApi.Domain.Entities;
@@ -182,5 +182,45 @@ public class NotificationServiceTests
 
         await Assert.ThrowsAsync<NotFoundException>(() => fixture.Service.MarkAsReadAsync(UserId, 1));
         Assert.False(fixture.Notifications[0].IsRead);
+    }
+
+    [Fact]
+    public async Task UpdatePreferencesAsync_SavesPushSwitchAndQuietHours()
+    {
+        var fixture = CreateFixture();
+        var preferences = new List<UserPreference>();
+        fixture.UnitOfWork.Setup(u => u.Repository<UserPreference>()).Returns(MockRepositoryFactory.Create(preferences).Object);
+
+        var result = await fixture.Service.UpdatePreferencesAsync(UserId, new UpdateNotificationPreferencesRequest
+        {
+            PushEnabled = false,
+            QuietHoursStart = "22:30",
+            QuietHoursEnd = "07:00",
+            TimeZone = "Europe/Berlin",
+        });
+
+        var row = Assert.Single(fixture.LegacySettings);
+        Assert.False(row.PushEnabled);
+        Assert.Equal(new TimeOnly(22, 30), row.QuietHoursStart);
+        Assert.Equal("Europe/Berlin", Assert.Single(preferences).TimeZone);
+        Assert.False(result.PushEnabled);
+        Assert.Equal("Europe/Berlin", result.EffectiveTimeZone);
+    }
+
+    [Theory]
+    [InlineData("22:00", null, null)]
+    [InlineData("25:00", "07:00", null)]
+    [InlineData(null, null, "Mars/Olympus")]
+    public async Task UpdatePreferencesAsync_InvalidInput_Throws(string? start, string? end, string? timeZone)
+    {
+        var fixture = CreateFixture();
+        fixture.UnitOfWork.Setup(u => u.Repository<UserPreference>()).Returns(MockRepositoryFactory.Create(new List<UserPreference>()).Object);
+
+        await Assert.ThrowsAsync<AppValidationException>(() => fixture.Service.UpdatePreferencesAsync(UserId, new UpdateNotificationPreferencesRequest
+        {
+            QuietHoursStart = start,
+            QuietHoursEnd = end,
+            TimeZone = timeZone,
+        }));
     }
 }

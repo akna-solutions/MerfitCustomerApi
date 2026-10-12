@@ -1,11 +1,14 @@
-using MerfitCustomerApi.Business.Common.Pagination;
+﻿using MerfitCustomerApi.Business.Common.Pagination;
 using MerfitCustomerApi.Business.Dtos.Customer.Notifications;
+using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.Notifications.Engine;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace MerfitCustomerApi.Business.Services.Notifications;
 
@@ -18,7 +21,7 @@ namespace MerfitCustomerApi.Business.Services.Notifications;
 /// bu uc nokta her zaman ayni degeri gosterir. Sutunu olmayan turler UserNotificationTypeSetting
 /// tablosunda tutulur.
 /// </summary>
-public class NotificationService : INotificationService
+public class NotificationService : INotificationService, INotificationPreferenceReader
 {
     public const string CategoryWorkout = "workout";
     public const string CategoryNutrition = "nutrition";
@@ -51,6 +54,8 @@ public class NotificationService : INotificationService
         new TypeInfo(NotificationType.Reward, "Ödüller", "Kazandığın ödüller ve puanlar.", CategoryGeneral, true),
         new TypeInfo(NotificationType.NutritionReminder, "Beslenme Hatırlatmaları", "Öğün ve beslenme programı hatırlatmaları.", CategoryNutrition, true),
         new TypeInfo(NotificationType.WaterReminder, "Su Hatırlatmaları", "Günlük su hedefin için hatırlatma.", CategoryNutrition, true),
+        new TypeInfo(NotificationType.DailyMotivation, "Günlük Motivasyon", "Güne başlarken kısa bir motivasyon mesajı.", CategoryGeneral, true),
+        new TypeInfo(NotificationType.Announcement, "Duyurular", "MB FIT ekibinden duyurular ve yenilikler.", CategoryGeneral, true),
         new TypeInfo(NotificationType.Subscription, "Üyelik ve Abonelik", "MB FIT Plus üyeliğinle ilgili bilgiler.", CategoryGeneral, true),
         new TypeInfo(NotificationType.Marketing, "Kampanyalar ve Ürün Haberleri", "Yeni özellikler ve kampanyalar.", CategoryGeneral, false,
             GetLegacy: s => s.ProductUpdates, SetLegacy: (s, v) => s.ProductUpdates = v),
@@ -60,10 +65,133 @@ public class NotificationService : INotificationService
     private static readonly Dictionary<NotificationType, TypeInfo> CatalogByType = Catalog.ToDictionary(t => t.Type);
 
     private readonly IUnitOfWork _unitOfWork;
+    private readonly NotificationOptions _options;
 
-    public NotificationService(IUnitOfWork unitOfWork)
+    public NotificationService(IUnitOfWork unitOfWork, IOptions<NotificationOptions>? options = null)
     {
         _unitOfWork = unitOfWork;
+        _options = options?.Value ?? new NotificationOptions();
+    }
+
+    public async Task<CustomerNotificationPreferencesDto> GetPreferencesAsync(long userId, CancellationToken cancellationToken = default)
+    {
+        var legacy = await _unitOfWork.Repository<UserNotificationSetting>()
+            .FirstOrDefaultAsync(s => s.UserId == userId, cancellationToken);
+        var timeZone = await _unitOfWork.Repository<UserPreference>()
+            .GetQueryable()
+            .Where(p => p.UserId == userId)
+            .Select(p => p.TimeZone)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return new CustomerNotificationPreferencesDto
+        {
+            PushEnabled = legacy?.PushEnabled ?? true,
+            QuietHoursStart = legacy?.QuietHoursStart?.ToString("HH\\:mm"),
+            QuietHoursEnd = legacy?.QuietHoursEnd?.ToString("HH\\:mm"),
+            TimeZone = timeZone,
+            EffectiveTimeZone = NotificationClock.Resolve(timeZone, _options).Id,
+        };
+    }
+
+    public async Task<CustomerNotificationPreferencesDto> UpdatePreferencesAsync(long userId, UpdateNotificationPreferencesRequest request, CancellationToken cancellationToken = default)
+    {
+        var start = ParseTime(request.QuietHoursStart, nameof(request.QuietHoursStart));
+        var end = ParseTime(request.QuietHoursEnd, nameof(request.QuietHoursEnd));
+        if (start.HasValue != end.HasValue)
+        {
+            throw new AppValidationException(nameof(request.QuietHoursEnd), "Sessiz saat için başlangıç ve bitiş birlikte girilmeli.");
+        }
+
+        if (request.TimeZone is not null && !NotificationClock.IsValidTimeZone(request.TimeZone))
+        {
+            throw new AppValidationException(nameof(request.TimeZone), "Geçersiz saat dilimi.");
+        }
+
+        var legacy = await GetOrCreateLegacySettingsAsync(userId, cancellationToken);
+        legacy.PushEnabled = request.PushEnabled;
+        legacy.QuietHoursStart = start;
+        legacy.QuietHoursEnd = end;
+        legacy.UpdatedAt = DateTime.UtcNow;
+
+        if (request.TimeZone is not null)
+        {
+            await SetTimeZoneAsync(_unitOfWork, userId, request.TimeZone, cancellationToken);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return await GetPreferencesAsync(userId, cancellationToken);
+    }
+
+    /// <summary>Kullanicinin saat dilimini kaydeder (UserPreference yoksa ProfileService varsayilanlariyla olusturur). SaveChanges cagirmaz.</summary>
+    public static async Task SetTimeZoneAsync(IUnitOfWork unitOfWork, long userId, string timeZone, CancellationToken cancellationToken)
+    {
+        var repo = unitOfWork.Repository<UserPreference>();
+        var preference = await repo.GetQueryable(asNoTracking: false).FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken);
+        if (preference is null)
+        {
+            await repo.AddAsync(new UserPreference
+            {
+                UserId = userId,
+                Language = "tr",
+                Theme = Theme.System,
+                TimeZone = timeZone,
+                CreatedAt = DateTime.UtcNow,
+            }, cancellationToken);
+        }
+        else if (preference.TimeZone != timeZone)
+        {
+            preference.TimeZone = timeZone;
+            preference.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    public async Task<IReadOnlyDictionary<long, UserNotificationPreferences>> GetPreferencesAsync(IReadOnlyCollection<long> userIds, CancellationToken cancellationToken = default)
+    {
+        var ids = userIds.Distinct().ToList();
+        var legacyRows = await _unitOfWork.Repository<UserNotificationSetting>()
+            .GetQueryable()
+            .Where(s => ids.Contains(s.UserId))
+            .ToListAsync(cancellationToken);
+        var typeRows = await _unitOfWork.Repository<UserNotificationTypeSetting>()
+            .GetQueryable()
+            .Where(s => ids.Contains(s.UserId))
+            .ToListAsync(cancellationToken);
+        var timeZones = await _unitOfWork.Repository<UserPreference>()
+            .GetQueryable()
+            .Where(p => ids.Contains(p.UserId))
+            .Select(p => new { p.UserId, p.TimeZone })
+            .ToListAsync(cancellationToken);
+
+        var legacyByUser = legacyRows.GroupBy(r => r.UserId).ToDictionary(g => g.Key, g => g.First());
+        var typesByUser = typeRows.GroupBy(r => r.UserId).ToDictionary(g => g.Key, g => g.ToList());
+        var tzByUser = timeZones.GroupBy(r => r.UserId).ToDictionary(g => g.Key, g => g.First().TimeZone);
+
+        return ids.ToDictionary(id => id, id =>
+        {
+            var legacy = legacyByUser.GetValueOrDefault(id);
+            var enabled = BuildEnabledMap(legacy, typesByUser.GetValueOrDefault(id) ?? new List<UserNotificationTypeSetting>());
+            return new UserNotificationPreferences(
+                enabled.Where(kv => !kv.Value).Select(kv => kv.Key).ToHashSet(),
+                legacy?.PushEnabled ?? true,
+                legacy?.QuietHoursStart,
+                legacy?.QuietHoursEnd,
+                tzByUser.GetValueOrDefault(id));
+        });
+    }
+
+    private static TimeOnly? ParseTime(string? value, string field)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (!TimeOnly.TryParseExact(value.Trim(), "HH:mm", out var time))
+        {
+            throw new AppValidationException(field, "Saat SS:dd biçiminde olmalı (örn. 22:30).");
+        }
+
+        return time;
     }
 
     public async Task<PagedResult<CustomerNotificationDto>> GetNotificationsAsync(long userId, CustomerNotificationListRequest request, CancellationToken cancellationToken = default)
@@ -90,6 +218,7 @@ public class NotificationService : INotificationService
             ImageUrl = n.ImageUrl,
             IsRead = n.IsRead,
             CreatedAt = n.CreatedAt,
+            Data = NotificationNavigation.ToDictionary(n.DataJson),
         }).ToList();
 
         return PagedResult<CustomerNotificationDto>.Create(items, page.Page, page.PageSize, page.TotalCount);
@@ -268,13 +397,16 @@ public class NotificationService : INotificationService
             .Where(s => s.UserId == userId)
             .ToListAsync(cancellationToken);
 
-        return Catalog.ToDictionary(info => info.Type, info =>
+        return BuildEnabledMap(legacy, rows);
+    }
+
+    private static Dictionary<NotificationType, bool> BuildEnabledMap(UserNotificationSetting? legacy, List<UserNotificationTypeSetting> rows) =>
+        Catalog.ToDictionary(info => info.Type, info =>
         {
             if (info.IsLocked) return true;
             if (info.GetLegacy is not null) return legacy is null ? info.DefaultEnabled : info.GetLegacy(legacy);
             return rows.FirstOrDefault(r => r.Type == info.Type)?.IsEnabled ?? info.DefaultEnabled;
         });
-    }
 
     /// <summary>Kategoriye uyan ve kullanicinin kapatmadigi turler.</summary>
     private async Task<List<NotificationType>> GetVisibleTypesAsync(long userId, string? category, CancellationToken cancellationToken)

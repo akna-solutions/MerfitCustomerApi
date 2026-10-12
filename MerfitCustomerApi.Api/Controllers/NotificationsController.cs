@@ -1,4 +1,4 @@
-using MerfitCustomerApi.Api.Extensions;
+﻿using MerfitCustomerApi.Api.Extensions;
 using MerfitCustomerApi.Business.Common.Pagination;
 using MerfitCustomerApi.Business.Dtos.Customer.Notifications;
 using MerfitCustomerApi.Business.Interfaces.Services;
@@ -14,10 +14,12 @@ namespace MerfitCustomerApi.Api.Controllers;
 public class NotificationsController : ControllerBase
 {
     private readonly INotificationService _notificationService;
+    private readonly INotificationDeviceService _deviceService;
 
-    public NotificationsController(INotificationService notificationService)
+    public NotificationsController(INotificationService notificationService, INotificationDeviceService deviceService)
     {
         _notificationService = notificationService;
+        _deviceService = deviceService;
     }
 
     /// <summary>Sorgu: /api/notifications?category=nutrition&amp;page=1&amp;pageSize=20 (en yeni once).</summary>
@@ -71,5 +73,44 @@ public class NotificationsController : ControllerBase
     {
         var userId = User.GetUserId()!.Value;
         return Ok(await _notificationService.UpdateSettingsAsync(userId, request, cancellationToken));
+    }
+
+    /// <summary>Push genel anahtari, sessiz saatler ve saat dilimi.</summary>
+    [HttpGet("preferences")]
+    public async Task<ActionResult<CustomerNotificationPreferencesDto>> GetPreferences(CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        return Ok(await _notificationService.GetPreferencesAsync(userId, cancellationToken));
+    }
+
+    [HttpPut("preferences")]
+    public async Task<ActionResult<CustomerNotificationPreferencesDto>> UpdatePreferences(
+        [FromBody] UpdateNotificationPreferencesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        return Ok(await _notificationService.UpdatePreferencesAsync(userId, request, cancellationToken));
+    }
+
+    /// <summary>
+    /// Push token'ini giris yapmis kullaniciya kaydeder veya gunceller (idempotent). Ayni token baska bir
+    /// hesaba kayitliysa bu hesaba tasinir.
+    /// </summary>
+    [HttpPut("devices")]
+    public async Task<ActionResult<CustomerDeviceRegistrationDto>> RegisterDevice(
+        [FromBody] RegisterDeviceRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        return Ok(await _deviceService.RegisterAsync(userId, request, cancellationToken));
+    }
+
+    /// <summary>Cikis yapilirken veya bildirim izni geri alindiginda token'i pasiflestirir. Token govdede gonderilir (URL'de loglanmaz).</summary>
+    [HttpPost("devices/deactivate")]
+    public async Task<IActionResult> DeactivateDevice([FromBody] DeactivateDeviceRequest request, CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        await _deviceService.DeactivateAsync(userId, request, cancellationToken);
+        return NoContent();
     }
 }

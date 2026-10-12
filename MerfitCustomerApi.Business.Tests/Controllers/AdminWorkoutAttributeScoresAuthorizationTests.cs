@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Reflection;
@@ -43,6 +43,7 @@ public class AdminWorkoutAttributeScoresAuthorizationTests : IClassFixture<WebAp
         {
             var worker = services.Single(d => d.ImplementationType == typeof(PersonalizationBackgroundWorker));
             services.Remove(worker);
+            services.Remove(services.Single(d => d.ImplementationType == typeof(NotificationBackgroundWorker)));
             services.AddScoped(_ => _service.Object);
         }));
     }

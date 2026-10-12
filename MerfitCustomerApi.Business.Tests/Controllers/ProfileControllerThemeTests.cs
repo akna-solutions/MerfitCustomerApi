@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Security.Claims;
 using MerfitCustomerApi.Api.Controllers;
 using MerfitCustomerApi.Business.Dtos.Customer.Profile;
