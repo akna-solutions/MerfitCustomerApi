@@ -305,7 +305,19 @@ public class ProfileService : IProfileService
 
         if (settings is null)
         {
-            settings = new UserNotificationSetting { UserId = userId, CreatedAt = DateTime.UtcNow };
+            // GET /api/profile'in kayitsiz kullaniciya gosterdigi varsayilanlarla baslat; aksi halde tek
+            // bir ayari degistirmek digerlerini sessizce kapatirdi.
+            settings = new UserNotificationSetting
+            {
+                UserId = userId,
+                WorkoutReminders = true,
+                DailyGoalReminder = true,
+                StreakReminder = true,
+                ProgressUpdates = true,
+                LeaderboardUpdates = true,
+                ProductUpdates = false,
+                CreatedAt = DateTime.UtcNow,
+            };
             await _unitOfWork.Repository<UserNotificationSetting>().AddAsync(settings, cancellationToken);
         }
         else

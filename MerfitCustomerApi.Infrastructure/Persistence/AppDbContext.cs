@@ -50,6 +50,11 @@ public class AppDbContext : DbContext
     public DbSet<UserNotificationSetting> UserNotificationSettings => Set<UserNotificationSetting>();
 
     /// <summary>
+    /// UserNotificationTypeSetting kayitlarina erisim saglayan DbSet.
+    /// </summary>
+    public DbSet<UserNotificationTypeSetting> UserNotificationTypeSettings => Set<UserNotificationTypeSetting>();
+
+    /// <summary>
     /// UserPrivacySetting kayitlarina erisim saglayan DbSet.
     /// </summary>
     public DbSet<UserPrivacySetting> UserPrivacySettings => Set<UserPrivacySetting>();
