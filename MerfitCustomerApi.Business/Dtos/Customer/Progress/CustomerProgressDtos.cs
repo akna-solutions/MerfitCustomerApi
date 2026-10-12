@@ -12,18 +12,28 @@ public class CustomerProgressResponse
     public string GoalType { get; set; } = string.Empty;
     public string GoalLabel { get; set; } = string.Empty;
 
-    /// <summary>build_muscle/get_stronger/improve_endurance icin (UserGoal.ProgressPercent).</summary>
+    /// <summary>
+    /// Kilo hedeflerinde (lose_weight/build_muscle/get_stronger/maintain_weight) baslangic kilosundan
+    /// hedef kiloya kat edilen yol, 0-100. Antrenman hedeflerinde null.
+    /// </summary>
     public decimal? GoalPercent { get; set; }
 
-    /// <summary>improve_fitness icin - bu haftaki tamamlanan antrenman sayisi.</summary>
+    /// <summary>"lose" | "gain" | "maintain": hedef kiloya ulasmak icin kilonun gitmesi gereken yon.</summary>
+    public string WeightDirection { get; set; } = "maintain";
+
+    /// <summary>improve_fitness/improve_endurance icin - bu haftaki tamamlanan antrenman sayisi.</summary>
     public int? WorkoutsCompleted { get; set; }
 
-    /// <summary>improve_fitness icin - haftalik antrenman hedefi (profilden).</summary>
+    /// <summary>improve_fitness/improve_endurance icin - haftalik antrenman hedefi (profilden).</summary>
     public int? WorkoutsGoal { get; set; }
 
     public decimal CurrentWeight { get; set; }
     public decimal StartingWeight { get; set; }
+    /// <summary>Hedef kilo; kullanici girmediyse hedefe gore otomatik hesaplanir (bkz. TargetWeightCalculator).</summary>
     public decimal TargetWeight { get; set; }
+
+    /// <summary>Bugun girilen kilo; bugun giris yapilmadiysa null.</summary>
+    public decimal? TodayWeight { get; set; }
 
     /// <summary>Son 30 gundeki kilo degisimi (negatifse kilo verilmis demektir).</summary>
     public decimal MonthlyChange { get; set; }
@@ -54,7 +64,28 @@ public class CustomerWeightPointDto
 {
     /// <summary>Gosterime hazir kisa etiket (orn. "Haz 15").</summary>
     public string Date { get; set; } = string.Empty;
+
+    /// <summary>"yyyy-MM-dd".</summary>
+    public string IsoDate { get; set; } = string.Empty;
+
     public decimal Weight { get; set; }
+}
+
+/// <summary>POST /api/progress/weight govdesi: gunluk kilo girisi (ayni gune ikinci giris oncekini gunceller).</summary>
+public class LogWeightRequest
+{
+    [System.ComponentModel.DataAnnotations.Range(20, 400, ErrorMessage = "Kilo 20 ile 400 kg arasinda olmalidir.")]
+    public decimal WeightKg { get; set; }
+
+    /// <summary>"yyyy-MM-dd"; verilmezse bugun kabul edilir.</summary>
+    public DateOnly? Date { get; set; }
+}
+
+public class CustomerWeightLogResponse
+{
+    public string Date { get; set; } = string.Empty;
+    public decimal WeightKg { get; set; }
+    public decimal? TargetWeight { get; set; }
 }
 
 public class CustomerBodyMetricDto

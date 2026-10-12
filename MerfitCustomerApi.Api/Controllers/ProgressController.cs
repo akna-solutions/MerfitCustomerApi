@@ -29,4 +29,15 @@ public class ProgressController : ControllerBase
         var result = await _progressService.GetProgressAsync(userId, range ?? "3months", cancellationToken);
         return Ok(result);
     }
+
+    /// <summary>Gunluk kilo girisi. Govde: { "weightKg": 82.4, "date": "2026-10-12" } (date istege bagli).</summary>
+    [HttpPost("weight")]
+    public async Task<ActionResult<CustomerWeightLogResponse>> LogWeight(
+        [FromBody] LogWeightRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        var result = await _progressService.LogWeightAsync(userId, request, cancellationToken);
+        return Ok(result);
+    }
 }

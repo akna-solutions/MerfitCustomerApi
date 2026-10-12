@@ -1,6 +1,7 @@
 ﻿using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Auth;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.Progress;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
@@ -138,6 +139,11 @@ public class AuthService : IAuthService
         // gereken temel kayitlari (UserGoal, NutritionGoal, PersonalizationJob) olustur. Bu asamada
         // gercek bir plan uretilmez; sadece veri altyapisi hazirlanir (bkz. IPersonalizationService
         // ihtiyaci ileride ikinci fazda arka plan islemcisiyle birlikte eklenecektir).
+        // Hedef kilo kayitta sorulmaz; hedefe, boya ve kiloya gore otomatik hesaplanir
+        // (bkz. TargetWeightCalculator). Kullanici sonradan profilden degistirebilir.
+        profile.TargetWeightKg ??= TargetWeightCalculator.Calculate(
+            profile.Goal ?? DefaultGoalType, profile.WeightKg, profile.HeightCm, profile.ExperienceLevel);
+
         var userGoal = new UserGoal
         {
             UserId = user.Id,
@@ -150,6 +156,13 @@ public class AuthService : IAuthService
         };
 
         await _unitOfWork.Repository<UserGoal>().AddAsync(userGoal);
+
+        if (profile.WeightKg is not null)
+        {
+            // Kayittaki kilo, kilo gecmisinin (ilerleme grafigi) ilk noktasidir.
+            await WeightTracking.UpsertDailyWeightAsync(
+                _unitOfWork, user.Id, DateOnly.FromDateTime(DateTime.UtcNow), profile.WeightKg.Value, profile.HeightCm, CancellationToken.None);
+        }
 
         var nutritionCalculation = _nutritionCalculator.Calculate(profile);
         var nutritionGoal = new NutritionGoal

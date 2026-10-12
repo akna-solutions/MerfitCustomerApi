@@ -1,5 +1,6 @@
 using MerfitCustomerApi.Business.Dtos.Customer.Progress;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.Personalization;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
@@ -19,6 +20,11 @@ public class ProgressService : IProgressService
     {
         "Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara",
     };
+
+    /// <summary>Profil kilosunun (beslenme hedefi girdisi) guncellenmesi icin gereken en az fark.</summary>
+    private const decimal NutritionRecalculationThresholdKg = 1m;
+
+    private const int MaxBackfillDays = 365;
 
     private readonly IUnitOfWork _unitOfWork;
 
@@ -48,19 +54,25 @@ public class ProgressService : IProgressService
             .OrderBy(m => m.RecordedAt)
             .ToListAsync(cancellationToken);
 
+        measurements = measurements.Where(m => m.WeightKg is not null).ToList();
         var latestMeasurement = measurements.LastOrDefault();
         var currentWeight = latestMeasurement?.WeightKg ?? profile.WeightKg ?? 0;
+
+        // Eski kayitlarda hedef kilo bos olabilir: hedefe gore otomatik hesaplanip kaydedilir.
+        if (activeGoal is not null && WeightTracking.EnsureWeightGoal(activeGoal, profile, latestMeasurement?.WeightKg))
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
         var startingWeight = activeGoal?.StartingWeightKg ?? measurements.FirstOrDefault()?.WeightKg ?? currentWeight;
-        var targetWeight = activeGoal?.TargetWeightKg ?? currentWeight;
+        var targetWeight = activeGoal?.TargetWeightKg ?? profile.TargetWeightKg ?? currentWeight;
 
         var now = DateTime.UtcNow;
-        var monthAgoMeasurement = measurements
-            .Where(m => m.RecordedAt <= now.AddDays(-30))
-            .OrderByDescending(m => m.RecordedAt)
-            .FirstOrDefault();
-        var monthlyChange = monthAgoMeasurement is not null
-            ? Math.Round(currentWeight - (monthAgoMeasurement.WeightKg ?? currentWeight), 1)
-            : 0m;
+        var monthlyChange = CalculateMonthlyChange(measurements, currentWeight, now);
+        var today = DateOnly.FromDateTime(now);
+        var todayMeasurement = latestMeasurement is not null && DateOnly.FromDateTime(latestMeasurement.RecordedAt) == today
+            ? latestMeasurement
+            : null;
 
         var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var completedSessions = await _unitOfWork.Repository<WorkoutSession>()
@@ -98,6 +110,7 @@ public class ProgressService : IProgressService
             .Select(m => new CustomerWeightPointDto
             {
                 Date = FormatShortDate(m.RecordedAt),
+                IsoDate = m.RecordedAt.ToString("yyyy-MM-dd"),
                 Weight = m.WeightKg ?? 0,
             })
             .ToList();
@@ -136,18 +149,24 @@ public class ProgressService : IProgressService
         var score = await BuildScoreSummaryAsync(userId, cancellationToken);
 
         var goalType = activeGoal?.GoalType ?? profile.Goal ?? FitnessGoal.MaintainWeight;
+        var isWorkoutGoal = IsWorkoutGoal(goalType);
 
         return new CustomerProgressResponse
         {
             HasCompletedFirstWorkout = completedSessions.Count > 0,
             GoalType = MapGoalType(goalType),
             GoalLabel = MapGoalLabel(goalType),
-            GoalPercent = IsPercentGoal(goalType) ? (activeGoal?.ProgressPercent ?? 0) : null,
-            WorkoutsCompleted = goalType == FitnessGoal.ImproveFitness ? workoutsThisWeek : null,
-            WorkoutsGoal = goalType == FitnessGoal.ImproveFitness ? (profile.TrainingDaysPerWeek ?? 3) : null,
+            // Kilo hedeflerinde (verme/kas/guc/koruma) baslangictan hedefe kat edilen yol.
+            GoalPercent = isWorkoutGoal || currentWeight <= 0
+                ? null
+                : WeightTracking.CalculateProgressPercent(startingWeight, currentWeight, targetWeight),
+            WeightDirection = WeightTracking.Direction(startingWeight, targetWeight),
+            WorkoutsCompleted = isWorkoutGoal ? workoutsThisWeek : null,
+            WorkoutsGoal = isWorkoutGoal ? (profile.TrainingDaysPerWeek ?? 3) : null,
             CurrentWeight = currentWeight,
             StartingWeight = startingWeight,
             TargetWeight = targetWeight,
+            TodayWeight = todayMeasurement?.WeightKg,
             MonthlyChange = monthlyChange,
             Workouts = workoutsThisMonth,
             Calories = caloriesThisMonth,
@@ -181,8 +200,90 @@ public class ProgressService : IProgressService
         };
     }
 
-    private static bool IsPercentGoal(FitnessGoal goal) =>
-        goal is FitnessGoal.BuildMuscle or FitnessGoal.GetStronger or FitnessGoal.ImproveEndurance;
+    public async Task<CustomerWeightLogResponse> LogWeightAsync(long userId, LogWeightRequest request, CancellationToken cancellationToken = default)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var date = request.Date ?? today;
+        // Kullanicinin saat dilimi UTC'nin onunde olabilir; yarina kadar kabul edilir.
+        if (date > today.AddDays(1))
+        {
+            throw new AppValidationException(nameof(request.Date), "Gelecek bir tarihe kilo girilemez.");
+        }
+
+        if (date < today.AddDays(-MaxBackfillDays))
+        {
+            throw new AppValidationException(nameof(request.Date), "En fazla bir yil oncesine kilo girilebilir.");
+        }
+
+        var profile = await _unitOfWork.Repository<UserProfile>()
+            .FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken)
+            ?? throw new NotFoundException(nameof(UserProfile), userId);
+
+        var weight = Math.Round(request.WeightKg, 1);
+        await WeightTracking.UpsertDailyWeightAsync(_unitOfWork, userId, date, weight, profile.HeightCm, cancellationToken);
+
+        // Gecmise donuk bir giris guncel kiloyu degistirmez; yalnizca en yeni kayit "guncel" kilodur.
+        var dayStart = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var hasNewerMeasurement = await _unitOfWork.Repository<BodyMeasurement>()
+            .GetQueryable()
+            .AnyAsync(m => m.UserId == userId && m.RecordedAt > dayStart && m.WeightKg != null, cancellationToken);
+
+        var activeGoal = await _unitOfWork.Repository<UserGoal>()
+            .FirstOrDefaultAsync(g => g.UserId == userId && g.IsActive, cancellationToken);
+
+        if (!hasNewerMeasurement)
+        {
+            if (activeGoal is not null)
+            {
+                activeGoal.CurrentWeightKg = weight;
+                activeGoal.UpdatedAt = DateTime.UtcNow;
+            }
+
+            // Profil kilosu beslenme hedeflerinin girdisidir. Her gunluk oynamada plani yeniden
+            // uretmemek icin yalnizca en az 1 kg fark olusunca guncellenir ve beslenme plani yenilenir.
+            if (profile.WeightKg is null || Math.Abs(profile.WeightKg.Value - weight) >= NutritionRecalculationThresholdKg)
+            {
+                profile.WeightKg = weight;
+                profile.UpdatedAt = DateTime.UtcNow;
+                await PlanRegenerationQueue.EnqueueAsync(_unitOfWork, userId, nutritionOnly: true, cancellationToken);
+            }
+        }
+
+        if (activeGoal is not null)
+        {
+            WeightTracking.EnsureWeightGoal(activeGoal, profile, weight);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _scoreService.TryRefreshUserAsync(userId, cancellationToken);
+
+        return new CustomerWeightLogResponse
+        {
+            Date = date.ToString("yyyy-MM-dd"),
+            WeightKg = weight,
+            TargetWeight = activeGoal?.TargetWeightKg ?? profile.TargetWeightKg,
+        };
+    }
+
+    /// <summary>
+    /// Son 30 gundeki degisim: 30 gun once veya daha eski en yeni kayit baz alinir; yoksa son 30 gunun ilk kaydi.
+    /// </summary>
+    private static decimal CalculateMonthlyChange(List<BodyMeasurement> measurements, decimal currentWeight, DateTime now)
+    {
+        var cutoff = now.AddDays(-30);
+        var baseline = measurements.LastOrDefault(m => m.RecordedAt <= cutoff)
+            ?? measurements.FirstOrDefault(m => m.RecordedAt > cutoff);
+        if (baseline is null || baseline == measurements.LastOrDefault())
+        {
+            return 0m;
+        }
+
+        return Math.Round(currentWeight - baseline.WeightKg!.Value, 1);
+    }
+
+    /// <summary>Kilo yerine haftalik antrenman sayisiyla izlenen hedefler.</summary>
+    private static bool IsWorkoutGoal(FitnessGoal goal) =>
+        goal is FitnessGoal.ImproveFitness or FitnessGoal.ImproveEndurance;
 
     private static string MapGoalType(FitnessGoal goal) => goal switch
     {
