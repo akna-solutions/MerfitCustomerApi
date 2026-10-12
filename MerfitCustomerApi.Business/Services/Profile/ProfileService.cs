@@ -5,6 +5,7 @@ using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 
 namespace MerfitCustomerApi.Business.Services.Profile;
@@ -103,12 +104,16 @@ public class ProfileService : IProfileService
         {
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (DbExceptionClassifier.IsUniqueViolation(ex, out var constraint))
         {
             // Yukaridaki AnyAsync kontrolu ile bu SaveChanges arasinda baska bir istek ayni
-            // kullanici adini almis olabilir (race condition); UserProfileConfiguration'daki
-            // veritabani unique index'i burada devreye girer.
-            throw new ConflictException("Bu kullanici adi zaten kullaniliyor.");
+            // kullanici adini / e-postayi almis olabilir (race condition); veritabani unique
+            // index'i burada devreye girer. Diger veritabani hatalari (orn. gecersiz deger) bu
+            // mesajla ORTULMEZ - daha once her DbUpdateException "kullanici adi zaten
+            // kullaniliyor" olarak donuyor ve gercek hatayi gizliyordu.
+            throw new ConflictException(constraint?.Contains("Email", StringComparison.OrdinalIgnoreCase) == true
+                ? "Bu e-posta adresi ile kayitli baska bir hesap var."
+                : "Bu kullanici adi zaten kullaniliyor.");
         }
 
         return await BuildResponseAsync(user, profile, cancellationToken);
@@ -147,9 +152,11 @@ public class ProfileService : IProfileService
             user.EmailConfirmed = false;
         }
 
-        if (request.DateOfBirth is not null && DateOnly.TryParse(request.DateOfBirth, out var dob))
+        if (request.DateOfBirth is not null
+            && DateOnly.TryParseExact(request.DateOfBirth, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dob))
         {
-            profile.DateOfBirth = dob.ToDateTime(TimeOnly.MinValue);
+            // Kolon "timestamp with time zone"; Npgsql yalnizca Kind=Utc DateTime yazabilir.
+            profile.DateOfBirth = DateTime.SpecifyKind(dob.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
         }
 
         if (request.Gender is not null)
@@ -471,10 +478,7 @@ public class ProfileService : IProfileService
             ? preferredDays.Select(TrainingDayCodes.ToCode).ToList()
             : await GetActivePlanTrainingDaysAsync(user.Id, cancellationToken);
 
-        var age = profile.DateOfBirth.HasValue
-            ? Math.Max(0, DateTime.UtcNow.Year - profile.DateOfBirth.Value.Year -
-                (DateTime.UtcNow.DayOfYear < profile.DateOfBirth.Value.DayOfYear ? 1 : 0))
-            : 0;
+        var age = profile.DateOfBirth.HasValue ? CalculateAge(profile.DateOfBirth.Value, DateTime.UtcNow) : 0;
 
         return new CustomerProfileResponse
         {
@@ -582,6 +586,17 @@ public class ProfileService : IProfileService
             .OrderBy(TrainingDayCodes.MondayFirstIndex)
             .Select(TrainingDayCodes.ToCode)
             .ToList();
+    }
+
+    /// <summary>
+    /// Tam yas. DayOfYear karsilastirmasi artik yillarda bir gun kayiyordu (orn. 12 Ekim 1996
+    /// dogumlu biri 12 Ekim 2026'da 29 gorunuyordu); bu yuzden dogum gunu tarihle karsilastirilir.
+    /// </summary>
+    private static int CalculateAge(DateTime dateOfBirth, DateTime today)
+    {
+        var age = today.Year - dateOfBirth.Year;
+        if (dateOfBirth.Date > today.Date.AddYears(-age)) age--;
+        return Math.Max(0, age);
     }
 
     private static Gender? MapGenderToDomain(string display) => display switch

@@ -276,4 +276,34 @@ public class ProfileServiceTrainingDataTests
 
         Assert.Single(fixture.Jobs);
     }
+
+    [Fact]
+    public async Task GetProfileAsync_Age_IsExactOnBirthday_EvenForLeapYearBirths()
+    {
+        var today = DateTime.UtcNow.Date;
+        var profile = MakeProfile();
+        // Artik yil dogumlu, dogum gunu bugun: DayOfYear karsilastirmasi burada bir eksik veriyordu.
+        var birthYear = today.Year - 30;
+        while (!DateTime.IsLeapYear(birthYear)) birthYear--;
+        var age = today.Year - birthYear;
+        profile.DateOfBirth = DateTime.SpecifyKind(new DateTime(birthYear, today.Month, Math.Min(today.Day, DateTime.DaysInMonth(birthYear, today.Month))), DateTimeKind.Utc);
+        var fixture = CreateFixture(profile);
+
+        var result = await fixture.Service.GetProfileAsync(UserId);
+
+        Assert.Equal(today.Day == profile.DateOfBirth.Value.Day ? age : age - 1, result.Age);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_DateOfBirth_IsStoredAsUtc()
+    {
+        var fixture = CreateFixture(MakeProfile());
+
+        await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { DateOfBirth = "1996-03-15" });
+
+        var stored = fixture.Profiles[0].DateOfBirth!.Value;
+        Assert.Equal(new DateTime(1996, 3, 15), stored);
+        // Npgsql "timestamp with time zone" kolonuna yalnizca Kind=Utc yazabiliyor.
+        Assert.Equal(DateTimeKind.Utc, stored.Kind);
+    }
 }

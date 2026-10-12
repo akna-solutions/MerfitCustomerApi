@@ -199,7 +199,7 @@ public class AuthService : IAuthService
             // ConflictException'a ceviriyoruz.
             await _unitOfWork.CommitTransactionAsync();
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (DbExceptionClassifier.IsUniqueViolation(ex, out _))
         {
             // Yukarida yaptigimiz AnyAsync kontrolu ile bu commit arasinda baska bir istek ayni
             // kullanici adini alip kaydetmis olabilir (race condition). UserProfileConfiguration'daki
