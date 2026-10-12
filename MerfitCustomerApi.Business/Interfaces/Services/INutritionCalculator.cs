@@ -4,18 +4,26 @@ using MerfitCustomerApi.Domain.Entities;
 namespace MerfitCustomerApi.Business.Interfaces.Services;
 
 /// <summary>
-/// Kullanicinin profil bilgilerinden (yas, cinsiyet, boy, kilo, aktivite seviyesi, fitness hedefi)
-/// gunluk kalori/protein/karbonhidrat/yag/su hedeflerini hesaplayan, saf ve deterministik
-/// (yapay zeka / harici API kullanmayan) servis sozlesmesi. Sadece matematiksel hesaplamadan
-/// sorumludur; NutritionGoal kaydini olusturmak veya kaydetmek cagiran taraflarin gorevidir.
+/// Kullanicinin profil bilgilerinden (yas, cinsiyet, boy, kilo, hedef kilo, aktivite seviyesi,
+/// antrenman sikligi, fitness hedefi) gunluk kalori/protein/karbonhidrat/yag/su hedeflerini hesaplayan,
+/// saf ve deterministik (yapay zeka / harici API kullanmayan) servis sozlesmesi. Sadece matematiksel
+/// hesaplamadan sorumludur; NutritionGoal kaydini olusturmak veya kaydetmek cagiran taraflarin gorevidir.
 /// </summary>
 public interface INutritionCalculator
 {
     /// <summary>
-    /// Verilen profil icin Mifflin-St Jeor BMR formulu + aktivite carpani + hedefe gore kalori
-    /// duzeltmesi kullanarak gunluk beslenme hedeflerini hesaplar. Profildeki eksik (null)
-    /// alanlar icin guvenli varsayilan degerler kullanilir; istisna firlatmaz.
+    /// Esnek hesaplama: profildeki eksik (null) veya aralik disi alanlar icin konfigure edilmis
+    /// varsayilanlar kullanilir; istisna firlatmaz. Kayit aninda ilk hedefi olusturmak gibi "bir deger
+    /// gostermek zorunda olunan" yerlerde kullanilir. Girdiler tamsa sonuc <see cref="Evaluate"/> ile aynidir.
     /// </summary>
     /// <param name="profile">Hesaplama icin kullanilacak kullanici profili.</param>
     NutritionCalculationResult Calculate(UserProfile profile);
+
+    /// <summary>
+    /// Kati hesaplama: kisisel plan uretimi icin. Kilo, boy, yas, hedef ve aktivite (seviye veya haftalik
+    /// antrenman gunu) zorunludur ve makul araliklarda olmalidir; aksi halde sonuc yerine eksik/gecersiz
+    /// alanlarin listesi doner. Hicbir varsayilan deger kullanilmaz.
+    /// </summary>
+    /// <param name="profile">Hesaplama icin kullanilacak kullanici profili.</param>
+    NutritionTargetEvaluation Evaluate(UserProfile profile);
 }

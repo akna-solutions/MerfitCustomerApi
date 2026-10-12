@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.Nutrition;
 using MerfitCustomerApi.Business.Services.Personalization.Models;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
@@ -22,6 +23,11 @@ namespace MerfitCustomerApi.Business.Services.Personalization;
 /// calisirsa, ikincinin SaveChangesAsync cagrisi DbUpdateConcurrencyException ile basarisiz
 /// olur; bu, "iki worker ayni job'u islemesin" gereksinimini ek bir kilitleme mekanizmasi
 /// (SELECT FOR UPDATE, dagitik lock vb.) gerektirmeden, tamamen EF Core + PostgreSQL ile karsilar.
+///
+/// Kullanici basina siralama: ayni kullanicinin islenen (Processing) bir isi varken diger isleri claim
+/// edilmez; iki worker ayni anda ayni kullanicinin iki farkli isini claim ederse kimligi kucuk olan devam
+/// eder, digeri Pending'e geri birakilir. Ek olarak veritabanindaki kismi benzersiz index
+/// (UX_NutritionPlan_UserId_Active) kullanici basina birden fazla aktif beslenme planini reddeder.
 ///
 /// Retry stratejisi: bir generation/persist hatasi olustugunda, AttemptCount (claim sirasinda
 /// zaten +1 artirilmistir) MaxAttemptCount'un altindaysa job Pending'e donup bir sonraki
@@ -57,17 +63,23 @@ public class PersonalizationJobProcessor : IPersonalizationJobProcessor
             return false;
         }
 
-        var (jobId, userId) = claimed.Value;
+        var (jobId, userId, nutritionOnly) = claimed.Value;
         var totalStopwatch = Stopwatch.StartNew();
         _logger.LogInformation("Personalization job {JobId} started for user {UserId}", jobId, userId);
 
         try
         {
-            var workoutStopwatch = Stopwatch.StartNew();
-            var workoutResult = await _workoutPlanGenerator.GenerateAsync(userId, cancellationToken);
-            workoutStopwatch.Stop();
-            _logger.LogInformation(
-                "Workout plan generated for job {JobId} in {ElapsedMs}ms", jobId, workoutStopwatch.ElapsedMilliseconds);
+            // Yalnizca beslenmeyi etkileyen profil degisikliklerinde (kilo, boy, alerji...) antrenman
+            // programi yeniden uretilmez.
+            WorkoutPlanGenerationResult? workoutResult = null;
+            if (!nutritionOnly)
+            {
+                var workoutStopwatch = Stopwatch.StartNew();
+                workoutResult = await _workoutPlanGenerator.GenerateAsync(userId, cancellationToken);
+                workoutStopwatch.Stop();
+                _logger.LogInformation(
+                    "Workout plan generated for job {JobId} in {ElapsedMs}ms", jobId, workoutStopwatch.ElapsedMilliseconds);
+            }
 
             // Beslenme programi uretilemezse (orn. besin katalogu bos) antrenman programi yine de
             // kaydedilir; kullanicinin mevcut beslenme programi (varsa) aktif kalir. Boylece profilde
@@ -119,12 +131,18 @@ public class PersonalizationJobProcessor : IPersonalizationJobProcessor
     /// concurrency ile atomik olarak claim eder. Bir baska worker/instance ayni satiri once
     /// claim ettiyse DbUpdateConcurrencyException yakalanir ve bir sonraki adaya gecilir.
     /// </summary>
-    private async Task<(long JobId, long UserId)?> TryClaimNextPendingJobAsync(CancellationToken cancellationToken)
+    private async Task<(long JobId, long UserId, bool NutritionOnly)?> TryClaimNextPendingJobAsync(CancellationToken cancellationToken)
     {
         var repo = _unitOfWork.Repository<PersonalizationJob>();
+        var lockCutoff = DateTime.UtcNow - _options.UserProcessingLockTimeout;
 
+        // Ayni kullanicinin islenmekte olan bir isi varsa o kullanicinin diger isleri bu turda atlanir.
+        var allJobs = repo.GetQueryable();
         var candidateIds = await repo.GetQueryable()
             .Where(j => j.Status == PersonalizationJobStatus.Pending && j.AttemptCount < _options.MaxAttemptCount)
+            .Where(j => !allJobs.Any(other => other.UserId == j.UserId
+                && other.Status == PersonalizationJobStatus.Processing
+                && other.StartedAt > lockCutoff))
             .OrderBy(j => j.CreatedAt)
             .Select(j => j.Id)
             .Take(_options.ClaimBatchSize)
@@ -150,17 +168,63 @@ public class PersonalizationJobProcessor : IPersonalizationJobProcessor
             try
             {
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
-                return (job.Id, job.UserId);
             }
             catch (DbUpdateConcurrencyException)
             {
                 // Baska bir worker ayni anda ayni job'u claim etti (xmin uyusmadi) - bu adayi
                 // birakip siradaki adaya gec.
                 _unitOfWork.ClearTracking();
+                continue;
             }
+
+            if (await YieldToEarlierProcessingJobAsync(job, lockCutoff, cancellationToken))
+            {
+                continue;
+            }
+
+            return (job.Id, job.UserId, job.NutritionOnly);
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Iki worker ayni kullanicinin farkli islerini ayni anda claim ettiyse yalnizca kimligi en kucuk
+    /// olan devam eder; bu is Pending'e (deneme hakki geri verilerek) birakilir ve true doner.
+    /// Kimligi en kucuk olan hicbir zaman geri cekilmedigi icin iki is birbirini sonsuza dek bekletmez.
+    /// </summary>
+    private async Task<bool> YieldToEarlierProcessingJobAsync(PersonalizationJob job, DateTime lockCutoff, CancellationToken cancellationToken)
+    {
+        var repo = _unitOfWork.Repository<PersonalizationJob>();
+        var earlierProcessing = await repo.GetQueryable()
+            .AnyAsync(other => other.UserId == job.UserId
+                && other.Id < job.Id
+                && other.Status == PersonalizationJobStatus.Processing
+                && other.StartedAt > lockCutoff,
+                cancellationToken);
+        if (!earlierProcessing)
+        {
+            return false;
+        }
+
+        job.Status = PersonalizationJobStatus.Pending;
+        job.StartedAt = null;
+        job.AttemptCount -= 1;
+        job.UpdatedAt = DateTime.UtcNow;
+        repo.Update(job);
+
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Satir bu arada degistiyse (cok olasi degil) bir sonraki turda yeniden degerlendirilir.
+        }
+
+        _unitOfWork.ClearTracking();
+        _logger.LogInformation("Personalization job {JobId} deferred: another job of the same user is processing", job.Id);
+        return true;
     }
 
     /// <summary>
@@ -172,20 +236,30 @@ public class PersonalizationJobProcessor : IPersonalizationJobProcessor
     private async Task PersistPlansAndCompleteJobAsync(
         long userId,
         long jobId,
-        WorkoutPlanGenerationResult workout,
+        WorkoutPlanGenerationResult? workout,
         NutritionPlanGenerationResult? nutrition,
         string? nutritionError,
         CancellationToken cancellationToken)
     {
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        await DeactivateExistingPlansAsync<WorkoutPlan>(userId, cancellationToken);
-        await PersistWorkoutPlanAsync(workout, cancellationToken);
+        if (workout is not null)
+        {
+            await DeactivateExistingPlansAsync<WorkoutPlan>(userId, cancellationToken);
+            await PersistWorkoutPlanAsync(workout, cancellationToken);
+        }
 
         if (nutrition is not null)
         {
+            // Onceki plan silinmez, pasiflestirilir (gecmis ve ogun kayitlari korunur); yeni plan ve
+            // dayandigi hedefler ayni transaction icinde yazilir.
             await DeactivateExistingPlansAsync<NutritionPlan>(userId, cancellationToken);
             await PersistNutritionPlanAsync(nutrition, cancellationToken);
+
+            if (nutrition.Targets is not null)
+            {
+                await UpsertNutritionGoalAsync(userId, nutrition.Targets, cancellationToken);
+            }
         }
 
         var job = await _unitOfWork.Repository<PersonalizationJob>()
@@ -330,6 +404,43 @@ public class PersonalizationJobProcessor : IPersonalizationJobProcessor
             await _unitOfWork.Repository<NutritionPlanMealItem>().AddRangeAsync(allItems, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// NutritionGoal profilden turetilen bir degerdir (uygulamada manuel duzenleme yolu yoktur): plan
+    /// hangi hedeflere gore uretildiyse gunluk beslenme ekrani da ayni hedefleri gostersin diye guncellenir.
+    /// </summary>
+    private async Task UpsertNutritionGoalAsync(long userId, NutritionCalculationResult targets, CancellationToken cancellationToken)
+    {
+        var repo = _unitOfWork.Repository<NutritionGoal>();
+        var goal = await repo.GetQueryable(asNoTracking: false)
+            .FirstOrDefaultAsync(g => g.UserId == userId, cancellationToken);
+
+        if (goal is null)
+        {
+            await repo.AddAsync(new NutritionGoal
+            {
+                UserId = userId,
+                DailyCalories = targets.DailyCalories,
+                ProteinTarget = targets.ProteinTarget,
+                CarbsTarget = targets.CarbsTarget,
+                FatTarget = targets.FatTarget,
+                WaterTargetMl = targets.WaterTargetMl,
+                CreatedAt = DateTime.UtcNow,
+            }, cancellationToken);
+        }
+        else
+        {
+            goal.DailyCalories = targets.DailyCalories;
+            goal.ProteinTarget = targets.ProteinTarget;
+            goal.CarbsTarget = targets.CarbsTarget;
+            goal.FatTarget = targets.FatTarget;
+            goal.WaterTargetMl = targets.WaterTargetMl;
+            goal.UpdatedAt = DateTime.UtcNow;
+            repo.Update(goal);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>

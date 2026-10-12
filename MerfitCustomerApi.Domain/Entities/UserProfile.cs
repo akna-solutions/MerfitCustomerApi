@@ -102,4 +102,20 @@ public class UserProfile : BaseEntity
     /// Kullanicinin tercih ettigi olcum birimi sistemi.
     /// </summary>
     public UnitSystem UnitSystem { get; set; }
+
+    /// <summary>
+    /// Kullanicinin beyan ettigi beslenme tercihi (vejetaryen, vegan). Null ise belirtilmemistir.
+    /// </summary>
+    public DietaryPreference? DietaryPreference { get; set; }
+
+    /// <summary>
+    /// Kullanicinin beyan ettigi besin alerjileri. Null ise belirtilmemistir (bilinen alerji yok).
+    /// </summary>
+    public FoodAllergen? Allergies { get; set; }
+
+    /// <summary>
+    /// Kullanicinin beslenme planinda gormek istemedigi besinlerin kimlikleri, virgulle ayrilmis ve
+    /// artan sirali ("12,45"). Bos ise dislanan besin yoktur.
+    /// </summary>
+    public string? ExcludedFoodIds { get; set; }
 }

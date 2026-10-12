@@ -108,6 +108,22 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
             .IsRequired(true)
             .HasMaxLength(50);
 
+        // Kullanicinin beslenme tercihi (vejetaryen, vegan).
+        builder.Property(x => x.DietaryPreference)
+            .HasConversion<string>()
+            .IsRequired(false)
+            .HasMaxLength(50);
+
+        // Kullanicinin besin alerjileri (FoodAllergen bit bayraklari).
+        builder.Property(x => x.Allergies)
+            .HasConversion<int>()
+            .IsRequired(false);
+
+        // Planda istenmeyen besin kimlikleri ("12,45").
+        builder.Property(x => x.ExcludedFoodIds)
+            .IsRequired(false)
+            .HasMaxLength(1000);
+
         // Iliskiler (foreign key) yapilandirmasi.
         // Profilin ait oldugu kullanicinin kimligi.
         builder.HasOne<ApplicationUser>()

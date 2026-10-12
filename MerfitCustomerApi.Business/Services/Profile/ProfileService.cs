@@ -1,6 +1,7 @@
 ﻿using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Customer.Profile;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.Nutrition;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
@@ -48,12 +49,15 @@ public class ProfileService : IProfileService
         }
 
         var planInputsBefore = PlanInputs.From(profile);
+        var nutritionInputsBefore = NutritionInputs.From(profile);
 
         await ApplyIdentityChangesAsync(user, profile, request, cancellationToken);
         ApplyBodyAndGoalChanges(profile, request);
         ApplyTrainingPreferenceChanges(profile, request);
+        await ApplyNutritionPreferenceChangesAsync(profile, request, cancellationToken);
 
         var planInputsAfter = PlanInputs.From(profile);
+        var nutritionInputsAfter = NutritionInputs.From(profile);
         if (planInputsAfter != planInputsBefore)
         {
             if (planInputsAfter.Goal != planInputsBefore.Goal && profile.Goal.HasValue)
@@ -61,7 +65,13 @@ public class ProfileService : IProfileService
                 await UpdateActiveGoalTypeAsync(userId, profile.Goal.Value, cancellationToken);
             }
 
-            await EnqueuePlanRegenerationAsync(userId, cancellationToken);
+            await EnqueuePlanRegenerationAsync(userId, nutritionOnly: false, cancellationToken);
+        }
+        else if (nutritionInputsAfter != nutritionInputsBefore)
+        {
+            // Yalnizca beslenme hedeflerini/menuyu etkileyen alanlar (kilo, boy, yas, aktivite, alerji...)
+            // degisti: antrenman programina dokunmadan beslenme programi ve hedefleri yeniden uretilir.
+            await EnqueuePlanRegenerationAsync(userId, nutritionOnly: true, cancellationToken);
         }
 
         // NOT: user/profile yukarida AsNoTracking OLMADAN cekildi, yani EF change tracker
@@ -169,6 +179,9 @@ public class ProfileService : IProfileService
     {
         if (request.Height.HasValue) profile.HeightCm = request.Height.Value;
         if (request.Weight.HasValue) profile.WeightKg = request.Weight.Value;
+        // Aktif UserGoal da UpdateActiveGoalTargetWeightAsync ile guncellenir; profil burada
+        // guncellenir ki beslenme girdilerindeki degisiklik algilansin.
+        if (request.TargetWeight.HasValue) profile.TargetWeightKg = request.TargetWeight.Value;
 
         if (request.Goal is not null && TryMapGoalToDomain(request.Goal, out var goal))
         {
@@ -221,6 +234,110 @@ public class ProfileService : IProfileService
         }
     }
 
+    /// <summary>
+    /// Beslenme tercihlerini uygular. Gecersiz deger sessizce yok sayilmaz, reddedilir; cunku alerji gibi
+    /// bir bilginin kaybolmasi kullaniciya uygun olmayan besin onerilmesine yol acar.
+    /// </summary>
+    private async Task ApplyNutritionPreferenceChangesAsync(UserProfile profile, UpdateProfileRequest request, CancellationToken cancellationToken)
+    {
+        if (request.ActivityLevel is not null)
+        {
+            if (!ActivityLevelCodes.TryGetValue(request.ActivityLevel.Trim(), out var activityLevel))
+            {
+                throw new AppValidationException(nameof(request.ActivityLevel), "Gecersiz aktivite seviyesi. Gecerli degerler: sedentary, light, moderate, active, athlete.");
+            }
+
+            profile.ActivityLevel = activityLevel;
+        }
+
+        if (request.DietaryPreference is not null)
+        {
+            if (!Enum.TryParse<DietaryPreference>(request.DietaryPreference.Trim(), ignoreCase: true, out var preference)
+                || !Enum.IsDefined(preference)
+                || int.TryParse(request.DietaryPreference, out _))
+            {
+                throw new AppValidationException(nameof(request.DietaryPreference), "Gecersiz beslenme tercihi. Gecerli degerler: none, vegetarian, vegan.");
+            }
+
+            profile.DietaryPreference = preference;
+        }
+
+        if (request.Allergies is not null)
+        {
+            if (!FoodPreferenceFormat.TryParseAllergens(request.Allergies, out var allergens, out var unknown))
+            {
+                throw new AppValidationException(nameof(request.Allergies), $"Gecersiz alerji: '{unknown}'. Gecerli degerler: gluten, milk, egg, treeNuts, peanut, soy, fish, shellfish, sesame.");
+            }
+
+            profile.Allergies = allergens;
+        }
+
+        if (request.ExcludedFoodIds is not null)
+        {
+            var ids = request.ExcludedFoodIds.Distinct().ToList();
+            if (ids.Count > FoodPreferenceFormat.MaxExcludedFoods)
+            {
+                throw new AppValidationException(nameof(request.ExcludedFoodIds), $"En fazla {FoodPreferenceFormat.MaxExcludedFoods} besin haric tutulabilir.");
+            }
+
+            if (ids.Count > 0)
+            {
+                var existingIds = await _unitOfWork.Repository<Food>()
+                    .GetQueryable()
+                    .Where(f => ids.Contains(f.Id))
+                    .Select(f => f.Id)
+                    .ToListAsync(cancellationToken);
+                var unknownIds = ids.Except(existingIds).ToList();
+                if (unknownIds.Count > 0)
+                {
+                    throw new AppValidationException(nameof(request.ExcludedFoodIds), $"Katalogda bulunmayan besin: {string.Join(", ", unknownIds)}.");
+                }
+            }
+
+            profile.ExcludedFoodIds = FoodPreferenceFormat.FormatExcludedFoodIds(ids);
+        }
+    }
+
+    /// <summary>Kayit ekranindaki aktivite seviyesi kodlari (AuthService ile ayni).</summary>
+    private static readonly Dictionary<string, ActivityLevel> ActivityLevelCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["sedentary"] = ActivityLevel.Sedentary,
+        ["light"] = ActivityLevel.LightlyActive,
+        ["moderate"] = ActivityLevel.ModeratelyActive,
+        ["active"] = ActivityLevel.VeryActive,
+        ["athlete"] = ActivityLevel.ExtraActive,
+    };
+
+    private static string? MapActivityLevelToCode(ActivityLevel? level) =>
+        level.HasValue ? ActivityLevelCodes.FirstOrDefault(pair => pair.Value == level.Value).Key : null;
+
+    /// <summary>
+    /// Beslenme hedeflerini ve menuyu etkileyen profil alanlari; biri degisirse (antrenman girdileri
+    /// degismemisse) yalnizca beslenme programi yeniden uretilir.
+    /// </summary>
+    private sealed record NutritionInputs(
+        decimal? WeightKg,
+        decimal? HeightCm,
+        decimal? TargetWeightKg,
+        DateTime? DateOfBirth,
+        Gender? Gender,
+        ActivityLevel? ActivityLevel,
+        DietaryPreference? DietaryPreference,
+        FoodAllergen? Allergies,
+        string? ExcludedFoodIds)
+    {
+        public static NutritionInputs From(UserProfile profile) => new(
+            profile.WeightKg,
+            profile.HeightCm,
+            profile.TargetWeightKg,
+            profile.DateOfBirth,
+            profile.Gender,
+            profile.ActivityLevel,
+            profile.DietaryPreference,
+            profile.Allergies,
+            profile.ExcludedFoodIds);
+    }
+
     /// <summary>Antrenman programini etkileyen profil alanlari; biri degisirse program yeniden uretilir.</summary>
     private sealed record PlanInputs(
         FitnessGoal? Goal,
@@ -251,18 +368,26 @@ public class ProfileService : IProfileService
 
     /// <summary>
     /// Kayittaki ile ayni sekilde bir PersonalizationJob kuyruga alir; arka plan islemcisi yeni
-    /// workout + nutrition planini uretip eski aktif planlari pasiflestirir. Bekleyen veya islenen
-    /// bir is zaten varsa yenisi eklenmez (o is guncel profili okuyacaktir).
+    /// plan(lar)i uretip eski aktif planlari pasiflestirir. Bekleyen (Pending) bir is zaten varsa yenisi
+    /// eklenmez, o is guncel profili okuyacaktir (gerekirse kapsami tam yenilemeye genisletilir). Islenmekte
+    /// (Processing) olan is eski profili okumus olabilecegi icin yeni is eklenir; islemci ayni kullanicinin
+    /// islerini sirayla isler.
     /// </summary>
-    private async Task EnqueuePlanRegenerationAsync(long userId, CancellationToken cancellationToken)
+    private async Task EnqueuePlanRegenerationAsync(long userId, bool nutritionOnly, CancellationToken cancellationToken)
     {
         var jobs = _unitOfWork.Repository<PersonalizationJob>();
-        var hasOpenJob = await jobs.GetQueryable()
-            .AnyAsync(j => j.UserId == userId
-                && (j.Status == PersonalizationJobStatus.Pending || j.Status == PersonalizationJobStatus.Processing),
-                cancellationToken);
-        if (hasOpenJob)
+        var pendingJob = await jobs.GetQueryable(asNoTracking: false)
+            .Where(j => j.UserId == userId && j.Status == PersonalizationJobStatus.Pending)
+            .OrderBy(j => j.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (pendingJob is not null)
         {
+            if (!nutritionOnly && pendingJob.NutritionOnly)
+            {
+                pendingJob.NutritionOnly = false;
+                pendingJob.UpdatedAt = DateTime.UtcNow;
+            }
+
             return;
         }
 
@@ -270,6 +395,7 @@ public class ProfileService : IProfileService
         {
             UserId = userId,
             Status = PersonalizationJobStatus.Pending,
+            NutritionOnly = nutritionOnly,
             CreatedAt = DateTime.UtcNow,
         }, cancellationToken);
     }
@@ -500,6 +626,10 @@ public class ProfileService : IProfileService
             WorkoutDurationMin = profile.WorkoutDurationMin ?? 45,
             TrainingDaysPerWeek = preferredDays.Count > 0 ? preferredDays.Count : profile.TrainingDaysPerWeek ?? trainingDays.Count,
             TrainingDays = trainingDays,
+            ActivityLevel = MapActivityLevelToCode(profile.ActivityLevel),
+            DietaryPreference = profile.DietaryPreference?.ToString().ToLowerInvariant(),
+            Allergies = FoodPreferenceFormat.AllergensToNames(profile.Allergies),
+            ExcludedFoodIds = FoodPreferenceFormat.ParseExcludedFoodIds(profile.ExcludedFoodIds).OrderBy(id => id).ToList(),
             UnitSystem = profile.UnitSystem.ToString().ToLowerInvariant(),
             Appearance = (preference?.Theme ?? Theme.System).ToString().ToLowerInvariant(),
             Notifications = notificationSettings is null

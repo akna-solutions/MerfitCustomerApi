@@ -705,6 +705,9 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<int?>("Allergens")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Barcode")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
@@ -721,11 +724,18 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<string>("Category")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<long?>("CreatedUser")
                         .HasColumnType("bigint");
+
+                    b.Property<int?>("DietTags")
+                        .HasColumnType("integer");
 
                     b.Property<decimal>("Fat")
                         .HasPrecision(18, 2)
@@ -738,6 +748,9 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<string>("ImageUrl")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("MealSuitability")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1458,6 +1471,11 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_NutritionPlan_UserId_Active")
+                        .HasFilter("\"IsActive\"");
+
                     b.HasIndex("UserId", "IsActive");
 
                     b.ToTable("NutritionPlan", "nutrition");
@@ -1682,6 +1700,11 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<string>("ErrorMessage")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
+
+                    b.Property<bool>("NutritionOnly")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<DateTime?>("StartedAt")
                         .HasColumnType("timestamp with time zone");
@@ -2542,6 +2565,9 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<int?>("Allergies")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -2550,6 +2576,14 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime?>("DateOfBirth")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DietaryPreference")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ExcludedFoodIds")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<string>("ExperienceLevel")
                         .HasMaxLength(50)

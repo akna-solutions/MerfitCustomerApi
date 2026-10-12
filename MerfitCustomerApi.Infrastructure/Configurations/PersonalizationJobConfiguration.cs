@@ -36,6 +36,11 @@ public class PersonalizationJobConfiguration : IEntityTypeConfiguration<Personal
             .IsRequired(true)
             .HasDefaultValue(0);
 
+        // Yalnizca beslenme programinin yeniden uretilecegi isler.
+        builder.Property(x => x.NutritionOnly)
+            .IsRequired(true)
+            .HasDefaultValue(false);
+
         // Is basarisiz oldugunda son hata mesaji.
         builder.Property(x => x.ErrorMessage)
             .IsRequired(false)

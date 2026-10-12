@@ -33,7 +33,9 @@ public interface INutritionPlanGenerator
     /// </summary>
     /// <exception cref="Domain.Exceptions.NotFoundException">UserProfile bulunamazsa firlatilir.</exception>
     /// <exception cref="PersonalizationGenerationException">
-    /// Yeterli Food kaydi bulunamadigi icin hedeflere yakin bir menu uretilemezse firlatilir.
+    /// Profilde hedef hesabi icin gerekli bilgiler eksik/gecersizse ya da kullanicinin alerji, diyet ve
+    /// dislama tercihlerine uyan siniflandirilmis besin sayisi bir ogunu olusturmaya yetmiyorsa firlatilir.
+    /// Mesaj kullaniciya/admine neyin eksik oldugunu soyler.
     /// </exception>
     Task<NutritionPlanGenerationResult> GenerateAsync(long userId, CancellationToken cancellationToken = default);
 }

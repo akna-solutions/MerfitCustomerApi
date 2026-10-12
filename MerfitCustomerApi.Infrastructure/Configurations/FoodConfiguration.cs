@@ -5,6 +5,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using MerfitCustomerApi.Domain.Entities;
+using MerfitCustomerApi.Domain.Entities.Enums;
 
 namespace MerfitCustomerApi.Infrastructure.Configurations;
 
@@ -80,5 +81,26 @@ public class FoodConfiguration : IEntityTypeConfiguration<Food>
         builder.Property(x => x.ImageUrl)
             .IsRequired(false)
             .HasMaxLength(500);
+
+        // Plan olusturucu icin besinsel kategori.
+        builder.Property(x => x.Category)
+            .HasConversion<string>()
+            .IsRequired(false)
+            .HasMaxLength(50);
+
+        // Uygun ogunler (MealSuitability bit bayraklari).
+        builder.Property(x => x.MealSuitability)
+            .HasConversion<int>()
+            .IsRequired(false);
+
+        // Icerdigi alerjenler (FoodAllergen bit bayraklari); null = dogrulanmamis.
+        builder.Property(x => x.Allergens)
+            .HasConversion<int>()
+            .IsRequired(false);
+
+        // Uygun diyetler (DietTag bit bayraklari); null = dogrulanmamis.
+        builder.Property(x => x.DietTags)
+            .HasConversion<int>()
+            .IsRequired(false);
     }
 }

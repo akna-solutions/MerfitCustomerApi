@@ -28,6 +28,13 @@ public class NutritionPlanConfiguration : IEntityTypeConfiguration<NutritionPlan
         // kullanilacak birlesik index (uygulama katmaninda transaction ile de garanti edilir).
         builder.HasIndex(x => new { x.UserId, x.IsActive });
 
+        // Kullanici basina en fazla bir aktif plan: veritabani seviyesinde garanti (kismi benzersiz index).
+        // Eszamanli iki plan uretimi ayni anda aktif plan eklemeye calisirsa biri reddedilir.
+        builder.HasIndex(x => x.UserId)
+            .IsUnique()
+            .HasFilter("\"IsActive\"")
+            .HasDatabaseName("UX_NutritionPlan_UserId_Active");
+
         builder.HasOne<ApplicationUser>()
             .WithMany()
             .HasForeignKey(x => x.UserId)

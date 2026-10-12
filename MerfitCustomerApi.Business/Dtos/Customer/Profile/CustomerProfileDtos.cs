@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using MerfitCustomerApi.Business.Services.Nutrition;
 
 namespace MerfitCustomerApi.Business.Dtos.Customer.Profile;
 
@@ -51,6 +52,22 @@ public class CustomerProfileResponse
     /// yoksa aktif antrenman programindaki (WorkoutPlanDay) gunler. Ikisi de yoksa bos liste.
     /// </summary>
     public List<string> TrainingDays { get; set; } = new();
+
+    /// <summary>"sedentary" | "light" | "moderate" | "active" | "athlete"; secilmediyse null.</summary>
+    public string? ActivityLevel { get; set; }
+
+    /// <summary>"none" | "vegetarian" | "vegan"; belirtilmediyse null.</summary>
+    public string? DietaryPreference { get; set; }
+
+    /// <summary>
+    /// Beyan edilen besin alerjileri: "gluten", "milk", "egg", "treeNuts", "peanut", "soy", "fish",
+    /// "shellfish", "sesame". Beslenme programi bu alerjenleri iceren ya da alerjen bilgisi
+    /// dogrulanmamis besinleri onermez.
+    /// </summary>
+    public List<string> Allergies { get; set; } = new();
+
+    /// <summary>Beslenme programinda istenmeyen besinlerin kimlikleri.</summary>
+    public List<long> ExcludedFoodIds { get; set; } = new();
 
     /// <summary>"metric" | "imperial".</summary>
     public string UnitSystem { get; set; } = string.Empty;
@@ -136,6 +153,26 @@ public class UpdateProfileRequest
 
     /// <summary>"gym" | "home" | "outdoor".</summary>
     public string? TrainingLocation { get; set; }
+
+    /// <summary>"sedentary" | "light" | "moderate" | "active" | "athlete". Gonderilmezse degismez.</summary>
+    public string? ActivityLevel { get; set; }
+
+    /// <summary>"none" | "vegetarian" | "vegan". Gonderilmezse degismez.</summary>
+    public string? DietaryPreference { get; set; }
+
+    /// <summary>
+    /// Besin alerjileri (bkz. CustomerProfileResponse.Allergies). Gonderilmezse (null) degismez; bos liste
+    /// tum alerjileri temizler. Bilinmeyen deger reddedilir.
+    /// </summary>
+    [MaxLength(20)]
+    public List<string>? Allergies { get; set; }
+
+    /// <summary>
+    /// Beslenme programinda istenmeyen besinlerin kimlikleri. Gonderilmezse (null) degismez; bos liste
+    /// temizler. Katalogda olmayan kimlik reddedilir.
+    /// </summary>
+    [MaxLength(FoodPreferenceFormat.MaxExcludedFoods)]
+    public List<long>? ExcludedFoodIds { get; set; }
 
     public string? UnitSystem { get; set; }
     public string? Appearance { get; set; }
