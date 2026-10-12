@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Services.Nutrition;
 using MerfitCustomerApi.Domain.Entities;
 
 namespace MerfitCustomerApi.Business.Services.Personalization.Models;
@@ -37,6 +38,16 @@ public class NutritionPlanGenerationResult
     public required NutritionPlan Plan { get; init; }
     public required List<NutritionPlanDayResult> Days { get; init; }
     public required string Summary { get; init; }
+
+    /// <summary>
+    /// Planin dayandigi, profilden yeniden hesaplanmis gunluk hedefler. Null degilse
+    /// PersonalizationJobProcessor bunlari plan ile ayni transaction icinde NutritionGoal'a yazar
+    /// (NutritionGoal profilden turetilen bir degerdir; bkz. NutritionPlanGenerator).
+    /// </summary>
+    public NutritionCalculationResult? Targets { get; init; }
+
+    /// <summary>Gunluk toplamlarin tolerans disinda kaldigi gunler gibi, plana dair uyarilar.</summary>
+    public List<string> Warnings { get; init; } = new();
 }
 
 /// <summary>Tek bir NutritionPlanDay ve o gune atanan ogunler.</summary>

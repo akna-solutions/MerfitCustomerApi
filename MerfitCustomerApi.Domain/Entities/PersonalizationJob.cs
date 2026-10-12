@@ -27,4 +27,10 @@ public class PersonalizationJob : BaseEntity
 
     /// <summary>Isin tamamlandigi (basarili ya da basarisiz) tarih.</summary>
     public DateTime? CompletedAt { get; set; }
+
+    /// <summary>
+    /// True ise yalnizca beslenme programi yeniden uretilir (orn. profilde yalnizca kilo/boy/beslenme
+    /// tercihi degistiginde); antrenman programina dokunulmaz.
+    /// </summary>
+    public bool NutritionOnly { get; set; }
 }

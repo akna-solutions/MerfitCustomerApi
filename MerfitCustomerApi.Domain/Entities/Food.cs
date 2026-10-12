@@ -3,6 +3,7 @@
 // </auto-generated>
 
 using MerfitCustomerApi.Domain.Common;
+using MerfitCustomerApi.Domain.Entities.Enums;
 
 namespace MerfitCustomerApi.Domain.Entities;
 
@@ -75,4 +76,24 @@ public class Food : BaseEntity
     /// Besin gorselinin adresi.
     /// </summary>
     public string? ImageUrl { get; set; }
+
+    /// <summary>
+    /// Besinsel kategori. Null ise besin siniflandirilmamistir ve otomatik plan olusturucu kullanmaz.
+    /// </summary>
+    public FoodCategory? Category { get; set; }
+
+    /// <summary>
+    /// Besinin uygun oldugu ogunler. Null ise siniflandirilmamistir ve otomatik plan olusturucu kullanmaz.
+    /// </summary>
+    public MealSuitability? MealSuitability { get; set; }
+
+    /// <summary>
+    /// Besinin icerdigi alerjenler. Null ise dogrulanmamistir; alerjisi olan kullanicilara onerilmez.
+    /// </summary>
+    public FoodAllergen? Allergens { get; set; }
+
+    /// <summary>
+    /// Besinin uygun oldugu diyetler. Null ise dogrulanmamistir; vejetaryen/vegan kullanicilara onerilmez.
+    /// </summary>
+    public DietTag? DietTags { get; set; }
 }

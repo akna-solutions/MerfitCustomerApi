@@ -260,7 +260,9 @@ public class ProfileServiceTrainingDataTests
             ExperienceLevel = "BEGINNER",
             TrainingDaysPerWeek = 3,
             TrainingLocation = "gym",
-            Weight = 80,
+            // Kilo degisikligi artik beslenme programini yeniden urettigi icin (bkz.
+            // ProfileServiceNutritionPreferenceTests) burada mevcut kilo gonderilir.
+            Weight = 82,
         });
 
         Assert.Empty(fixture.Jobs);

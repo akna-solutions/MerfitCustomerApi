@@ -26,3 +26,158 @@ public enum MealType
     /// </summary>
     Snack
 }
+
+/// <summary>
+/// Besinin plan olusturucu icin besinsel kategorisi. Admin tarafindan acikca atanir; isimden tahmin edilmez.
+/// </summary>
+public enum FoodCategory
+{
+    /// <summary>
+    /// Et, tavuk, balik, yumurta gibi ana protein kaynaklari.
+    /// </summary>
+    ProteinSource,
+    /// <summary>
+    /// Sut, yogurt, peynir gibi sut urunleri.
+    /// </summary>
+    Dairy,
+    /// <summary>
+    /// Mercimek, nohut, fasulye gibi baklagiller.
+    /// </summary>
+    Legume,
+    /// <summary>
+    /// Ekmek, pirinc, makarna, yulaf, patates gibi tahil ve nisastali besinler.
+    /// </summary>
+    GrainStarch,
+    /// <summary>
+    /// Sebzeler.
+    /// </summary>
+    Vegetable,
+    /// <summary>
+    /// Meyveler.
+    /// </summary>
+    Fruit,
+    /// <summary>
+    /// Kuruyemis, tohum ve yaglar.
+    /// </summary>
+    NutsSeedsFats,
+    /// <summary>
+    /// Diger (plan olusturucu tarafindan kullanilmaz).
+    /// </summary>
+    Other
+}
+
+/// <summary>
+/// Besinin uygun oldugu ogunler (bit bayraklari, veritabaninda tamsayi olarak saklanir).
+/// </summary>
+[Flags]
+public enum MealSuitability
+{
+    /// <summary>
+    /// Hicbir ogune uygun degil.
+    /// </summary>
+    None = 0,
+    /// <summary>
+    /// Kahvalti.
+    /// </summary>
+    Breakfast = 1,
+    /// <summary>
+    /// Ogle yemegi.
+    /// </summary>
+    Lunch = 2,
+    /// <summary>
+    /// Aksam yemegi.
+    /// </summary>
+    Dinner = 4,
+    /// <summary>
+    /// Ara ogun.
+    /// </summary>
+    Snack = 8
+}
+
+/// <summary>
+/// Besin alerjenleri (bit bayraklari, veritabaninda tamsayi olarak saklanir). Besinde null deger
+/// "dogrulanmamis" anlamina gelir; 0 (None) ise "bilinen alerjen icermez" demektir.
+/// </summary>
+[Flags]
+public enum FoodAllergen
+{
+    /// <summary>
+    /// Alerjen yok.
+    /// </summary>
+    None = 0,
+    /// <summary>
+    /// Gluten iceren tahillar.
+    /// </summary>
+    Gluten = 1,
+    /// <summary>
+    /// Sut ve sut urunleri (laktoz dahil).
+    /// </summary>
+    Milk = 2,
+    /// <summary>
+    /// Yumurta.
+    /// </summary>
+    Egg = 4,
+    /// <summary>
+    /// Agac kuruyemisleri (badem, ceviz, findik vb.).
+    /// </summary>
+    TreeNuts = 8,
+    /// <summary>
+    /// Yer fistigi.
+    /// </summary>
+    Peanut = 16,
+    /// <summary>
+    /// Soya.
+    /// </summary>
+    Soy = 32,
+    /// <summary>
+    /// Balik.
+    /// </summary>
+    Fish = 64,
+    /// <summary>
+    /// Kabuklu deniz urunleri.
+    /// </summary>
+    Shellfish = 128,
+    /// <summary>
+    /// Susam.
+    /// </summary>
+    Sesame = 256
+}
+
+/// <summary>
+/// Besinin uygun oldugu diyet turleri (bit bayraklari). Besinde null deger "dogrulanmamis" demektir.
+/// </summary>
+[Flags]
+public enum DietTag
+{
+    /// <summary>
+    /// Ozel bir diyet etiketi yok (et/balik icerebilir).
+    /// </summary>
+    None = 0,
+    /// <summary>
+    /// Vejetaryen diyete uygun.
+    /// </summary>
+    Vegetarian = 1,
+    /// <summary>
+    /// Vegan diyete uygun.
+    /// </summary>
+    Vegan = 2
+}
+
+/// <summary>
+/// Kullanicinin beyan ettigi beslenme tercihi.
+/// </summary>
+public enum DietaryPreference
+{
+    /// <summary>
+    /// Kisitlama yok.
+    /// </summary>
+    None,
+    /// <summary>
+    /// Vejetaryen (et ve balik yok).
+    /// </summary>
+    Vegetarian,
+    /// <summary>
+    /// Vegan (hayvansal urun yok).
+    /// </summary>
+    Vegan
+}

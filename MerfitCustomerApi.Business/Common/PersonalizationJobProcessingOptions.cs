@@ -28,4 +28,10 @@ public class PersonalizationJobProcessingOptions
 
     /// <summary>Uygulama baslarken worker'in ilk kontrolden once bekleyecegi baslangic gecikmesi.</summary>
     public TimeSpan StartupDelay { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Ayni kullanicinin islenen (Processing) bir isi varken diger islerinin claim edilmemesi icin
+    /// kilit suresi. Bu sureden eski Processing isler (orn. cokmus worker) kilit sayilmaz.
+    /// </summary>
+    public TimeSpan UserProcessingLockTimeout { get; set; } = TimeSpan.FromMinutes(10);
 }
