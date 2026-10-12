@@ -93,6 +93,12 @@ public class UserProfile : BaseEntity
     public int? TrainingDaysPerWeek { get; set; }
 
     /// <summary>
+    /// Kullanicinin sectigi antrenman gunleri, virgulle ayrilmis ve Pazartesi'den baslayarak
+    /// sirali ("Mon,Wed,Fri"). Bos ise program olusturucu gun sayisina gore varsayilan gunleri secer.
+    /// </summary>
+    public string? PreferredTrainingDays { get; set; }
+
+    /// <summary>
     /// Kullanicinin tercih ettigi olcum birimi sistemi.
     /// </summary>
     public UnitSystem UnitSystem { get; set; }

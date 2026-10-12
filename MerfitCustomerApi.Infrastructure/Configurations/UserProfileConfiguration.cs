@@ -98,6 +98,11 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
             .HasMaxLength(50);
 
         // Kullanicinin tercih ettigi olcum birimi sistemi.
+        // Kullanicinin sectigi antrenman gunleri ("Mon,Wed,Fri").
+        builder.Property(x => x.PreferredTrainingDays)
+            .IsRequired(false)
+            .HasMaxLength(64);
+
         builder.Property(x => x.UnitSystem)
             .HasConversion<string>()
             .IsRequired(true)
