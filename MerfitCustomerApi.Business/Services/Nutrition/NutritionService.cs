@@ -17,10 +17,13 @@ public class NutritionService : INutritionService
     private readonly IUnitOfWork _unitOfWork;
     private readonly INutritionCalculator _nutritionCalculator;
 
-    public NutritionService(IUnitOfWork unitOfWork, INutritionCalculator nutritionCalculator)
+    private readonly IMerfitScoreService _scoreService;
+
+    public NutritionService(IUnitOfWork unitOfWork, INutritionCalculator nutritionCalculator, IMerfitScoreService scoreService)
     {
         _unitOfWork = unitOfWork;
         _nutritionCalculator = nutritionCalculator;
+        _scoreService = scoreService;
     }
 
     public async Task<CustomerNutritionResponse> GetDailyNutritionAsync(long userId, DateOnly date, CancellationToken cancellationToken = default)
@@ -150,6 +153,8 @@ public class NutritionService : INutritionService
         await _unitOfWork.Repository<MealItem>().AddAsync(mealItem, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        await _scoreService.TryRefreshUserAsync(userId, cancellationToken);
+
         return new CustomerMealEntryDto
         {
             Id = mealItem.Id,
@@ -172,6 +177,8 @@ public class NutritionService : INutritionService
         };
         await _unitOfWork.Repository<WaterLog>().AddAsync(log, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await _scoreService.TryRefreshUserAsync(userId, cancellationToken);
 
         var goal = await GetOrCreateGoalAsync(userId, cancellationToken);
 

@@ -46,7 +46,7 @@ public class CustomerProgressResponse
     public List<CustomerBodyMetricDto> BodyMetrics { get; set; } = new();
     public List<CustomerRecentActivityDto> RecentActivity { get; set; } = new();
 
-    /// <summary>MB FIT skoru; hic MerfitScore kaydi yoksa null (mobil taraf ScoreCard'i gizler).</summary>
+    /// <summary>Tum zamanlar MB FIT puani; puani olmayan kullanicida 0 puan ve null sira ile doner.</summary>
     public CustomerScoreSummaryDto? Score { get; set; }
 }
 
@@ -79,6 +79,6 @@ public class CustomerScoreSummaryDto
     public int Points { get; set; }
     public int WeeklyChange { get; set; }
 
-    /// <summary>Aktif liderlik tablosu donemindeki sirasi; henuz hesaplanmamissa null.</summary>
+    /// <summary>Tum zamanlar siralamasindaki yeri; hic puani yoksa null.</summary>
     public int? Rank { get; set; }
 }

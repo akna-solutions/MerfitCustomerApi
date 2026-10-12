@@ -25,10 +25,12 @@ public class WorkoutSessionService : IWorkoutSessionService
     };
 
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IMerfitScoreService _scoreService;
 
-    public WorkoutSessionService(IUnitOfWork unitOfWork)
+    public WorkoutSessionService(IUnitOfWork unitOfWork, IMerfitScoreService scoreService)
     {
         _unitOfWork = unitOfWork;
+        _scoreService = scoreService;
     }
 
     public async Task<CustomerWorkoutSessionDto> StartSessionAsync(long userId, StartWorkoutSessionRequest request, CancellationToken cancellationToken = default)
@@ -292,6 +294,9 @@ public class WorkoutSessionService : IWorkoutSessionService
         await UpdateStreakAsync(userId, cancellationToken);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // MB FIT puani: basarilari ver, puan ozetini guncelle (hata antrenman kaydini bozmaz).
+        await _scoreService.TryRefreshUserAsync(userId, cancellationToken);
 
         return new CustomerWorkoutSessionSummaryDto
         {
