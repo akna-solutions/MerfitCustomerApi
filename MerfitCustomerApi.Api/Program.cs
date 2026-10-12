@@ -93,6 +93,15 @@ builder.Services.AddScoped<IWorkoutSessionService, WorkoutSessionService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<INutritionService, NutritionService>();
 builder.Services.AddScoped<IFoodService, FoodService>();
+// Barkodla urun sorgusu: ucretsiz Open Food Facts API'si.
+builder.Services.Configure<OpenFoodFactsOptions>(builder.Configuration.GetSection(OpenFoodFactsOptions.SectionName));
+builder.Services.AddHttpClient<IFoodProductLookup, OpenFoodFactsProductLookup>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<OpenFoodFactsOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
+});
 builder.Services.AddScoped<IProgressService, ProgressService>();
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 // MB FIT puan motoru: kullanicinin aksiyonlarindan puan, siralama ve basari hesaplar.

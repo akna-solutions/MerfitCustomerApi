@@ -68,6 +68,10 @@ public class ExceptionHandlingMiddleware
                 HttpStatusCode.Unauthorized,
                 ApiResponse.Fail(unauthorizedException.Message)),
 
+            ExternalServiceUnavailableException externalServiceException => (
+                HttpStatusCode.ServiceUnavailable,
+                ApiResponse.Fail(externalServiceException.Message)),
+
             _ => (HttpStatusCode.InternalServerError, HandleUnexpected(exception, traceId)),
         };
 

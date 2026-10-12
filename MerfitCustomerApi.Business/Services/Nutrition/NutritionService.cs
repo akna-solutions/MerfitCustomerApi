@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Customer.Nutrition;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Domain.Entities;
@@ -116,6 +117,8 @@ public class NutritionService : INutritionService
             throw new NotFoundException(nameof(Food), request.FoodId);
         }
 
+        var quantity = ResolveQuantity(food, request);
+
         var date = (request.Date ?? DateOnly.FromDateTime(DateTime.UtcNow)).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
 
         var meal = await _unitOfWork.Repository<Meal>()
@@ -135,13 +138,11 @@ public class NutritionService : INutritionService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
-        var quantity = request.Quantity <= 0 ? 1 : request.Quantity;
-
         var mealItem = new MealItem
         {
             MealId = meal.Id,
             FoodId = food.Id,
-            Quantity = quantity,
+            Quantity = Math.Round(quantity, 2),
             ServingSize = food.ServingSize,
             Calories = Math.Round(food.Calories * quantity, 2),
             Protein = Math.Round(food.Protein * quantity, 2),
@@ -232,6 +233,25 @@ public class NutritionService : INutritionService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return goal;
+    }
+
+    /// <summary>
+    /// Porsiyon carpanini belirler: Amount (g/ml) verildiyse Amount / ServingSize, yoksa Quantity.
+    /// Besin degerleri bu carpanin yuvarlanmamis hali ile hesaplanir.
+    /// </summary>
+    private static decimal ResolveQuantity(Food food, LogMealItemRequest request)
+    {
+        if (request.Amount is not { } amount)
+        {
+            return request.Quantity <= 0 ? 1 : request.Quantity;
+        }
+
+        if (!ServingUnits.IsWeighable(food.ServingUnit) || food.ServingSize <= 0)
+        {
+            throw new AppValidationException(nameof(request.Amount), "Bu besin gram/ml ile girilemez; porsiyon secin.");
+        }
+
+        return amount / food.ServingSize;
     }
 
     private static string MapMealType(MealType mealType) => mealType switch

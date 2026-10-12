@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Api.Extensions;
 using MerfitCustomerApi.Business.Common.Pagination;
 using MerfitCustomerApi.Business.Dtos.Customer.Foods;
 using MerfitCustomerApi.Business.Interfaces.Services;
@@ -26,6 +27,18 @@ public class FoodsController : ControllerBase
         CancellationToken cancellationToken)
     {
         var result = await _foodService.SearchFoodsAsync(request, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Barkodla besin getirir (katalogda yoksa Open Food Facts'ten). Degerler ServingSize/ServingUnit
+    /// basinadir; barkodla eklenen urunlerde bu 100 g veya 100 ml'dir. Sorgu: /api/foods/barcode/8690504012011
+    /// </summary>
+    [HttpGet("barcode/{barcode}")]
+    public async Task<ActionResult<CustomerFoodListItemDto>> GetByBarcode(string barcode, CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        var result = await _foodService.GetByBarcodeAsync(userId, barcode, cancellationToken);
         return Ok(result);
     }
 }
