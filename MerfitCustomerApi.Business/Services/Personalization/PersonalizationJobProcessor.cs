@@ -4,6 +4,7 @@ using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Personalization.Models;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
+using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -68,13 +69,26 @@ public class PersonalizationJobProcessor : IPersonalizationJobProcessor
             _logger.LogInformation(
                 "Workout plan generated for job {JobId} in {ElapsedMs}ms", jobId, workoutStopwatch.ElapsedMilliseconds);
 
+            // Beslenme programi uretilemezse (orn. besin katalogu bos) antrenman programi yine de
+            // kaydedilir; kullanicinin mevcut beslenme programi (varsa) aktif kalir. Boylece profilde
+            // hedef/gun degisikligi beslenme verisine takilmadan antrenman programina yansir.
+            NutritionPlanGenerationResult? nutritionResult = null;
+            string? nutritionError = null;
             var nutritionStopwatch = Stopwatch.StartNew();
-            var nutritionResult = await _nutritionPlanGenerator.GenerateAsync(userId, cancellationToken);
-            nutritionStopwatch.Stop();
-            _logger.LogInformation(
-                "Nutrition plan generated for job {JobId} in {ElapsedMs}ms", jobId, nutritionStopwatch.ElapsedMilliseconds);
+            try
+            {
+                nutritionResult = await _nutritionPlanGenerator.GenerateAsync(userId, cancellationToken);
+                _logger.LogInformation(
+                    "Nutrition plan generated for job {JobId} in {ElapsedMs}ms", jobId, nutritionStopwatch.ElapsedMilliseconds);
+            }
+            catch (PersonalizationGenerationException ex)
+            {
+                nutritionError = ex.Message;
+                _logger.LogWarning(
+                    "Nutrition plan skipped for job {JobId}; workout plan will still be saved: {Message}", jobId, ex.Message);
+            }
 
-            await PersistPlansAndCompleteJobAsync(userId, jobId, workoutResult, nutritionResult, cancellationToken);
+            await PersistPlansAndCompleteJobAsync(userId, jobId, workoutResult, nutritionResult, nutritionError, cancellationToken);
 
             totalStopwatch.Stop();
             _logger.LogInformation(
@@ -151,15 +165,16 @@ public class PersonalizationJobProcessor : IPersonalizationJobProcessor
 
     /// <summary>
     /// Task item #8'deki akisi birebir uygular: tek bir transaction icinde eski aktif planlari
-    /// pasiflestirir, yeni WorkoutPlan/NutritionPlan graph'ini kaydeder ve job'u Completed
-    /// yapar; herhangi bir adimda hata olursa cagiran taraf (ProcessNextAsync) transaction'i
+    /// pasiflestirir, yeni WorkoutPlan/NutritionPlan graph'ini kaydeder (beslenme uretilemediyse
+    /// yalnizca WorkoutPlan; mevcut beslenme programi korunur) ve job'u Completed yapar; herhangi bir adimda hata olursa cagiran taraf (ProcessNextAsync) transaction'i
     /// geri alir.
     /// </summary>
     private async Task PersistPlansAndCompleteJobAsync(
         long userId,
         long jobId,
         WorkoutPlanGenerationResult workout,
-        NutritionPlanGenerationResult nutrition,
+        NutritionPlanGenerationResult? nutrition,
+        string? nutritionError,
         CancellationToken cancellationToken)
     {
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
@@ -167,8 +182,11 @@ public class PersonalizationJobProcessor : IPersonalizationJobProcessor
         await DeactivateExistingPlansAsync<WorkoutPlan>(userId, cancellationToken);
         await PersistWorkoutPlanAsync(workout, cancellationToken);
 
-        await DeactivateExistingPlansAsync<NutritionPlan>(userId, cancellationToken);
-        await PersistNutritionPlanAsync(nutrition, cancellationToken);
+        if (nutrition is not null)
+        {
+            await DeactivateExistingPlansAsync<NutritionPlan>(userId, cancellationToken);
+            await PersistNutritionPlanAsync(nutrition, cancellationToken);
+        }
 
         var job = await _unitOfWork.Repository<PersonalizationJob>()
             .GetQueryable(asNoTracking: false)
@@ -177,7 +195,8 @@ public class PersonalizationJobProcessor : IPersonalizationJobProcessor
         {
             job.Status = PersonalizationJobStatus.Completed;
             job.CompletedAt = DateTime.UtcNow;
-            job.ErrorMessage = null;
+            // Job tamamlandi; beslenme atlandiysa sebebi teshis icin saklanir.
+            job.ErrorMessage = nutritionError is null ? null : TruncateErrorMessage(nutritionError);
             job.UpdatedAt = DateTime.UtcNow;
             _unitOfWork.Repository<PersonalizationJob>().Update(job);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

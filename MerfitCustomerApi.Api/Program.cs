@@ -11,6 +11,7 @@ using MerfitCustomerApi.Business.Services.Personalization;
 using MerfitCustomerApi.Business.Services.Personalization.Generators;
 using MerfitCustomerApi.Business.Services.Profile;
 using MerfitCustomerApi.Business.Services.Progress;
+using MerfitCustomerApi.Business.Services.Subscriptions;
 using MerfitCustomerApi.Business.Services.TokenService;
 using MerfitCustomerApi.Business.Services.WorkoutSessions;
 using MerfitCustomerApi.Business.Services.Workouts;
@@ -116,6 +117,7 @@ builder.Services.AddScoped<IPersonalizationJobProcessor, PersonalizationJobProce
 builder.Services.AddScoped<IMyPlanService, MyPlanService>();
 builder.Services.AddScoped<IMyNutritionPlanService, MyNutritionPlanService>();
 builder.Services.AddScoped<IPersonalizationStatusService, PersonalizationStatusService>();
+builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 
 // PersonalizationJob(Pending) kayitlarini periyodik olarak isleyen arka plan calisani.
 // Composition Root'ta (API projesi) kayitlidir - bkz. PersonalizationBackgroundWorker XML docs

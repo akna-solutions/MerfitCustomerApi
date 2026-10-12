@@ -65,7 +65,12 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         var goalWeights = ResolveGoalWeights(goalType);
         var experience = profile.ExperienceLevel ?? ExperienceLevel.Beginner;
         var targetDifficulty = MapExperienceToDifficulty(experience);
-        var trainingDays = Math.Clamp(profile.TrainingDaysPerWeek ?? _options.DefaultTrainingDaysPerWeek, 2, 7);
+        // Kullanici gunleri profilinden tek tek sectiyse o gunler kullanilir; secmediyse haftalik
+        // gun sayisina gore varsayilan desen (ResolveDayPattern).
+        var preferredDays = TrainingDayCodes.ParseStored(profile.PreferredTrainingDays);
+        var trainingDays = preferredDays.Count > 0
+            ? preferredDays.Count
+            : Math.Clamp(profile.TrainingDaysPerWeek ?? _options.DefaultTrainingDaysPerWeek, 2, 7);
         var durationPreference = profile.WorkoutDurationMin ?? _options.DefaultWorkoutDurationMin;
         var maxDuration = durationPreference + _options.DurationToleranceMin;
 
@@ -168,7 +173,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             .ThenBy(s => s.Workout.Id) // esit skorda deterministik tie-break
             .ToList();
 
-        var dayPattern = ResolveDayPattern(trainingDays);
+        var dayPattern = preferredDays.Count > 0 ? preferredDays : ResolveDayPattern(trainingDays);
 
         var workoutExercisesByWorkout = await _unitOfWork.Repository<WorkoutExercise>()
             .GetQueryable()

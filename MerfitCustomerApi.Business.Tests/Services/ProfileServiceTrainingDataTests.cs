@@ -25,6 +25,7 @@ public class ProfileServiceTrainingDataTests
         public required List<UserEquipment> Equipment { get; init; }
         public required List<WorkoutPlan> Plans { get; init; }
         public required List<WorkoutPlanDay> PlanDays { get; init; }
+        public required List<PersonalizationJob> Jobs { get; init; }
     }
 
     private static Fixture CreateFixture(UserProfile profile)
@@ -35,6 +36,7 @@ public class ProfileServiceTrainingDataTests
         var equipment = new List<UserEquipment>();
         var plans = new List<WorkoutPlan>();
         var planDays = new List<WorkoutPlanDay>();
+        var jobs = new List<PersonalizationJob>();
 
         var unitOfWork = new Mock<IUnitOfWork>();
         unitOfWork.Setup(u => u.Repository<ApplicationUser>()).Returns(MockRepositoryFactory.Create(users).Object);
@@ -48,6 +50,7 @@ public class ProfileServiceTrainingDataTests
         unitOfWork.Setup(u => u.Repository<UserStreak>()).Returns(MockRepositoryFactory.Create(new List<UserStreak>()).Object);
         unitOfWork.Setup(u => u.Repository<WorkoutPlan>()).Returns(MockRepositoryFactory.Create(plans).Object);
         unitOfWork.Setup(u => u.Repository<WorkoutPlanDay>()).Returns(MockRepositoryFactory.Create(planDays).Object);
+        unitOfWork.Setup(u => u.Repository<PersonalizationJob>()).Returns(MockRepositoryFactory.Create(jobs).Object);
         unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
         return new Fixture
@@ -58,6 +61,7 @@ public class ProfileServiceTrainingDataTests
             Equipment = equipment,
             Plans = plans,
             PlanDays = planDays,
+            Jobs = jobs,
         };
     }
 
@@ -71,6 +75,8 @@ public class ProfileServiceTrainingDataTests
         WeightKg = 82,
         TrainingDaysPerWeek = 3,
         TrainingLocation = TrainingLocation.Gym,
+        Goal = FitnessGoal.BuildMuscle,
+        ExperienceLevel = ExperienceLevel.Beginner,
     };
 
     [Fact]
@@ -175,5 +181,99 @@ public class ProfileServiceTrainingDataTests
         Assert.Equal(75, fixture.Goals[0].TargetWeightKg);
         Assert.Equal(75, fixture.Profiles[0].TargetWeightKg);
         Assert.Equal(75, result.TargetWeight);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_SelectedDays_AreStoredAndReturned_AndCountFollows()
+    {
+        var fixture = CreateFixture(MakeProfile());
+        fixture.Plans.Add(new WorkoutPlan { Id = 11, UserId = UserId, IsActive = true, StartDate = DateTime.UtcNow });
+        fixture.PlanDays.Add(new WorkoutPlanDay { WorkoutPlanId = 11, DayOfWeek = DayOfWeek.Monday });
+
+        var result = await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest
+        {
+            TrainingDays = new List<string> { "sat", "Tue", "Thu", "Tue" },
+        });
+
+        Assert.Equal("Tue,Thu,Sat", fixture.Profiles[0].PreferredTrainingDays);
+        Assert.Equal(3, fixture.Profiles[0].TrainingDaysPerWeek);
+        Assert.Equal(new[] { "Tue", "Thu", "Sat" }, result.TrainingDays);
+        Assert.Equal(3, result.TrainingDaysPerWeek);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_InvalidDayCode_IsRejected()
+    {
+        var fixture = CreateFixture(MakeProfile());
+
+        await Assert.ThrowsAsync<MerfitCustomerApi.Domain.Exceptions.AppValidationException>(() =>
+            fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { TrainingDays = new List<string> { "Mon", "Funday" } }));
+        Assert.Null(fixture.Profiles[0].PreferredTrainingDays);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_FrequencyOnly_ClearsMismatchedDaySelection()
+    {
+        var profile = MakeProfile();
+        profile.PreferredTrainingDays = "Mon,Wed,Fri";
+        var fixture = CreateFixture(profile);
+
+        await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { TrainingDaysPerWeek = 4 });
+
+        Assert.Equal(4, fixture.Profiles[0].TrainingDaysPerWeek);
+        Assert.Null(fixture.Profiles[0].PreferredTrainingDays);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_GoalChange_UpdatesActiveGoal_AndQueuesPlanRegeneration()
+    {
+        var fixture = CreateFixture(MakeProfile());
+        fixture.Goals.Add(new UserGoal { UserId = UserId, IsActive = true, GoalType = FitnessGoal.BuildMuscle });
+
+        await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { Goal = "LOSE_WEIGHT" });
+
+        Assert.Equal(FitnessGoal.LoseWeight, fixture.Profiles[0].Goal);
+        Assert.Equal(FitnessGoal.LoseWeight, fixture.Goals[0].GoalType);
+        var job = Assert.Single(fixture.Jobs);
+        Assert.Equal(UserId, job.UserId);
+        Assert.Equal(PersonalizationJobStatus.Pending, job.Status);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_DayChange_QueuesPlanRegeneration()
+    {
+        var fixture = CreateFixture(MakeProfile());
+
+        await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { TrainingDays = new List<string> { "Mon", "Wed", "Fri" } });
+
+        Assert.Single(fixture.Jobs);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_SameValues_DoNotQueuePlanRegeneration()
+    {
+        var fixture = CreateFixture(MakeProfile());
+
+        await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest
+        {
+            Goal = "BUILD_MUSCLE",
+            ExperienceLevel = "BEGINNER",
+            TrainingDaysPerWeek = 3,
+            TrainingLocation = "gym",
+            Weight = 80,
+        });
+
+        Assert.Empty(fixture.Jobs);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_DoesNotQueueSecondJob_WhileOneIsPending()
+    {
+        var fixture = CreateFixture(MakeProfile());
+        fixture.Jobs.Add(new PersonalizationJob { UserId = UserId, Status = PersonalizationJobStatus.Pending });
+
+        await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { Goal = "LOSE_WEIGHT" });
+
+        Assert.Single(fixture.Jobs);
     }
 }

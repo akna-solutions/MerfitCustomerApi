@@ -132,6 +132,22 @@ public class WorkoutPlanGeneratorScoringTests
     }
 
     [Fact]
+    public async Task PreferredTrainingDays_DecideTheScheduleAndDayCount()
+    {
+        var catalog = new Catalog();
+        var profile = catalog.Profile(trainingDays: 3);
+        profile.PreferredTrainingDays = "Tue,Sat";
+        catalog.Workout(1); catalog.Scores(1, hypertrophy: 90, strength: 50);
+        catalog.Workout(2); catalog.Scores(2, hypertrophy: 80, strength: 50);
+        catalog.Workout(3); catalog.Scores(3, hypertrophy: 70, strength: 50);
+
+        var result = await catalog.CreateGenerator().GenerateAsync(UserId);
+
+        Assert.Equal(new[] { DayOfWeek.Tuesday, DayOfWeek.Saturday }, result.Days.Select(d => d.Day.DayOfWeek));
+        Assert.EndsWith("2 Gün", result.Plan.Name);
+    }
+
+    [Fact]
     public async Task StrengthGoal_ProducesDifferentOrder_ThanBuildMuscle_OnSameCatalog()
     {
         static Catalog Build(FitnessGoal goal)

@@ -1,4 +1,5 @@
-﻿using MerfitCustomerApi.Business.Dtos.Customer.Profile;
+﻿using MerfitCustomerApi.Business.Common;
+using MerfitCustomerApi.Business.Dtos.Customer.Profile;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
@@ -15,8 +16,6 @@ namespace MerfitCustomerApi.Business.Services.Profile;
 /// </summary>
 public class ProfileService : IProfileService
 {
-    private static readonly string[] WeekdayCodes = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
-
     private readonly IUnitOfWork _unitOfWork;
 
     public ProfileService(IUnitOfWork unitOfWork)
@@ -47,9 +46,22 @@ public class ProfileService : IProfileService
             throw new NotFoundException(nameof(UserProfile), userId);
         }
 
+        var planInputsBefore = PlanInputs.From(profile);
+
         await ApplyIdentityChangesAsync(user, profile, request, cancellationToken);
         ApplyBodyAndGoalChanges(profile, request);
         ApplyTrainingPreferenceChanges(profile, request);
+
+        var planInputsAfter = PlanInputs.From(profile);
+        if (planInputsAfter != planInputsBefore)
+        {
+            if (planInputsAfter.Goal != planInputsBefore.Goal && profile.Goal.HasValue)
+            {
+                await UpdateActiveGoalTypeAsync(userId, profile.Goal.Value, cancellationToken);
+            }
+
+            await EnqueuePlanRegenerationAsync(userId, cancellationToken);
+        }
 
         // NOT: user/profile yukarida AsNoTracking OLMADAN cekildi, yani EF change tracker
         // ikisini de zaten izliyor - buradaki alan atamalari SaveChangesAsync'te otomatik
@@ -169,16 +181,30 @@ public class ProfileService : IProfileService
             profile.WorkoutDurationMin = request.WorkoutDurationMin.Value;
         }
 
-        // UserProfile yalnizca haftalik gun SAYISINI saklar. Hangi gunlerde antrenman yapilacagi
-        // aktif WorkoutPlan'in WorkoutPlanDay kayitlarindan gelir (bkz. BuildResponseAsync).
-        if (request.TrainingDaysPerWeek.HasValue)
+        // Kullanici gunleri tek tek secerse (TrainingDays) secim UserProfile.PreferredTrainingDays'e
+        // yazilir ve haftalik gun sayisi bu listeden turetilir. Yalnizca sayi gelirse ve onceki
+        // secimle uyusmuyorsa secim temizlenir; plan uretici o durumda varsayilan gun desenini kullanir.
+        var requestedDays = (request.TrainingDays ?? new List<string>())
+            .Select(code => TrainingDayCodes.TryParseCode(code, out var day) ? (DayOfWeek?)day : null)
+            .ToList();
+        if (requestedDays.Any(day => day is null))
+        {
+            throw new AppValidationException(nameof(request.TrainingDays), "Gecersiz antrenman gunu. Gecerli degerler: Mon, Tue, Wed, Thu, Fri, Sat, Sun.");
+        }
+
+        var selectedDays = requestedDays.Select(day => day!.Value).Distinct().ToList();
+        if (selectedDays.Count > 0)
+        {
+            profile.PreferredTrainingDays = TrainingDayCodes.Format(selectedDays);
+            profile.TrainingDaysPerWeek = selectedDays.Count;
+        }
+        else if (request.TrainingDaysPerWeek.HasValue)
         {
             profile.TrainingDaysPerWeek = request.TrainingDaysPerWeek.Value;
-        }
-        else if (request.TrainingDays is not null && request.TrainingDays.Count > 0)
-        {
-            // Eski istemciler icin geriye uyumluluk: liste uzunlugu gun sayisi olarak yorumlanir.
-            profile.TrainingDaysPerWeek = request.TrainingDays.Count;
+            if (TrainingDayCodes.ParseStored(profile.PreferredTrainingDays).Count != request.TrainingDaysPerWeek.Value)
+            {
+                profile.PreferredTrainingDays = null;
+            }
         }
 
         if (request.TrainingLocation is not null
@@ -186,6 +212,59 @@ public class ProfileService : IProfileService
         {
             profile.TrainingLocation = location;
         }
+    }
+
+    /// <summary>Antrenman programini etkileyen profil alanlari; biri degisirse program yeniden uretilir.</summary>
+    private sealed record PlanInputs(
+        FitnessGoal? Goal,
+        ExperienceLevel? ExperienceLevel,
+        int? TrainingDaysPerWeek,
+        string? PreferredTrainingDays,
+        TrainingLocation? TrainingLocation)
+    {
+        public static PlanInputs From(UserProfile profile) => new(
+            profile.Goal,
+            profile.ExperienceLevel,
+            profile.TrainingDaysPerWeek,
+            profile.PreferredTrainingDays,
+            profile.TrainingLocation);
+    }
+
+    private async Task UpdateActiveGoalTypeAsync(long userId, FitnessGoal goalType, CancellationToken cancellationToken)
+    {
+        var goal = await _unitOfWork.Repository<UserGoal>()
+            .GetQueryable(asNoTracking: false)
+            .FirstOrDefaultAsync(g => g.UserId == userId && g.IsActive, cancellationToken);
+        if (goal is not null && goal.GoalType != goalType)
+        {
+            goal.GoalType = goalType;
+            goal.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>
+    /// Kayittaki ile ayni sekilde bir PersonalizationJob kuyruga alir; arka plan islemcisi yeni
+    /// workout + nutrition planini uretip eski aktif planlari pasiflestirir. Bekleyen veya islenen
+    /// bir is zaten varsa yenisi eklenmez (o is guncel profili okuyacaktir).
+    /// </summary>
+    private async Task EnqueuePlanRegenerationAsync(long userId, CancellationToken cancellationToken)
+    {
+        var jobs = _unitOfWork.Repository<PersonalizationJob>();
+        var hasOpenJob = await jobs.GetQueryable()
+            .AnyAsync(j => j.UserId == userId
+                && (j.Status == PersonalizationJobStatus.Pending || j.Status == PersonalizationJobStatus.Processing),
+                cancellationToken);
+        if (hasOpenJob)
+        {
+            return;
+        }
+
+        await jobs.AddAsync(new PersonalizationJob
+        {
+            UserId = userId,
+            Status = PersonalizationJobStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+        }, cancellationToken);
     }
 
     private async Task UpdateActiveGoalTargetWeightAsync(long userId, decimal targetWeight, CancellationToken cancellationToken)
@@ -386,7 +465,11 @@ public class ProfileService : IProfileService
         var streak = await _unitOfWork.Repository<UserStreak>()
             .FirstOrDefaultAsync(s => s.UserId == user.Id, cancellationToken);
 
-        var trainingDays = await GetActivePlanTrainingDaysAsync(user.Id, cancellationToken);
+        // Kullanici gunlerini kendisi sectiyse o secim, secmediyse aktif planin gunleri gosterilir.
+        var preferredDays = TrainingDayCodes.ParseStored(profile.PreferredTrainingDays);
+        var trainingDays = preferredDays.Count > 0
+            ? preferredDays.Select(TrainingDayCodes.ToCode).ToList()
+            : await GetActivePlanTrainingDaysAsync(user.Id, cancellationToken);
 
         var age = profile.DateOfBirth.HasValue
             ? Math.Max(0, DateTime.UtcNow.Year - profile.DateOfBirth.Value.Year -
@@ -411,7 +494,7 @@ public class ProfileService : IProfileService
             Equipment = DeriveEquipmentCategory(profile.TrainingLocation, equipmentCount),
             TrainingLocation = profile.TrainingLocation?.ToString().ToLowerInvariant(),
             WorkoutDurationMin = profile.WorkoutDurationMin ?? 45,
-            TrainingDaysPerWeek = profile.TrainingDaysPerWeek ?? trainingDays.Count,
+            TrainingDaysPerWeek = preferredDays.Count > 0 ? preferredDays.Count : profile.TrainingDaysPerWeek ?? trainingDays.Count,
             TrainingDays = trainingDays,
             UnitSystem = profile.UnitSystem.ToString().ToLowerInvariant(),
             Appearance = (preference?.Theme ?? Theme.System).ToString().ToLowerInvariant(),
@@ -496,8 +579,8 @@ public class ProfileService : IProfileService
 
         return days
             .Distinct()
-            .OrderBy(d => ((int)d + 6) % 7) // Pazartesi = 0 ... Pazar = 6
-            .Select(d => WeekdayCodes[((int)d + 6) % 7])
+            .OrderBy(TrainingDayCodes.MondayFirstIndex)
+            .Select(TrainingDayCodes.ToCode)
             .ToList();
     }
 

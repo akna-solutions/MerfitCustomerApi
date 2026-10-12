@@ -47,8 +47,8 @@ public class CustomerProfileResponse
     public int WorkoutDurationMin { get; set; }
 
     /// <summary>
-    /// "Mon".."Sun" - aktif antrenman programindaki (WorkoutPlanDay) gunler. Program henuz
-    /// hazirlanmadiysa bos liste doner.
+    /// "Mon".."Sun" - kullanicinin sectigi gunler (UserProfile.PreferredTrainingDays); secim
+    /// yoksa aktif antrenman programindaki (WorkoutPlanDay) gunler. Ikisi de yoksa bos liste.
     /// </summary>
     public List<string> TrainingDays { get; set; } = new();
 
@@ -131,7 +131,7 @@ public class UpdateProfileRequest
     [Range(1, 7)]
     public int? TrainingDaysPerWeek { get; set; }
 
-    /// <summary>Eski istemciler icin: TrainingDaysPerWeek gonderilmezse liste uzunlugu gun sayisi olarak kaydedilir.</summary>
+    /// <summary>Kullanicinin sectigi antrenman gunleri ("Mon".."Sun"). Bos degilse UserProfile.PreferredTrainingDays'e yazilir ve haftalik gun sayisi bu listeden turetilir.</summary>
     public List<string>? TrainingDays { get; set; }
 
     /// <summary>"gym" | "home" | "outdoor".</summary>
