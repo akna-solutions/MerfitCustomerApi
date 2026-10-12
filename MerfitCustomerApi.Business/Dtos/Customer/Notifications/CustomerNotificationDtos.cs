@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using MerfitCustomerApi.Business.Common.Pagination;
 
 namespace MerfitCustomerApi.Business.Dtos.Customer.Notifications;
@@ -19,6 +19,9 @@ public class CustomerNotificationDto
     public string? ImageUrl { get; set; }
     public bool IsRead { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>Dokunuldugunda acilacak ekran (orn. { "screen": "nutrition" }); bos olabilir.</summary>
+    public Dictionary<string, string> Data { get; set; } = new();
 }
 
 /// <summary>GET /api/notifications sorgusu.</summary>
@@ -65,4 +68,86 @@ public class UpdateNotificationTypeSettingsRequest
     [Required]
     [MinLength(1)]
     public List<UpdateNotificationTypeSettingItem> Settings { get; set; } = new();
+}
+
+/// <summary>GET/PUT /api/notifications/preferences.</summary>
+public class CustomerNotificationPreferencesDto
+{
+    public bool PushEnabled { get; set; }
+
+    /// <summary>"SS:dd" (kullanicinin yerel saati) veya null.</summary>
+    public string? QuietHoursStart { get; set; }
+
+    public string? QuietHoursEnd { get; set; }
+
+    /// <summary>Kullanicinin kayitli IANA saat dilimi (null ise varsayilan kullanilir).</summary>
+    public string? TimeZone { get; set; }
+
+    /// <summary>Bildirim zamanlamasinda fiilen kullanilan saat dilimi.</summary>
+    public string EffectiveTimeZone { get; set; } = string.Empty;
+}
+
+public class UpdateNotificationPreferencesRequest
+{
+    public bool PushEnabled { get; set; } = true;
+
+    [RegularExpression(@"^\d{2}:\d{2}$", ErrorMessage = "Saat SS:dd biçiminde olmalı.")]
+    public string? QuietHoursStart { get; set; }
+
+    [RegularExpression(@"^\d{2}:\d{2}$", ErrorMessage = "Saat SS:dd biçiminde olmalı.")]
+    public string? QuietHoursEnd { get; set; }
+
+    /// <summary>Verilmezse mevcut saat dilimi korunur.</summary>
+    [StringLength(100)]
+    public string? TimeZone { get; set; }
+}
+
+/// <summary>PUT /api/notifications/devices govdesi. Kullanici kimligi her zaman JWT'den alinir.</summary>
+public class RegisterDeviceRequest
+{
+    [Required]
+    [StringLength(500)]
+    public string Token { get; set; } = string.Empty;
+
+    /// <summary>"ios" | "android".</summary>
+    [Required]
+    [StringLength(20)]
+    public string Platform { get; set; } = string.Empty;
+
+    /// <summary>Uygulamanin cihazda sakladigi kalici kurulum kimligi.</summary>
+    [StringLength(100)]
+    public string? InstallationId { get; set; }
+
+    [StringLength(200)]
+    public string? DeviceName { get; set; }
+
+    [StringLength(50)]
+    public string? AppVersion { get; set; }
+
+    [StringLength(50)]
+    public string? OsVersion { get; set; }
+
+    /// <summary>Cihazin IANA saat dilimi; gecerliyse kullanicinin saat dilimi olarak kaydedilir.</summary>
+    [StringLength(100)]
+    public string? TimeZone { get; set; }
+}
+
+/// <summary>POST /api/notifications/devices/deactivate govdesi.</summary>
+public class DeactivateDeviceRequest
+{
+    [Required]
+    [StringLength(500)]
+    public string Token { get; set; } = string.Empty;
+
+    /// <summary>"Logout" | "PermissionRevoked". Diger degerler "Logout" sayilir.</summary>
+    [StringLength(50)]
+    public string? Reason { get; set; }
+}
+
+public class CustomerDeviceRegistrationDto
+{
+    public long Id { get; set; }
+    public string Platform { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
+    public DateTime? LastSeenAt { get; set; }
 }

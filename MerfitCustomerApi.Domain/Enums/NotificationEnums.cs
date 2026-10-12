@@ -50,5 +50,118 @@ public enum NotificationType
     /// </summary>
     Marketing,
     NutritionReminder,
-    WaterReminder
+    WaterReminder,
+    /// <summary>
+    /// Gunluk motivasyon mesaji (bildirim kurali ile planlanir).
+    /// </summary>
+    DailyMotivation,
+    /// <summary>
+    /// Admin panelinden gonderilen duyuru (kampanya).
+    /// </summary>
+    Announcement
+}
+
+/// <summary>Zamanlanmis bildirim kuralinin turu.</summary>
+public enum NotificationRuleKind
+{
+    /// <summary>Beklenen ogun belirlenen saate kadar kaydedilmediyse hatirlatma.</summary>
+    NutritionReminder,
+    /// <summary>Programdaki antrenman belirlenen saate kadar tamamlanmadiysa hatirlatma.</summary>
+    WorkoutReminder,
+    /// <summary>Gunluk motivasyon mesaji.</summary>
+    DailyMotivation
+}
+
+/// <summary>Bildirim kuralinin yasam dongusu.</summary>
+public enum NotificationRuleStatus
+{
+    /// <summary>Planlayici kurali isler.</summary>
+    Active,
+    /// <summary>Gecici olarak durduruldu; bekleyen gonderimler de bastirilir.</summary>
+    Paused,
+    /// <summary>Kullanim disi.</summary>
+    Inactive
+}
+
+/// <summary>Admin kampanyasinin durumu.</summary>
+public enum NotificationCampaignStatus
+{
+    /// <summary>Taslak; gonderilmez.</summary>
+    Draft,
+    /// <summary>ScheduledAtUtc geldiginde alici listesi olusturulacak.</summary>
+    Scheduled,
+    /// <summary>Alici listesi olusturuluyor (bir calisan tarafindan sahiplenildi).</summary>
+    Processing,
+    /// <summary>Alicilar gonderim kuyruguna yazildi; gonderim suruyor.</summary>
+    Dispatching,
+    /// <summary>Tum alicilar sonuclandi.</summary>
+    Completed,
+    /// <summary>Admin tarafindan iptal edildi; bekleyen gonderimler iptal edilir.</summary>
+    Cancelled,
+    /// <summary>Alici listesi olusturulamadi.</summary>
+    Failed
+}
+
+/// <summary>Kampanya hedef kitlesi. Segment tanimlari MerfitApi'deki admin segment kurallaridir.</summary>
+public enum NotificationAudienceSegment
+{
+    AllUsers,
+    PlusUsers,
+    FreeUsers,
+    InactiveUsers,
+    NewUsers,
+    WorkoutInactiveUsers,
+    SingleUser,
+    SelectedUsers
+}
+
+/// <summary>Gonderim kaydini olusturan kaynak.</summary>
+public enum NotificationDispatchSource
+{
+    Rule,
+    Campaign,
+    MonthlyReward
+}
+
+/// <summary>Bir alicinin tek bir bildiriminin gonderim durumu.</summary>
+public enum NotificationDispatchStatus
+{
+    /// <summary>Gonderilmeyi bekliyor (NextAttemptAtUtc geldiginde).</summary>
+    Pending,
+    /// <summary>Bir gonderici tarafindan sahiplenildi.</summary>
+    Processing,
+    /// <summary>Uygulama ici kutuya yazildi ve en az bir cihaz icin saglayici tarafindan kabul edildi.</summary>
+    Sent,
+    /// <summary>Uygulama ici kutuya yazildi; push gonderilmedi (push kapali, cihaz yok veya gunluk limit).</summary>
+    InAppOnly,
+    /// <summary>Gonderim aninda uygun degildi (tercih kapali, ogun kaydedilmis, sessiz saat, suresi dolmus...).</summary>
+    Suppressed,
+    /// <summary>Yeniden deneme hakki bitti veya kalici hata.</summary>
+    Failed,
+    /// <summary>Kampanya/kural iptal edildi veya ilgili aksiyon tamamlandi.</summary>
+    Cancelled
+}
+
+/// <summary>Bir cihaza yapilan tek bir saglayici denemesinin sonucu.</summary>
+public enum NotificationDeliveryStatus
+{
+    /// <summary>Saglayici (Expo) mesaji kabul etti; cihaza teslim GARANTI DEGILDIR.</summary>
+    Accepted,
+    /// <summary>Saglayici mesaji kalici olarak reddetti (gecersiz token vb.).</summary>
+    Rejected,
+    /// <summary>Gecici hata (ag, 429, 5xx); yeniden denenecek.</summary>
+    TransientError,
+    /// <summary>Saglayici makbuzu "ok": mesaj APNs/FCM'e iletildi (yine de cihaza teslim garanti degil).</summary>
+    ReceiptOk,
+    /// <summary>Saglayici makbuzu hata dondurdu (orn. DeviceNotRegistered).</summary>
+    ReceiptError
+}
+
+/// <summary>Aylik odul bildirimi isleme kaydinin durumu.</summary>
+public enum MonthlyRewardNotificationRunStatus
+{
+    Pending,
+    Processing,
+    Completed,
+    Failed
 }

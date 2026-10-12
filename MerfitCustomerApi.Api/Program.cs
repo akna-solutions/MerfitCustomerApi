@@ -1,4 +1,5 @@
 ﻿using MerfitCustomerApi.Business.Services.Notifications;
+using MerfitCustomerApi.Business.Services.Notifications.Engine;
 using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Auth;
@@ -88,7 +89,9 @@ builder.Services.AddScoped<INutritionCalculator, NutritionCalculator>();
 
 // MerfitNativeApp (mobil musteri uygulamasi) icin musteri-yuzlu servisler.
 builder.Services.AddScoped<IWorkoutService, WorkoutService>();
-builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<INotificationService>(sp => sp.GetRequiredService<NotificationService>());
+builder.Services.AddScoped<INotificationPreferenceReader>(sp => sp.GetRequiredService<NotificationService>());
 builder.Services.AddScoped<IWorkoutSessionService, WorkoutSessionService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<INutritionService, NutritionService>();
@@ -131,6 +134,24 @@ builder.Services.AddScoped<IMyPlanService, MyPlanService>();
 builder.Services.AddScoped<IMyNutritionPlanService, MyNutritionPlanService>();
 builder.Services.AddScoped<IPersonalizationStatusService, PersonalizationStatusService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
+
+// Bildirim motoru: cihaz kaydi, kural planlayici, tek gonderici (outbox) ve Expo push saglayicisi.
+// Ayarlar "Notifications" bolumunden; Expo erisim jetonu yalnizca ortam degiskeni ile verilir
+// (Notifications__Expo__AccessToken). Bkz. NotificationOptions.
+builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection(NotificationOptions.SectionName));
+builder.Services.AddHttpClient<IPushNotificationService, ExpoPushNotificationService>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<NotificationOptions>>().Value.Expo;
+    client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
+builder.Services.AddScoped<INotificationDeviceService, NotificationDeviceService>();
+builder.Services.AddScoped<INotificationEligibilityService, NotificationEligibilityService>();
+builder.Services.AddScoped<INotificationReminderCanceller, NotificationReminderCanceller>();
+builder.Services.AddScoped<INotificationQueueStore, NotificationQueueStore>();
+builder.Services.AddScoped<INotificationRulePlanner, NotificationRulePlanner>();
+builder.Services.AddScoped<INotificationDispatchProcessor, NotificationDispatchProcessor>();
+builder.Services.AddHostedService<NotificationBackgroundWorker>();
 
 // PersonalizationJob(Pending) kayitlarini periyodik olarak isleyen arka plan calisani.
 // Composition Root'ta (API projesi) kayitlidir - bkz. PersonalizationBackgroundWorker XML docs

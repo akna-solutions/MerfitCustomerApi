@@ -64,6 +64,30 @@ public class AppDbContext : DbContext
     /// </summary>
     public DbSet<UserDevice> UserDevices => Set<UserDevice>();
 
+    /// <summary>Bildirim sablonlari.</summary>
+    public DbSet<NotificationTemplate> NotificationTemplates => Set<NotificationTemplate>();
+
+    /// <summary>Zamanlanmis bildirim kurallari.</summary>
+    public DbSet<NotificationRule> NotificationRules => Set<NotificationRule>();
+
+    /// <summary>Kural-sablon iliskileri.</summary>
+    public DbSet<NotificationRuleTemplate> NotificationRuleTemplates => Set<NotificationRuleTemplate>();
+
+    /// <summary>Admin bildirim kampanyalari.</summary>
+    public DbSet<NotificationCampaign> NotificationCampaigns => Set<NotificationCampaign>();
+
+    /// <summary>Kampanya hedef kullanicilari.</summary>
+    public DbSet<NotificationCampaignUser> NotificationCampaignUsers => Set<NotificationCampaignUser>();
+
+    /// <summary>Bildirim gonderim kuyrugu.</summary>
+    public DbSet<NotificationDispatch> NotificationDispatches => Set<NotificationDispatch>();
+
+    /// <summary>Saglayici gonderim denemeleri.</summary>
+    public DbSet<NotificationDeliveryAttempt> NotificationDeliveryAttempts => Set<NotificationDeliveryAttempt>();
+
+    /// <summary>Aylik odul bildirimi isleme kayitlari.</summary>
+    public DbSet<MonthlyRewardNotificationRun> MonthlyRewardNotificationRuns => Set<MonthlyRewardNotificationRun>();
+
     /// <summary>
     /// Notification kayitlarina erisim saglayan DbSet.
     /// </summary>
