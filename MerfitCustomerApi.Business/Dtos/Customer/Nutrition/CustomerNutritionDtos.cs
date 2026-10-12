@@ -71,6 +71,14 @@ public class LogMealItemRequest
     /// <summary>Food.ServingSize'a gore carpan (orn. 1 = tek porsiyon, 1.5 = bir bucuk porsiyon).</summary>
     [Range(0.01, 100, ErrorMessage = "Quantity gecerli bir deger olmalidir.")]
     public decimal Quantity { get; set; } = 1;
+
+    /// <summary>
+    /// Istege bagli: tuketilen miktar, besinin kendi biriminde (g veya ml; orn. 37 g). Verilirse
+    /// Quantity yerine kullanilir ve carpan Amount / Food.ServingSize olarak hesaplanir. Yalnizca
+    /// tartilabilir (g/ml) birimli besinlerde gecerlidir.
+    /// </summary>
+    [Range(1, 5000, ErrorMessage = "Amount 1 ile 5000 arasinda olmalidir.")]
+    public decimal? Amount { get; set; }
 }
 
 /// <summary>POST /api/nutrition/water govdesi.</summary>
