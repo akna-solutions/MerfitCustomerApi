@@ -26,6 +26,17 @@ public class PersonalizationJobFlowTests
     [Fact]
     public async Task PendingJob_IsCompleted_WithLegacyCatalogThatHasNoAttributeScores()
     {
+        await RunJobAsync(nutritionFails: false);
+    }
+
+    [Fact]
+    public async Task NutritionFailure_StillSavesWorkoutPlan_AndKeepsExistingNutritionPlan()
+    {
+        await RunJobAsync(nutritionFails: true);
+    }
+
+    private static async Task RunJobAsync(bool nutritionFails)
+    {
         var jobs = new List<PersonalizationJob> { new() { Id = 1, UserId = UserId, Status = PersonalizationJobStatus.Pending, CreatedAt = DateTime.UtcNow } };
         var workoutPlans = new List<WorkoutPlan>();
         var planDays = new List<WorkoutPlanDay>();
@@ -55,19 +66,30 @@ public class PersonalizationJobFlowTests
         unitOfWork.Setup(u => u.Repository<WorkoutPlan>()).Returns(MockRepositoryFactory.Create(workoutPlans).Object);
         unitOfWork.Setup(u => u.Repository<WorkoutPlanDay>()).Returns(MockRepositoryFactory.Create(planDays).Object);
         unitOfWork.Setup(u => u.Repository<WorkoutPlanExercise>()).Returns(MockRepositoryFactory.Create(planExercises).Object);
-        unitOfWork.Setup(u => u.Repository<NutritionPlan>()).Returns(MockRepositoryFactory.Create(new List<NutritionPlan>()).Object);
         unitOfWork.Setup(u => u.Repository<NutritionPlanDay>()).Returns(MockRepositoryFactory.Create(new List<NutritionPlanDay>()).Object);
         unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
+        var nutritionPlans = new List<NutritionPlan> { new() { Id = 50, UserId = UserId, IsActive = true } };
+        unitOfWork.Setup(u => u.Repository<NutritionPlan>()).Returns(MockRepositoryFactory.Create(nutritionPlans).Object);
+
         var nutritionGenerator = new Mock<INutritionPlanGenerator>();
-        nutritionGenerator
-            .Setup(g => g.GenerateAsync(UserId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new NutritionPlanGenerationResult
-            {
-                Plan = new NutritionPlan { UserId = UserId, IsActive = true },
-                Days = new List<NutritionPlanDayResult>(),
-                Summary = "test",
-            });
+        if (nutritionFails)
+        {
+            nutritionGenerator
+                .Setup(g => g.GenerateAsync(UserId, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new MerfitCustomerApi.Domain.Exceptions.PersonalizationGenerationException("Besin katalogu bos."));
+        }
+        else
+        {
+            nutritionGenerator
+                .Setup(g => g.GenerateAsync(UserId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new NutritionPlanGenerationResult
+                {
+                    Plan = new NutritionPlan { UserId = UserId, IsActive = true },
+                    Days = new List<NutritionPlanDayResult>(),
+                    Summary = "test",
+                });
+        }
 
         var processor = new PersonalizationJobProcessor(
             unitOfWork.Object,
@@ -81,8 +103,10 @@ public class PersonalizationJobFlowTests
         Assert.True(processed);
         var job = Assert.Single(jobs);
         Assert.Equal(PersonalizationJobStatus.Completed, job.Status);
-        Assert.Null(job.ErrorMessage);
+        Assert.Equal(nutritionFails ? "Besin katalogu bos." : null, job.ErrorMessage);
         Assert.Single(workoutPlans);
+        // Beslenme uretilemediyse eski beslenme programi pasiflestirilmez.
+        Assert.Equal(nutritionFails, nutritionPlans[0].IsActive);
         Assert.Equal(3, planDays.Count);
         Assert.Equal(3, planExercises.Count);
         unitOfWork.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
