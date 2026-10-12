@@ -1,3 +1,4 @@
+﻿using MerfitCustomerApi.Business.Services.Notifications;
 using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Auth;
@@ -85,6 +86,7 @@ builder.Services.AddScoped<INutritionCalculator, NutritionCalculator>();
 
 // MerfitNativeApp (mobil musteri uygulamasi) icin musteri-yuzlu servisler.
 builder.Services.AddScoped<IWorkoutService, WorkoutService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IWorkoutSessionService, WorkoutSessionService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<INutritionService, NutritionService>();

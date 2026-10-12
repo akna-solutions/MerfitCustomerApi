@@ -2407,6 +2407,45 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.ToTable("UserNotificationSetting", "profile");
                 });
 
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserNotificationTypeSetting", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("CreatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("UpdatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Type")
+                        .IsUnique();
+
+                    b.ToTable("UserNotificationTypeSetting", "profile");
+                });
+
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserPreference", b =>
                 {
                     b.Property<long>("Id")
@@ -3710,6 +3749,15 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserNotificationSetting", b =>
+                {
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserNotificationTypeSetting", b =>
                 {
                     b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
                         .WithMany()
