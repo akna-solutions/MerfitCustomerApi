@@ -7,6 +7,7 @@ using MerfitCustomerApi.Business.Services.Dashboard;
 using MerfitCustomerApi.Business.Services.Equipment;
 using MerfitCustomerApi.Business.Services.Foods;
 using MerfitCustomerApi.Business.Services.Leaderboard;
+using MerfitCustomerApi.Business.Services.MiniGames;
 using MerfitCustomerApi.Business.Services.Scoring;
 using MerfitCustomerApi.Business.Services.Nutrition;
 using MerfitCustomerApi.Business.Services.Personalization;
@@ -24,6 +25,7 @@ using MerfitCustomerApi.Api.BackgroundJobs;
 using MerfitCustomerApi.Api.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
@@ -110,6 +112,15 @@ builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 // MB FIT puan motoru: kullanicinin aksiyonlarindan puan, siralama ve basari hesaplar.
 builder.Services.Configure<MerfitScoringOptions>(builder.Configuration.GetSection(MerfitScoringOptions.SectionName));
 builder.Services.AddScoped<IMerfitScoreService, MerfitScoreService>();
+
+// Mini oyun (Dumbbell Dash): sunucuda dogrulanan, limitli ve idempotent MB FIT puan odulu.
+// Hatali odul ayarinda uygulama baslangicta durur (bkz. MiniGameRewardOptionsValidator).
+builder.Services.AddOptions<MiniGameRewardOptions>()
+    .Bind(builder.Configuration.GetSection(MiniGameRewardOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<MiniGameRewardOptions>, MiniGameRewardOptionsValidator>();
+builder.Services.TryAddSingleton(TimeProvider.System);
+builder.Services.AddScoped<IMiniGameService, MiniGameService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IEquipmentService, EquipmentService>();
 

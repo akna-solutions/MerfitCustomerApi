@@ -30,6 +30,7 @@ public class LeaderboardService : ILeaderboardService
         (MerfitScoreService.NutritionCategory, "Öğün takibi"),
         (MerfitScoreService.WaterCategory, "Su takibi"),
         (MerfitScoreService.AchievementsCategory, "Başarılar"),
+        (MerfitScoreService.MiniGameCategory, "Mini oyun"),
     };
 
     private readonly IUnitOfWork _unitOfWork;

@@ -1278,6 +1278,94 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.ToTable("MerfitScoreHistory", "gamification");
                 });
 
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.MiniGameSession", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("AwardedPoints")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ClaimedScore")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("CreatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("EngineVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("GameKey")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int?>("InputCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RejectReason")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<long>("Seed")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("TierPoints")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("UpdatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("VerifiedScore")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("VerifiedTicks")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_MiniGameSession_UserId_Active")
+                        .HasFilter("\"Status\" = 'Started'");
+
+                    b.HasIndex("Status", "CompletedAt");
+
+                    b.HasIndex("UserId", "StartedAt");
+
+                    b.ToTable("MiniGameSession", "gamification", t =>
+                        {
+                            t.HasCheckConstraint("CK_MiniGameSession_Points_NonNegative", "\"TierPoints\" >= 0 AND \"AwardedPoints\" >= 0 AND \"AwardedPoints\" <= \"TierPoints\"");
+                        });
+                });
+
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.MonthlyRewardNotificationRun", b =>
                 {
                     b.Property<long>("Id")
@@ -4120,6 +4208,15 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.MerfitScoreHistory", b =>
+                {
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.MiniGameSession", b =>
                 {
                     b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
                         .WithMany()

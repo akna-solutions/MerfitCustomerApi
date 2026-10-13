@@ -64,6 +64,10 @@ public class ExceptionHandlingMiddleware
                 HttpStatusCode.Conflict,
                 ApiResponse.Fail(conflictException.Message)),
 
+            TooManyRequestsException tooManyRequestsException => (
+                HttpStatusCode.TooManyRequests,
+                ApiResponse.Fail(tooManyRequestsException.Message)),
+
             UnauthorizedException unauthorizedException => (
                 HttpStatusCode.Unauthorized,
                 ApiResponse.Fail(unauthorizedException.Message)),

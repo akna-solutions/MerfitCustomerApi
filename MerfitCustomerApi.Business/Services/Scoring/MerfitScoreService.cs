@@ -20,6 +20,8 @@ namespace MerfitCustomerApi.Business.Services.Scoring;
 ///   kayitla puan kasilmasin diye Meal.Date degil MealItem.CreatedAt kullanilir)
 /// - water: su kaydi (WaterLog) girilen her gun, yine CreatedAt'e gore
 /// - achievements: kazanilan basarinin Achievement.Points degeri, UserAchievement.EarnedAt anina yazilir
+/// - mini_game: dogrulanip odullendirilen mini oyun oturumunun (MiniGameSession) AwardedPoints degeri,
+///   CompletedAt anina yazilir (limitler odul aninda uygulanip satira kaydedilir; bkz. MiniGameService)
 /// Boylece sema degisikligi gerekmez, mevcut kullanicilarin gecmis aktiviteleri de puana yansir ve
 /// silinen bir kayit puani da geri alir.
 /// </summary>
@@ -32,6 +34,7 @@ public class MerfitScoreService : IMerfitScoreService
     public const string NutritionCategory = "nutrition";
     public const string WaterCategory = "water";
     public const string AchievementsCategory = "achievements";
+    public const string MiniGameCategory = "mini_game";
 
     /// <summary>Admin panelinde Achievement.ConditionType icin desteklenen degerler.</summary>
     public const string WorkoutsCompletedCondition = "workouts_completed";
@@ -113,6 +116,17 @@ public class MerfitScoreService : IMerfitScoreService
         if (toUtc.HasValue) achievementQuery = achievementQuery.Where(x => x.EarnedAt < toUtc.Value);
         var achievements = await achievementQuery.ToListAsync(cancellationToken);
         events.AddRange(achievements.Select(x => new MerfitPointEvent(x.UserId, x.EarnedAt, AchievementsCategory, x.Points)));
+
+        // Mini oyun odulleri.
+        var miniGameQuery = _unitOfWork.Repository<MiniGameSession>().GetQueryable()
+            .Where(s => s.Status == MiniGameSessionStatus.Completed && s.AwardedPoints > 0 && s.CompletedAt != null);
+        if (userId.HasValue) miniGameQuery = miniGameQuery.Where(s => s.UserId == userId.Value);
+        if (fromUtc.HasValue) miniGameQuery = miniGameQuery.Where(s => s.CompletedAt >= fromUtc.Value);
+        if (toUtc.HasValue) miniGameQuery = miniGameQuery.Where(s => s.CompletedAt < toUtc.Value);
+        var miniGames = await miniGameQuery
+            .Select(s => new { s.UserId, CompletedAt = s.CompletedAt!.Value, s.AwardedPoints })
+            .ToListAsync(cancellationToken);
+        events.AddRange(miniGames.Select(x => new MerfitPointEvent(x.UserId, x.CompletedAt, MiniGameCategory, x.AwardedPoints)));
 
         return events.Where(e => e.Points > 0).ToList();
     }

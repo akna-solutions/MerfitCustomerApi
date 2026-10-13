@@ -22,6 +22,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- MerfitNativeApp'teki oyun motoruyla ayni "golden" veri: iki tarafin ayni skoru urettigini dogrular. -->
+    <None Update="MiniGames\DumbbellDashGolden.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\MerfitCustomerApi.Business\MerfitCustomerApi.Business.csproj" />
     <ProjectReference Include="..\MerfitCustomerApi.Api\MerfitCustomerApi.Api.csproj" />
   </ItemGroup>
