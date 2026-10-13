@@ -25,10 +25,10 @@ public class MiniGameRewardOptions
     public List<MiniGameRewardTier>? RewardTiers { get; set; }
 
     /// <summary>Tek oyunda kazanilabilecek en fazla puan.</summary>
-    public int MaxPointsPerGame { get; set; } = 5;
+    public int MaxPointsPerGame { get; set; } = 50;
 
     /// <summary>Bir kullanicinin bir gunde (MerfitScoring:TimeZoneOffsetHours'a gore yerel gun) kazanabilecegi en fazla puan.</summary>
-    public int DailyPointLimit { get; set; } = 15;
+    public int DailyPointLimit { get; set; } = 150;
 
     /// <summary>Bir kullanicinin bir gunde baslatabilecegi en fazla oyun oturumu (istek siniri).</summary>
     public int MaxSessionsPerDay { get; set; } = 60;
@@ -44,10 +44,10 @@ public class MiniGameRewardOptions
 
     public static readonly IReadOnlyList<MiniGameRewardTier> DefaultTiers = new[]
     {
-        new MiniGameRewardTier { MinScore = 10, Points = 1 },
-        new MiniGameRewardTier { MinScore = 20, Points = 2 },
-        new MiniGameRewardTier { MinScore = 30, Points = 3 },
-        new MiniGameRewardTier { MinScore = 50, Points = 5 },
+        new MiniGameRewardTier { MinScore = 10, Points = 10 },
+        new MiniGameRewardTier { MinScore = 20, Points = 20 },
+        new MiniGameRewardTier { MinScore = 30, Points = 30 },
+        new MiniGameRewardTier { MinScore = 50, Points = 50 },
     };
 
     /// <summary>Kullanilan esikler, MinScore'a gore artan sirada.</summary>

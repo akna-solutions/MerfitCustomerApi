@@ -8,14 +8,14 @@ public class MiniGameRewardOptionsTests
     [Theory]
     [InlineData(0, 0)]
     [InlineData(9, 0)]
-    [InlineData(10, 1)]
-    [InlineData(19, 1)]
-    [InlineData(20, 2)]
-    [InlineData(29, 2)]
-    [InlineData(30, 3)]
-    [InlineData(49, 3)]
-    [InlineData(50, 5)]
-    [InlineData(400, 5)]
+    [InlineData(10, 10)]
+    [InlineData(19, 10)]
+    [InlineData(20, 20)]
+    [InlineData(29, 20)]
+    [InlineData(30, 30)]
+    [InlineData(49, 30)]
+    [InlineData(50, 50)]
+    [InlineData(400, 50)]
     public void PointsForScore_UsesDefaultTiers(int score, int expected)
     {
         Assert.Equal(expected, new MiniGameRewardOptions().PointsForScore(score));

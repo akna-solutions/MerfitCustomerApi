@@ -88,7 +88,7 @@ public class MiniGameServiceTests
     [Fact]
     public async Task Start_ReturnsServerSeedRulesAndRemainingDailyPoints()
     {
-        AddCompletedToday(4);
+        AddCompletedToday(40);
 
         var result = await CreateService().StartSessionAsync(UserId, new StartMiniGameSessionRequest { EngineVersion = 1 });
 
@@ -96,9 +96,9 @@ public class MiniGameServiceTests
         Assert.NotNull(result.SessionId);
         Assert.InRange(result.Seed!.Value, 0, uint.MaxValue);
         Assert.Equal(new[] { 10, 20, 30, 50 }, result.Rules.Tiers.Select(t => t.MinScore));
-        Assert.Equal(new[] { 1, 2, 3, 5 }, result.Rules.Tiers.Select(t => t.Points));
-        Assert.Equal(4, result.EarnedToday);
-        Assert.Equal(11, result.RemainingToday);
+        Assert.Equal(new[] { 10, 20, 30, 50 }, result.Rules.Tiers.Select(t => t.Points));
+        Assert.Equal(40, result.EarnedToday);
+        Assert.Equal(110, result.RemainingToday);
         var stored = _sessions.Single(s => s.Id == result.SessionId);
         Assert.Equal(UserId, stored.UserId);
         Assert.Equal(MiniGameSessionStatus.Started, stored.Status);
@@ -149,9 +149,9 @@ public class MiniGameServiceTests
     [Theory]
     [InlineData(0, 0, MiniGameResultStatus.NoReward, 10)]
     [InlineData(7, 0, MiniGameResultStatus.NoReward, 10)]
-    [InlineData(13, 1, MiniGameResultStatus.Rewarded, 20)]
-    [InlineData(25, 2, MiniGameResultStatus.Rewarded, 30)]
-    [InlineData(52, 5, MiniGameResultStatus.Rewarded, null)]
+    [InlineData(13, 10, MiniGameResultStatus.Rewarded, 20)]
+    [InlineData(25, 20, MiniGameResultStatus.Rewarded, 30)]
+    [InlineData(52, 50, MiniGameResultStatus.Rewarded, null)]
     public async Task Finish_AwardsPointsForServerVerifiedScore(int score, int expectedPoints, string expectedStatus, int? expectedNextTier)
     {
         var (sessionId, request) = await PlayAsync(score);
@@ -176,12 +176,12 @@ public class MiniGameServiceTests
         var first = await CreateService().FinishSessionAsync(UserId, sessionId, request);
         var second = await CreateService().FinishSessionAsync(UserId, sessionId, request);
 
-        Assert.Equal(5, first.AwardedPoints);
+        Assert.Equal(50, first.AwardedPoints);
         Assert.Equal(first.Status, second.Status);
         Assert.Equal(first.AwardedPoints, second.AwardedPoints);
         Assert.Equal(first.TotalPoints, second.TotalPoints);
         Assert.Equal(BasePoints, second.PreviousTotalPoints);
-        Assert.Equal(5, _sessions.Where(s => s.UserId == UserId).Sum(s => s.AwardedPoints));
+        Assert.Equal(50, _sessions.Where(s => s.UserId == UserId).Sum(s => s.AwardedPoints));
         _scoreService.Verify(s => s.TryRefreshUserAsync(UserId, It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -242,18 +242,18 @@ public class MiniGameServiceTests
     [Fact]
     public async Task Finish_AppliesDailyLimit()
     {
-        AddCompletedToday(5);
-        AddCompletedToday(5);
-        AddCompletedToday(3);
+        AddCompletedToday(50);
+        AddCompletedToday(50);
+        AddCompletedToday(30);
 
         var (sessionId, request) = await PlayAsync(52);
         var partial = await CreateService().FinishSessionAsync(UserId, sessionId, request);
 
         Assert.Equal(MiniGameResultStatus.Rewarded, partial.Status);
-        Assert.Equal(5, partial.TierPoints);
-        Assert.Equal(2, partial.AwardedPoints);
+        Assert.Equal(50, partial.TierPoints);
+        Assert.Equal(20, partial.AwardedPoints);
         Assert.True(partial.DailyLimitReached);
-        Assert.Equal(15, partial.EarnedToday);
+        Assert.Equal(150, partial.EarnedToday);
         Assert.Equal(0, partial.RemainingToday);
 
         var (nextId, nextRequest) = await PlayAsync(25);
@@ -261,20 +261,20 @@ public class MiniGameServiceTests
 
         Assert.Equal(MiniGameResultStatus.DailyLimitReached, blocked.Status);
         Assert.Equal(0, blocked.AwardedPoints);
-        Assert.Equal(15, _sessions.Where(s => s.UserId == UserId).Sum(s => s.AwardedPoints));
+        Assert.Equal(150, _sessions.Where(s => s.UserId == UserId).Sum(s => s.AwardedPoints));
     }
 
     [Fact]
     public async Task Finish_DailyLimitResetsOnNextLocalDay()
     {
-        AddCompletedToday(15);
+        AddCompletedToday(150);
         // Yerel gun (UTC+3) bitiyor: 21:00 UTC = 00:00 yerel.
         _clock.Now = new DateTimeOffset(2026, 10, 13, 21, 0, 0, TimeSpan.Zero);
 
         var (sessionId, request) = await PlayAsync(13);
         var result = await CreateService().FinishSessionAsync(UserId, sessionId, request);
 
-        Assert.Equal(1, result.AwardedPoints);
+        Assert.Equal(10, result.AwardedPoints);
     }
 
     [Fact]
@@ -302,12 +302,12 @@ public class MiniGameServiceTests
     public async Task Finish_ConcurrencyConflict_ReturnsStoredResultWithoutAward()
     {
         var (sessionId, request) = await PlayAsync(52);
-        // Baska bir istek ayni oturumu bu istekten once sonuclandirdi: veritabanindaki satir Completed/5 puan,
+        // Baska bir istek ayni oturumu bu istekten once sonuclandirdi: veritabanindaki satir Completed/50 puan,
         // bu istegin SaveChanges'i concurrency token (Status) yuzunden basarisiz olur.
         var stored = new MiniGameSession
         {
             Id = sessionId, UserId = UserId, Status = MiniGameSessionStatus.Completed, VerifiedScore = 52,
-            TierPoints = 5, AwardedPoints = 5, CompletedAt = Now,
+            TierPoints = 50, AwardedPoints = 50, CompletedAt = Now,
         };
         _uow.Mock.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
             .Callback(() =>
@@ -320,9 +320,9 @@ public class MiniGameServiceTests
         var result = await CreateService().FinishSessionAsync(UserId, sessionId, request);
 
         Assert.Equal(MiniGameResultStatus.Rewarded, result.Status);
-        Assert.Equal(5, result.AwardedPoints);
+        Assert.Equal(50, result.AwardedPoints);
         _uow.Mock.Verify(u => u.ClearTracking(), Times.Once);
         _scoreService.Verify(s => s.TryRefreshUserAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
-        Assert.Equal(5, _sessions.Where(s => s.UserId == UserId).Sum(s => s.AwardedPoints));
+        Assert.Equal(50, _sessions.Where(s => s.UserId == UserId).Sum(s => s.AwardedPoints));
     }
 }

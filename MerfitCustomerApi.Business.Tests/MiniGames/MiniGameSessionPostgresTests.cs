@@ -97,10 +97,10 @@ public class MiniGameSessionPostgresTests
         var results = await Task.WhenAll(Enumerable.Range(0, 6).Select(_ => Task.Run(FinishAsync)));
 
         Assert.All(results, r => Assert.Equal(MiniGameResultStatus.Rewarded, r.Status));
-        Assert.All(results, r => Assert.Equal(5, r.AwardedPoints));
+        Assert.All(results, r => Assert.Equal(50, r.AwardedPoints));
         await using var check = CreateContext();
         var awarded = await check.MiniGameSessions.Where(s => s.UserId == userId).SumAsync(s => s.AwardedPoints);
-        Assert.Equal(5, awarded);
+        Assert.Equal(50, awarded);
     }
 
     [PostgresFact]
@@ -143,12 +143,12 @@ public class MiniGameSessionPostgresTests
         {
             var result = await service.FinishSessionAsync(userId, sessionId, Request);
             Assert.Equal(0, result.PreviousTotalPoints);
-            Assert.Equal(5, result.TotalPoints);
+            Assert.Equal(50, result.TotalPoints);
         }
 
         await using var check = CreateContext();
         var snapshot = await check.MerfitScores.SingleAsync(s => s.UserId == userId && s.Period == MerfitScoreService.AllTimePeriodTag);
-        Assert.Equal(5, snapshot.Score);
+        Assert.Equal(50, snapshot.Score);
         var breakdown = await check.Set<MerfitScoreBreakdown>().SingleAsync(b => b.MerfitScoreId == snapshot.Id);
         Assert.Equal(MerfitScoreService.MiniGameCategory, breakdown.Category);
     }
