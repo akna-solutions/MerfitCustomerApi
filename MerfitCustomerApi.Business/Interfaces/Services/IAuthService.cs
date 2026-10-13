@@ -19,4 +19,10 @@ public interface IAuthService
     /// </summary>
     /// <exception cref="Domain.Exceptions.UnauthorizedException">Bilgiler hatali veya hesap pasifse firlatilir.</exception>
     Task<AuthResponse> LoginAsync(LoginRequest request, string? ipAddress);
+
+    /// <summary>
+    /// Kayit ekranindaki anlik kontrol: kullanici adinin bicimi gecerli mi ve bos mu. Hata firlatmaz; sonucu
+    /// <see cref="UsernameAvailabilityResponse.Available"/> ve kullaniciya gosterilecek mesajla doner.
+    /// </summary>
+    Task<UsernameAvailabilityResponse> CheckUsernameAvailabilityAsync(string? username, CancellationToken cancellationToken = default);
 }

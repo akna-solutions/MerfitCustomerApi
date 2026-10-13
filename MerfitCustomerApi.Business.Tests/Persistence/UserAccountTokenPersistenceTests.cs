@@ -9,7 +9,8 @@ namespace MerfitCustomerApi.Business.Tests.Persistence;
 
 /// <summary>
 /// UserAccountTokenConfiguration'in veritabani garantilerini gercek konfigurasyonla in-memory SQLite'ta dogrular:
-/// benzersiz jeton ozeti, gecersiz amaç icin check constraint ve UsedAt concurrency token'i ile tek kullanim.
+/// gecersiz amac icin check constraint, UsedAt concurrency token'i ile tek kullanim ve AttemptCount concurrency
+/// token'i ile paralel denemelerin sayaci atlayamamasi.
 /// </summary>
 public sealed class UserAccountTokenPersistenceTests : IDisposable
 {
@@ -61,14 +62,40 @@ public sealed class UserAccountTokenPersistenceTests : IDisposable
     };
 
     [Fact]
-    public void DuplicateTokenHash_IsRejected()
+    public void SameCodeHash_CanBeIssuedAgain()
     {
+        // 6 haneli kod ayni kullaniciya tekrar gelebilir; ozet benzersiz olmamalidir.
         using var context = CreateContext();
         context.Tokens.Add(NewToken(new string('a', 64)));
         context.SaveChanges();
 
         context.Tokens.Add(NewToken(new string('a', 64)));
-        Assert.Throws<DbUpdateException>(() => context.SaveChanges());
+        context.SaveChanges();
+        Assert.Equal(2, context.Tokens.Count());
+    }
+
+    [Fact]
+    public void ConcurrentAttempts_OnlyFirstIncrementSucceeds()
+    {
+        long id;
+        using (var setup = CreateContext())
+        {
+            var token = NewToken(new string('e', 64));
+            setup.Tokens.Add(token);
+            setup.SaveChanges();
+            id = token.Id;
+        }
+
+        using var first = CreateContext();
+        using var second = CreateContext();
+        var a = first.Tokens.Single(t => t.Id == id);
+        var b = second.Tokens.Single(t => t.Id == id);
+
+        a.AttemptCount++;
+        first.SaveChanges();
+
+        b.AttemptCount++;
+        Assert.Throws<DbUpdateConcurrencyException>(() => second.SaveChanges());
     }
 
     [Fact]

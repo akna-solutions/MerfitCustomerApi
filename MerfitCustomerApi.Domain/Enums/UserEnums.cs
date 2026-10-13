@@ -199,11 +199,11 @@ public enum UserRole
 public enum AccountTokenPurpose
 {
     /// <summary>
-    /// E-posta adresi dogrulama baglantisi.
+    /// E-posta adresi dogrulama kodu.
     /// </summary>
     EmailVerification,
     /// <summary>
-    /// Sifre sifirlama baglantisi.
+    /// Sifre sifirlama kodu.
     /// </summary>
     PasswordReset
 }

@@ -14,8 +14,8 @@ using Xunit;
 namespace MerfitCustomerApi.Business.Tests.AccountEmail;
 
 /// <summary>
-/// Gercek PostgreSQL'de (MERFIT_TEST_POSTGRES) uctan uca: ayni sifre sifirlama jetonuyla es zamanli iki
-/// istekten yalnizca biri sifreyi degistirir; dogrulama jetonu ikinci kez kullanilamaz.
+/// Gercek PostgreSQL'de (MERFIT_TEST_POSTGRES) uctan uca: ayni sifre sifirlama koduyla es zamanli isteklerden
+/// yalnizca biri sifreyi degistirir; paralel hatali denemeler deneme sinirini asamaz; dogrulama kodu tek kullanimliktir.
 /// </summary>
 public class AccountEmailPostgresTests
 {
@@ -44,7 +44,7 @@ public class AccountEmailPostgresTests
     }
 
     [PostgresFact]
-    public async Task ConcurrentPasswordResets_WithSameToken_OnlyOneSucceeds()
+    public async Task ConcurrentPasswordResets_WithSameCode_OnlyOneSucceeds()
     {
         var user = await CreateUserAsync();
         var sender = new FakeEmailSender();
@@ -53,7 +53,7 @@ public class AccountEmailPostgresTests
         {
             await requester.RequestPasswordResetAsync(user.Email, null);
         }
-        var token = FakeEmailSender.ExtractToken(sender.Sent.Single().Email);
+        var code = FakeEmailSender.ExtractCode(sender.Sent.Single().Email);
 
         async Task<bool> ResetAsync(string password)
         {
@@ -62,7 +62,7 @@ public class AccountEmailPostgresTests
             {
                 try
                 {
-                    await service.ResetPasswordAsync(new ResetPasswordRequest { Token = token, NewPassword = password, ConfirmPassword = password }, null);
+                    await service.ResetPasswordAsync(new ResetPasswordRequest { Email = user.Email, Code = code, NewPassword = password, ConfirmPassword = password }, null);
                     return true;
                 }
                 catch (AppValidationException)
@@ -78,11 +78,60 @@ public class AccountEmailPostgresTests
         await using var check = CreateContext();
         var row = await check.UserAccountTokens.SingleAsync(t => t.UserId == user.Id);
         Assert.NotNull(row.UsedAt);
-        Assert.NotEqual(token, row.TokenHash);
+        Assert.NotEqual(code, row.TokenHash);
+        Assert.True(row.AttemptCount <= 5);
     }
 
     [PostgresFact]
-    public async Task EmailVerification_EndToEnd_TokenIsSingleUse()
+    public async Task ParallelWrongGuesses_NeverExceedAttemptLimit()
+    {
+        var user = await CreateUserAsync();
+        var sender = new FakeEmailSender();
+        var (requester, requesterDb) = CreateService(sender);
+        await using (requesterDb)
+        {
+            await requester.RequestPasswordResetAsync(user.Email, null);
+        }
+        var code = FakeEmailSender.ExtractCode(sender.Sent.Single().Email);
+        var wrong = ((int.Parse(code) + 1) % 1_000_000).ToString("D6");
+
+        async Task GuessAsync()
+        {
+            var (service, db) = CreateService(new FakeEmailSender());
+            await using (db)
+            {
+                try { await service.VerifyPasswordResetCodeAsync(user.Email, wrong); } catch (AppValidationException) { }
+            }
+        }
+
+        await Task.WhenAll(Enumerable.Range(0, 30).Select(_ => Task.Run(GuessAsync)));
+
+        await using (var afterParallel = CreateContext())
+        {
+            var row = await afterParallel.UserAccountTokens.SingleAsync(t => t.UserId == user.Id);
+            Assert.True(row.AttemptCount <= 5, $"AttemptCount: {row.AttemptCount}");
+        }
+
+        // Cakisan istekler kodu hic karsilastirmadan reddedildi; kalan haklar sirayla tuketilir.
+        for (var i = 0; i < 5; i++)
+        {
+            await GuessAsync();
+        }
+
+        await using var check = CreateContext();
+        Assert.Equal(5, (await check.UserAccountTokens.SingleAsync(t => t.UserId == user.Id)).AttemptCount);
+
+        // Sinir doldu: dogru kod da artik kabul edilmez.
+        var (final, finalDb) = CreateService(new FakeEmailSender());
+        await using (finalDb)
+        {
+            var ex = await Assert.ThrowsAsync<AppValidationException>(() => final.VerifyPasswordResetCodeAsync(user.Email, code));
+            Assert.Equal(AccountEmailService.TooManyAttemptsMessage, ex.Message);
+        }
+    }
+
+    [PostgresFact]
+    public async Task EmailVerification_EndToEnd_CodeIsSingleUse()
     {
         var user = await CreateUserAsync();
         var sender = new FakeEmailSender();
@@ -91,21 +140,23 @@ public class AccountEmailPostgresTests
         {
             Assert.True(await service.TrySendVerificationAfterRegistrationAsync(user, "Test", null));
         }
-        var token = FakeEmailSender.ExtractToken(sender.Sent.Single().Email);
+        var code = FakeEmailSender.ExtractCode(sender.Sent.Single().Email);
 
         var (first, firstDb) = CreateService(sender);
         await using (firstDb)
         {
-            await first.ConfirmEmailAsync(token);
+            await first.ConfirmEmailAsync(user.Id, code);
         }
 
         var (second, secondDb) = CreateService(sender);
         await using (secondDb)
         {
-            await Assert.ThrowsAsync<AppValidationException>(() => second.ConfirmEmailAsync(token));
+            // Dogrulandiktan sonra tekrar cagri basarili doner ama kodu ikinci kez tuketmez.
+            Assert.True((await second.ConfirmEmailAsync(user.Id, code)).EmailConfirmed);
         }
 
         await using var check = CreateContext();
         Assert.True((await check.ApplicationUsers.SingleAsync(u => u.Id == user.Id)).EmailConfirmed);
+        Assert.Equal(1, (await check.UserAccountTokens.SingleAsync(t => t.UserId == user.Id)).AttemptCount);
     }
 }

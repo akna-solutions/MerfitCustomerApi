@@ -4,9 +4,8 @@ using MerfitCustomerApi.Domain.Entities.Enums;
 namespace MerfitCustomerApi.Domain.Entities;
 
 /// <summary>
-/// E-posta dogrulama ve sifre sifirlama baglantilarindaki tek kullanimlik, sureli jeton.
-/// Jetonun kendisi hicbir yerde saklanmaz; yalnizca SHA-256 ozeti (<see cref="TokenHash"/>) tutulur.
-/// Veritabani okunsa bile jetonla islem yapilamaz.
+/// E-posta dogrulama ve sifre sifirlama icin e-postayla gonderilen 6 haneli, tek kullanimlik, sureli kod.
+/// Kodun kendisi hicbir yerde saklanmaz; yalnizca kullaniciya ve amaca bagli SHA-256 ozeti (<see cref="TokenHash"/>) tutulur.
 /// </summary>
 public class UserAccountToken : BaseEntity
 {
@@ -16,7 +15,7 @@ public class UserAccountToken : BaseEntity
     /// <summary>Jetonun amaci (dogrulama / sifre sifirlama).</summary>
     public AccountTokenPurpose Purpose { get; set; }
 
-    /// <summary>Jetonun SHA-256 ozeti (64 karakter, kucuk harf hex). Benzersizdir.</summary>
+    /// <summary>Kodun SHA-256 ozeti (64 karakter, kucuk harf hex).</summary>
     public string TokenHash { get; set; } = string.Empty;
 
     /// <summary>
@@ -33,6 +32,12 @@ public class UserAccountToken : BaseEntity
     /// calisan iki istekten yalnizca biri basarili olur.
     /// </summary>
     public DateTime? UsedAt { get; set; }
+
+    /// <summary>
+    /// Bu koda yapilan deneme sayisi (dogru ya da yanlis). Iyimser eszamanlilik belirtecidir: her deneme kod
+    /// karsilastirilmadan once sayaci artirip kaydeder, boylece paralel isteklerle deneme siniri asilamaz.
+    /// </summary>
+    public int AttemptCount { get; set; }
 
     /// <summary>Yeni jeton uretildiginde veya sifre degistiginde jetonun iptal edildigi an.</summary>
     public DateTime? RevokedAt { get; set; }

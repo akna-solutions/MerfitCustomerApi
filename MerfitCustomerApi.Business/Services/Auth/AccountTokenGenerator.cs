@@ -1,30 +1,41 @@
 using System.Security.Cryptography;
 using System.Text;
+using MerfitCustomerApi.Domain.Entities.Enums;
 
 namespace MerfitCustomerApi.Business.Services.Auth;
 
 /// <summary>
-/// E-posta baglantilarindaki tek kullanimlik jetonlari uretir ve ozetler. Jeton 256 bit kriptografik
-/// rastgele degerdir (base64url, 43 karakter); veritabaninda yalnizca SHA-256 ozeti tutulur. Jeton zaten
-/// yuksek entropili oldugu icin tuz/yavas hash gerekmez; ozetten jeton geri elde edilemez.
+/// E-posta dogrulama ve sifre sifirlama icin 6 haneli tek kullanimlik kodlari uretir ve ozetler.
+/// Kod kriptografik rastgeledir; veritabaninda yalnizca kullaniciya ve amaca bagli SHA-256 ozeti tutulur.
+/// 6 hane dusuk entropili oldugu icin asil koruma deneme sinirlaridir: kod basina en fazla
+/// <see cref="Common.AccountEmailOptions.MaxCodeAttempts"/> deneme, kisa gecerlilik ve saatlik e-posta siniri.
 /// </summary>
 public static class AccountTokenGenerator
 {
-    public const int TokenLength = 43;
+    public const int CodeLength = 6;
 
-    public static (string Token, string TokenHash) Create()
+    public static (string Code, string CodeHash) CreateCode(long userId, AccountTokenPurpose purpose)
     {
-        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
-        return (token, Hash(token));
+        var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+        return (code, Hash(userId, purpose, code));
     }
 
-    public static string Hash(string token) =>
-        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+    public static string Hash(long userId, AccountTokenPurpose purpose, string code) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{userId}:{purpose}:{code}")));
 
-    /// <summary>Bicimi gecersiz jetonlar veritabanina hic sorulmadan reddedilir.</summary>
-    public static bool HasValidFormat(string? token) =>
-        token is { Length: TokenLength } && token.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+    /// <summary>Iki ozeti sabit surede karsilastirir.</summary>
+    public static bool HashEquals(string expectedHash, string actualHash) =>
+        CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(expectedHash), Encoding.ASCII.GetBytes(actualHash));
+
+    /// <summary>Kod 6 rakamdan olusmali; bosluk ve tireler (kopyala-yapistir) yok sayilir.</summary>
+    public static string? Normalize(string? code)
+    {
+        if (code is null)
+        {
+            return null;
+        }
+
+        var digits = new string(code.Where(c => !char.IsWhiteSpace(c) && c != '-').ToArray());
+        return digits.Length == CodeLength && digits.All(char.IsAsciiDigit) ? digits : null;
+    }
 }
