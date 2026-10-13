@@ -34,6 +34,7 @@ public class MerfitScoreServiceTests
     private readonly List<MerfitScore> _scores = new();
     private readonly List<MerfitScoreBreakdown> _breakdowns = new();
     private readonly List<MerfitScoreHistory> _history = new();
+    private readonly List<MiniGameSession> _miniGames = new();
 
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
 
@@ -50,6 +51,7 @@ public class MerfitScoreServiceTests
         _unitOfWork.Setup(u => u.Repository<UserStreak>()).Returns(MockRepositoryFactory.Create(_streaks).Object);
         _unitOfWork.Setup(u => u.Repository<MerfitScore>()).Returns(MockRepositoryFactory.Create(_scores).Object);
         _unitOfWork.Setup(u => u.Repository<MerfitScoreHistory>()).Returns(MockRepositoryFactory.Create(_history).Object);
+        _unitOfWork.Setup(u => u.Repository<MiniGameSession>()).Returns(MockRepositoryFactory.Create(_miniGames).Object);
 
         var breakdownRepo = MockRepositoryFactory.Create(_breakdowns);
         breakdownRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<MerfitScoreBreakdown, bool>>>(), It.IsAny<CancellationToken>()))
@@ -105,6 +107,26 @@ public class MerfitScoreServiceTests
         Assert.Equal(25, events.Where(e => e.Category == MerfitScoreService.PersonalRecordsCategory).Sum(e => e.Points));
         Assert.Equal(10, events.Where(e => e.Category == MerfitScoreService.NutritionCategory).Sum(e => e.Points));
         Assert.Equal(5, events.Where(e => e.Category == MerfitScoreService.WaterCategory).Sum(e => e.Points));
+    }
+
+    [Fact]
+    public async Task PointEvents_IncludeOnlyAwardedCompletedMiniGames()
+    {
+        var day = new DateTime(2026, 10, 5, 9, 0, 0, DateTimeKind.Utc);
+        _miniGames.Add(new MiniGameSession { Id = 1, UserId = UserA, Status = MiniGameSessionStatus.Completed, CompletedAt = day, TierPoints = 5, AwardedPoints = 5 });
+        _miniGames.Add(new MiniGameSession { Id = 2, UserId = UserA, Status = MiniGameSessionStatus.Completed, CompletedAt = day.AddHours(1), TierPoints = 3, AwardedPoints = 2 });
+        // Puansiz, reddedilen, suresi dolan ve baska kullaniciya ait oturumlar sayilmaz.
+        _miniGames.Add(new MiniGameSession { Id = 3, UserId = UserA, Status = MiniGameSessionStatus.Completed, CompletedAt = day, TierPoints = 0, AwardedPoints = 0 });
+        _miniGames.Add(new MiniGameSession { Id = 4, UserId = UserA, Status = MiniGameSessionStatus.Rejected, CompletedAt = day, TierPoints = 5, AwardedPoints = 0 });
+        _miniGames.Add(new MiniGameSession { Id = 5, UserId = UserA, Status = MiniGameSessionStatus.Started });
+        _miniGames.Add(new MiniGameSession { Id = 6, UserId = UserB, Status = MiniGameSessionStatus.Completed, CompletedAt = day, TierPoints = 1, AwardedPoints = 1 });
+
+        var events = await CreateService().GetPointEventsAsync(null, null, UserA);
+
+        var miniGame = events.Where(e => e.Category == MerfitScoreService.MiniGameCategory).ToList();
+        Assert.Equal(2, miniGame.Count);
+        Assert.Equal(7, miniGame.Sum(e => e.Points));
+        Assert.Contains(miniGame, e => e.OccurredAtUtc == day.AddHours(1));
     }
 
     [Fact]

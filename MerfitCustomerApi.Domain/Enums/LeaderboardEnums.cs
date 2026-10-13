@@ -45,3 +45,30 @@ public enum UserRewardStatus
     /// </summary>
     Cancelled
 }
+
+/// <summary>
+/// Mini oyun oturumunun durumu.
+/// </summary>
+public enum MiniGameSessionStatus
+{
+    /// <summary>
+    /// Oyun basladi, sonuc bekleniyor. Kullanici basina ayni anda en fazla bir tane olabilir.
+    /// </summary>
+    Started,
+    /// <summary>
+    /// Sonuc dogrulandi ve (varsa) puan verildi.
+    /// </summary>
+    Completed,
+    /// <summary>
+    /// Sonuc dogrulanamadi (replay tutmadi, gecersiz girdi, sure tutarsiz); puan verilmedi.
+    /// </summary>
+    Rejected,
+    /// <summary>
+    /// Kullanici sonucu gondermeden yeni oyun baslatti.
+    /// </summary>
+    Abandoned,
+    /// <summary>
+    /// Sonuc oturum suresi dolduktan sonra geldi; puan verilmedi.
+    /// </summary>
+    Expired
+}
