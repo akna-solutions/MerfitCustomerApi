@@ -4,6 +4,7 @@ using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Auth;
 using MerfitCustomerApi.Business.Services.Dashboard;
+using MerfitCustomerApi.Business.Services.Email;
 using MerfitCustomerApi.Business.Services.Equipment;
 using MerfitCustomerApi.Business.Services.Foods;
 using MerfitCustomerApi.Business.Services.Leaderboard;
@@ -29,7 +30,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Resend;
 using System.Text;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -139,11 +142,31 @@ builder.Services.AddTransient<INutritionAiProvider>(sp => sp.GetRequiredService<
 builder.Services.AddTransient<INutritionAiProvider>(sp => sp.GetRequiredService<GeminiNutritionAiProvider>());
 builder.Services.AddTransient<INutritionAiProvider>(sp => sp.GetRequiredService<AnthropicNutritionAiProvider>());
 builder.Services.AddScoped<INutritionAssistantModelClient, NutritionAiProviderRouter>();
-// Sohbet ucu icin kullanici ve IP basina dakikalik hiz siniri (diger uclar etkilenmez).
+// E-posta dogrulama / sifre sifirlama: saglayici (Resend) tek bir siniftadir (ResendEmailSender).
+// API anahtari appsettings'e yazilmaz: yerelde User Secrets "Resend:ApiKey", production'da Resend__ApiKey
+// ortam degiskeni. Anahtar yoksa uygulama yine acilir; yalnizca e-posta gerektiren uclar 503 doner.
+builder.Services.Configure<ResendEmailOptions>(builder.Configuration.GetSection(ResendEmailOptions.SectionName));
+builder.Services.Configure<AccountEmailOptions>(builder.Configuration.GetSection(AccountEmailOptions.SectionName));
+var accountEmailOptions = builder.Configuration.GetSection(AccountEmailOptions.SectionName).Get<AccountEmailOptions>() ?? new AccountEmailOptions();
+var resendEmailOptions = builder.Configuration.GetSection(ResendEmailOptions.SectionName).Get<ResendEmailOptions>() ?? new ResendEmailOptions();
+builder.Services.AddResend(options =>
+{
+    options.ApiToken = builder.Configuration[$"{ResendEmailOptions.SectionName}:{nameof(ResendEmailOptions.ApiKey)}"] ?? string.Empty;
+    options.ThrowExceptions = true;
+}).ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(Math.Max(3, resendEmailOptions.TimeoutSeconds)));
+builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
+builder.Services.AddScoped<IAccountEmailService, AccountEmailService>();
+
+// Sohbet ucu icin kullanici ve IP basina dakikalik hiz siniri; e-posta dogrulama / sifre sifirlama uclari
+// icin IP basina pencere siniri. Diger uclar etkilenmez.
 builder.Services.AddRateLimiter(options =>
 {
-    options.GlobalLimiter = NutritionAssistantRateLimits.Create(nutritionAssistantOptions);
-    options.OnRejected = NutritionAssistantRateLimits.OnRejectedAsync;
+    options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
+        NutritionAssistantRateLimits.Create(nutritionAssistantOptions),
+        AccountEmailRateLimits.Create(accountEmailOptions));
+    options.OnRejected = (context, cancellationToken) => AccountEmailRateLimits.IsLimitedPath(context.HttpContext)
+        ? AccountEmailRateLimits.OnRejectedAsync(context, cancellationToken)
+        : NutritionAssistantRateLimits.OnRejectedAsync(context, cancellationToken);
 });
 builder.Services.AddScoped<NutritionAssistantContextBuilder>();
 builder.Services.AddScoped<INutritionAssistantService, NutritionAssistantService>();
@@ -263,6 +286,13 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+if (string.IsNullOrWhiteSpace(resendEmailOptions.ApiKey))
+{
+    // Uygulama acilisi bozulmaz; e-posta dogrulama ve sifre sifirlama e-postalari gonderilemez (503).
+    app.Logger.LogWarning("Resend:ApiKey tanimli degil. E-posta dogrulama ve sifre sifirlama e-postalari gonderilemeyecek. " +
+        "Yerelde: dotnet user-secrets set \"Resend:ApiKey\" \"re_...\"; production'da: Resend__ApiKey ortam degiskeni.");
+}
 
 // Pipeline'daki tum istisnalari yakalayip tutarli bir ApiResponse govdesine ceviren middleware;
 // dogru HTTP status kodlarinin donmesi icin (bkz. madde 38) pipeline'in en basina eklenir.

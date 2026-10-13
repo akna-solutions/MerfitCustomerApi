@@ -15,6 +15,9 @@ public class CustomerProfileResponse
     public string Username { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
 
+    /// <summary>E-posta adresi dogrulandi mi (ApplicationUser.EmailConfirmed). E-posta degisince false olur.</summary>
+    public bool EmailConfirmed { get; set; }
+
     /// <summary>"yyyy-MM-dd".</summary>
     public string DateOfBirth { get; set; } = string.Empty;
 

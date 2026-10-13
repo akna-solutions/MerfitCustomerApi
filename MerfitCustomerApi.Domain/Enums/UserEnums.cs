@@ -192,3 +192,18 @@ public enum UserRole
     /// </summary>
     SuperAdmin
 }
+
+/// <summary>
+/// Hesap e-postalarindaki tek kullanimlik jetonun amaci (bkz. UserAccountToken).
+/// </summary>
+public enum AccountTokenPurpose
+{
+    /// <summary>
+    /// E-posta adresi dogrulama baglantisi.
+    /// </summary>
+    EmailVerification,
+    /// <summary>
+    /// Sifre sifirlama baglantisi.
+    /// </summary>
+    PasswordReset
+}

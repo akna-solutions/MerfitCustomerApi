@@ -1,4 +1,4 @@
-using MerfitCustomerApi.Business.Common;
+﻿using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Auth;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Auth;
@@ -29,6 +29,16 @@ public class AuthServiceRegistrationTests
         public required List<PersonalizationJob> Jobs { get; init; }
         public required List<UserGoal> Goals { get; init; }
         public required List<BodyMeasurement> Measurements { get; init; }
+    }
+
+    private static readonly Mock<IAccountEmailService> AccountEmails = CreateAccountEmails();
+
+    private static Mock<IAccountEmailService> CreateAccountEmails()
+    {
+        var mock = new Mock<IAccountEmailService>();
+        mock.Setup(m => m.TrySendVerificationAfterRegistrationAsync(It.IsAny<ApplicationUser>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        return mock;
     }
 
     private static Fixture CreateFixture()
@@ -75,7 +85,7 @@ public class AuthServiceRegistrationTests
 
         return new Fixture
         {
-            Service = new AuthService(unitOfWork.Object, tokenService.Object, nutritionCalculator.Object, jwtSettings),
+            Service = new AuthService(unitOfWork.Object, tokenService.Object, nutritionCalculator.Object, jwtSettings, AccountEmails.Object),
             Users = users,
             Profiles = profiles,
             Jobs = jobs,

@@ -30,6 +30,11 @@ public class AppDbContext : DbContext
     public DbSet<UserRefreshToken> UserRefreshTokens => Set<UserRefreshToken>();
 
     /// <summary>
+    /// E-posta dogrulama ve sifre sifirlama jetonlarina (yalnizca ozetleri) erisim saglayan DbSet.
+    /// </summary>
+    public DbSet<UserAccountToken> UserAccountTokens => Set<UserAccountToken>();
+
+    /// <summary>
     /// ExternalLogin kayitlarina erisim saglayan DbSet.
     /// </summary>
     public DbSet<ExternalLogin> ExternalLogins => Set<ExternalLogin>();

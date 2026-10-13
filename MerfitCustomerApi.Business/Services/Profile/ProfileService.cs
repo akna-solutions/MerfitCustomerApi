@@ -620,6 +620,7 @@ public class ProfileService : IProfileService
             LastName = profile.LastName,
             Username = profile.Username,
             Email = user.Email,
+            EmailConfirmed = user.EmailConfirmed,
             DateOfBirth = profile.DateOfBirth?.ToString("yyyy-MM-dd") ?? string.Empty,
             Gender = MapGenderToDisplay(profile.Gender),
             Age = age,

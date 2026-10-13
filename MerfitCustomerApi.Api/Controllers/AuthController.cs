@@ -1,5 +1,7 @@
-﻿using MerfitCustomerApi.Business.Dtos.Auth;
+﻿using MerfitCustomerApi.Api.Extensions;
+using MerfitCustomerApi.Business.Dtos.Auth;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace MerfitCustomerApi.Api.Controllers;
@@ -12,10 +14,12 @@ namespace MerfitCustomerApi.Api.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IAccountEmailService _accountEmailService;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService authService, IAccountEmailService accountEmailService)
     {
         _authService = authService;
+        _accountEmailService = accountEmailService;
     }
 
     /// <summary>
@@ -44,4 +48,63 @@ public class AuthController : ControllerBase
 
         return Ok(result);
     }
+
+    /// <summary>
+    /// Giris yapmis kullaniciya yeni bir e-posta dogrulama baglantisi gonderir. E-posta zaten dogrulanmissa
+    /// gondermez (alreadyVerified=true). Bekleme suresi dolmadiysa 429 + Retry-After; e-posta gonderilemezse 503.
+    /// </summary>
+    [HttpPost("email-verification/resend")]
+    [Authorize]
+    public async Task<ActionResult<ResendVerificationEmailResponse>> ResendVerificationEmail(CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        var result = await _accountEmailService.ResendVerificationEmailAsync(userId, ClientIp, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// E-postadaki dogrulama jetonunu kullanir ve e-postayi dogrulanmis isaretler. Jeton tek kullanimliktir;
+    /// gecersiz, suresi dolmus veya kullanilmis jetonda 400 doner.
+    /// </summary>
+    [HttpPost("email-verification/confirm")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ConfirmEmailResponse>> ConfirmEmail([FromBody] ConfirmEmailRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _accountEmailService.ConfirmEmailAsync(request.Token, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Sifre sifirlama baglantisi ister. Hesap olsun olmasin her zaman ayni genel yaniti doner.
+    /// </summary>
+    [HttpPost("password/forgot")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AccountActionResponse>> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _accountEmailService.RequestPasswordResetAsync(request.Email, ClientIp, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>Sifre sifirlama baglantisinin hala gecerli oldugunu kontrol eder (jetonu kullanmaz).</summary>
+    [HttpPost("password/reset/validate")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AccountActionResponse>> ValidatePasswordResetToken([FromBody] ValidatePasswordResetTokenRequest request, CancellationToken cancellationToken)
+    {
+        await _accountEmailService.ValidatePasswordResetTokenAsync(request.Token, cancellationToken);
+        return Ok(new AccountActionResponse { Message = "Bağlantı geçerli." });
+    }
+
+    /// <summary>
+    /// Jetonla yeni sifreyi kaydeder. Jeton tek kullanimliktir; basarili olunca kullanicinin tum oturumlari
+    /// (refresh token'lar) iptal edilir ve kullanici yeni sifresiyle giris yapar.
+    /// </summary>
+    [HttpPost("password/reset")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AccountActionResponse>> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _accountEmailService.ResetPasswordAsync(request, ClientIp, cancellationToken);
+        return Ok(result);
+    }
+
+    private string? ClientIp => HttpContext.Connection.RemoteIpAddress?.ToString();
 }

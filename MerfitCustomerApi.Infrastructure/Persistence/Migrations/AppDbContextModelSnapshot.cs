@@ -2853,6 +2853,71 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.ToTable("Translation", "content");
                 });
 
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserAccountToken", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("CreatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NormalizedEmail")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("RequestedByIp")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("UpdatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Purpose", "CreatedAt");
+
+                    b.ToTable("UserAccountToken", "authentication", t =>
+                        {
+                            t.HasCheckConstraint("CK_UserAccountToken_Purpose", "\"Purpose\" IN ('EmailVerification', 'PasswordReset')");
+                        });
+                });
+
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserAchievement", b =>
                 {
                     b.Property<long>("Id")
@@ -4582,6 +4647,15 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.HasOne("MerfitCustomerApi.Domain.Entities.Language", null)
                         .WithMany()
                         .HasForeignKey("LanguageId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserAccountToken", b =>
+                {
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

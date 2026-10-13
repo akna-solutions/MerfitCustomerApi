@@ -34,4 +34,16 @@ public class AuthResponse
     /// Login yanitinda doldurulmaz (null); yalnizca RegisterAsync tarafindan set edilir.
     /// </summary>
     public string? PersonalizationStatus { get; set; }
+
+    /// <summary>
+    /// E-posta adresi dogrulandi mi. Dogrulanmamis hesaplar giris yapabilir ve uygulamayi kullanabilir
+    /// (mevcut kullanicilarin girisi bozulmaz); uygulama dogrulama hatirlatmasi gosterir.
+    /// </summary>
+    public bool EmailConfirmed { get; set; }
+
+    /// <summary>
+    /// Yalnizca register yanitinda dolu: dogrulama e-postasi gonderildiyse true, gonderilemediyse false
+    /// (uygulama "tekrar gonder" sunar). Login yanitinda null.
+    /// </summary>
+    public bool? VerificationEmailSent { get; set; }
 }

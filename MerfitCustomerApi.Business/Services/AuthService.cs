@@ -28,17 +28,20 @@ public class AuthService : IAuthService
     private readonly ITokenService _tokenService;
     private readonly INutritionCalculator _nutritionCalculator;
     private readonly JwtSettings _jwtSettings;
+    private readonly IAccountEmailService _accountEmailService;
 
     public AuthService(
         IUnitOfWork unitOfWork,
         ITokenService tokenService,
         INutritionCalculator nutritionCalculator,
-        IOptions<JwtSettings> jwtSettings)
+        IOptions<JwtSettings> jwtSettings,
+        IAccountEmailService accountEmailService)
     {
         _unitOfWork = unitOfWork;
         _tokenService = tokenService;
         _nutritionCalculator = nutritionCalculator;
         _jwtSettings = jwtSettings.Value;
+        _accountEmailService = accountEmailService;
     }
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request, string? ipAddress)
@@ -220,6 +223,10 @@ public class AuthService : IAuthService
             throw new ConflictException("Bu kullanici adi zaten kullaniliyor.");
         }
 
+        // Hesap olustuktan sonra dogrulama e-postasi gonderilir. Gonderim hatasi kaydi bozmaz; yanittaki
+        // VerificationEmailSent=false ile uygulama kullaniciya bildirir ve tekrar gondermeyi sunar.
+        var verificationEmailSent = await _accountEmailService.TrySendVerificationAfterRegistrationAsync(user, firstName, ipAddress);
+
         return new AuthResponse
         {
             UserId = user.Id,
@@ -230,6 +237,8 @@ public class AuthService : IAuthService
             RefreshToken = refreshTokenValue,
             AccessTokenExpiresAt = expiresAt,
             PersonalizationStatus = personalizationJob.Status.ToString(),
+            EmailConfirmed = user.EmailConfirmed,
+            VerificationEmailSent = verificationEmailSent,
         };
     }
 
@@ -280,6 +289,7 @@ public class AuthService : IAuthService
             AccessToken = accessToken,
             RefreshToken = refreshTokenValue,
             AccessTokenExpiresAt = expiresAt,
+            EmailConfirmed = user.EmailConfirmed,
         };
     }
 
