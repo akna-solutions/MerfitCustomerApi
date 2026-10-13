@@ -101,9 +101,15 @@ public class ExceptionHandlingMiddleware
 
         context.Response.ContentType = "application/json";
         context.Response.StatusCode = (int)statusCode;
-        if (exception is ExternalServiceUnavailableException { RetryAfter: { } retryAfter })
+        var retryAfter = exception switch
         {
-            context.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+            ExternalServiceUnavailableException { RetryAfter: { } serviceRetryAfter } => serviceRetryAfter,
+            TooManyRequestsException { RetryAfter: { } limitRetryAfter } => limitRetryAfter,
+            _ => (TimeSpan?)null,
+        };
+        if (retryAfter is { } wait)
+        {
+            context.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(wait.TotalSeconds)).ToString();
         }
 
         await context.Response.WriteAsync(JsonSerializer.Serialize(response, response.GetType(), SerializerOptions));

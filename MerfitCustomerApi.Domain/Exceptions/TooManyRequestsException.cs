@@ -5,7 +5,11 @@ namespace MerfitCustomerApi.Domain.Exceptions;
 /// </summary>
 public class TooManyRequestsException : Exception
 {
-    public TooManyRequestsException(string message) : base(message)
+    public TooManyRequestsException(string message, TimeSpan? retryAfter = null) : base(message)
     {
+        RetryAfter = retryAfter;
     }
+
+    /// <summary>Biliniyorsa islemin ne zaman tekrar denenebilecegi; yanitta Retry-After olarak doner.</summary>
+    public TimeSpan? RetryAfter { get; }
 }

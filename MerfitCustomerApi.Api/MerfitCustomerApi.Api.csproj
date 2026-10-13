@@ -4,6 +4,8 @@
 		<TargetFramework>net9.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
+		<!-- Yerel gizli ayarlar (orn. Resend:ApiKey) icin Visual Studio User Secrets; Git'e girmez. -->
+		<UserSecretsId>f3bde431-a4e8-463b-92b1-d40766b87309</UserSecretsId>
 	</PropertyGroup>
 
 	<ItemGroup>
