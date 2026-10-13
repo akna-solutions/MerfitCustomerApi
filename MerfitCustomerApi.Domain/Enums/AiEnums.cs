@@ -20,7 +20,11 @@ public enum AiRequestType
     /// <summary>
     /// Kisisel ic gorulama/analiz uretimi.
     /// </summary>
-    Insight
+    Insight,
+    /// <summary>
+    /// Beslenme asistani sohbet yaniti (MerfitNativeApp beslenme ekranindaki sohbet penceresi).
+    /// </summary>
+    NutritionAssistant
 }
 
 /// <summary>
