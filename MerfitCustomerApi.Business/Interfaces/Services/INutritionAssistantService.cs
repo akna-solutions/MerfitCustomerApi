@@ -19,4 +19,7 @@ public interface INutritionAssistantService
     /// <exception cref="Domain.Exceptions.TooManyRequestsException">Kullanim siniri asildiysa.</exception>
     /// <exception cref="Domain.Exceptions.ExternalServiceUnavailableException">Saglayici yanit vermezse.</exception>
     Task<NutritionAssistantChatResponse> SendMessageAsync(long userId, NutritionAssistantChatRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Kullanicinin verilen gundeki sohbetini ve mesajlarini siler. Sohbet yoksa false.</summary>
+    Task<bool> DeleteConversationAsync(long userId, DateOnly? date, CancellationToken cancellationToken = default);
 }

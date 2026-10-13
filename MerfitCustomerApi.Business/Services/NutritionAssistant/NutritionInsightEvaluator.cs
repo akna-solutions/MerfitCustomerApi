@@ -55,10 +55,10 @@ public static class NutritionInsightEvaluator
 
     public static class Questions
     {
-        public const string CompleteProtein = "Bugün protein ihtiyacımı nasıl tamamlayabilirim?";
-        public const string WhatFitsGoal = "Hedefime uygun ne yiyebilirim?";
+        public const string CompleteProtein = "Bugün protein hedefimi nasıl tamamlayabilirim?";
+        public const string WhatFitsGoal = "Kalan kalorime uygun ne yiyebilirim?";
         public const string Dinner = "Akşam yemeğinde ne tercih etmeliyim?";
-        public const string CalorieStatus = "Bugünkü kalori durumum nasıl?";
+        public const string CalorieStatus = "Bugünkü beslenmemi değerlendir.";
         public const string PostWorkout = "Antrenman sonrası ne yemeliyim?";
         public const string AfterExceeded = "Kalori hedefimi aştım, günün geri kalanında neye dikkat etmeliyim?";
         public const string LighterChoices = "Daha hafif hangi seçenekleri tercih edebilirim?";

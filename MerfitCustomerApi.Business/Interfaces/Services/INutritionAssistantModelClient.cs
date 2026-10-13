@@ -3,8 +3,9 @@ using MerfitCustomerApi.Domain.Entities.Enums;
 namespace MerfitCustomerApi.Business.Interfaces.Services;
 
 /// <summary>
-/// Beslenme asistaninin yapay zeka saglayicisina erisim sozlesmesi. Is kurallari saglayicidan bagimsizdir;
-/// varsayilan uygulama Anthropic Claude'dur (AnthropicNutritionAssistantModelClient).
+/// Beslenme asistaninin yapay zeka erisim sozlesmesi. Is kurallari saglayicidan bagimsizdir; varsayilan
+/// uygulama NutritionAiProviderRouter'dir: yapilandirilan saglayiciyi (Groq, Gemini, Anthropic) secer,
+/// eszamanlilik/kota/yeniden deneme/yedek saglayici kurallarini uygular.
 /// </summary>
 public interface INutritionAssistantModelClient
 {
@@ -30,10 +31,12 @@ public sealed record NutritionAssistantModelRequest(
 public sealed record NutritionAssistantModelMessage(NutritionAssistantMessageRole Role, string Content);
 
 /// <param name="Refused">Saglayici guvenlik nedeniyle yanit vermediyse true.</param>
+/// <param name="Provider">Yaniti ureten saglayici (kullanim kaydi icin).</param>
 public sealed record NutritionAssistantModelResult(
     string Text,
     int InputTokens,
     int OutputTokens,
     string? StopReason,
     string Model,
-    bool Refused);
+    bool Refused,
+    string Provider = "");

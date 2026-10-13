@@ -33,7 +33,11 @@ public class NutritionAssistantControllerSecurityTests : IClassFixture<WebApplic
         _service.Setup(s => s.GetConversationAsync(It.IsAny<long>(), It.IsAny<DateOnly?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new NutritionAssistantConversationDto());
 
-        _factory = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        _factory = factory.WithWebHostBuilder(builder => builder
+            // Bu siniftaki testler hiz sinirina takilmasin; hiz siniri ayri test sinifinda dogrulanir.
+            .UseSetting("NutritionAssistant:PerUserRequestsPerMinute", "1000")
+            .UseSetting("NutritionAssistant:PerIpRequestsPerMinute", "1000")
+            .ConfigureTestServices(services =>
         {
             services.Remove(services.Single(d => d.ImplementationType == typeof(PersonalizationBackgroundWorker)));
             services.Remove(services.Single(d => d.ImplementationType == typeof(NotificationBackgroundWorker)));
@@ -61,6 +65,7 @@ public class NutritionAssistantControllerSecurityTests : IClassFixture<WebApplic
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsync("/api/nutrition-assistant/chat", JsonContent.Create(new { message = "x" }))).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/nutrition-assistant/conversation")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.DeleteAsync("/api/nutrition-assistant/conversation")).StatusCode);
         _service.VerifyNoOtherCalls();
     }
 
@@ -130,5 +135,39 @@ public class NutritionAssistantControllerSecurityTests : IClassFixture<WebApplic
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         _service.Verify(s => s.GetConversationAsync(42, new DateOnly(2026, 10, 13), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProviderQuota_Returns503_WithRetryAfterHeader()
+    {
+        _service.Setup(s => s.SendMessageAsync(42, It.IsAny<NutritionAssistantChatRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ExternalServiceUnavailableException("Beslenme asistanı şu an çok yoğun.", retryAfter: TimeSpan.FromSeconds(12.2)));
+
+        var response = await CreateClient(42).PostAsync("/api/nutrition-assistant/chat", JsonContent.Create(new { message = "x" }));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(TimeSpan.FromSeconds(13), response.Headers.RetryAfter!.Delta);
+    }
+
+    [Fact]
+    public async Task DeleteConversation_UsesAuthenticatedUser()
+    {
+        _service.Setup(s => s.DeleteConversationAsync(It.IsAny<long>(), It.IsAny<DateOnly?>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var response = await CreateClient(42).DeleteAsync("/api/nutrition-assistant/conversation?date=2026-10-13&userId=7");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        _service.Verify(s => s.DeleteConversationAsync(42, new DateOnly(2026, 10, 13), It.IsAny<CancellationToken>()), Times.Once);
+        _service.Verify(s => s.DeleteConversationAsync(7, It.IsAny<DateOnly?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ResponsesNeverContainProviderKeys()
+    {
+        var response = await CreateClient(42).PostAsync("/api/nutrition-assistant/chat", JsonContent.Create(new { message = "x" }));
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("gsk_", body);
+        Assert.DoesNotContain("apiKey", body, StringComparison.OrdinalIgnoreCase);
     }
 }

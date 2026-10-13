@@ -27,6 +27,7 @@ public class NutritionAssistantService : INutritionAssistantService
 {
     private const string UnavailableMessage = "Beslenme asistanı şu an kullanılamıyor. Lütfen daha sonra tekrar deneyin.";
     private const int MaxStoredContentLength = 8000;
+    private const int EarlierNoteLength = 200;
 
     private static readonly Regex MarkdownEmphasis = new(@"(\*\*|__)", RegexOptions.Compiled);
     private static readonly Regex MarkdownHeading = new(@"^\s{0,3}#{1,6}\s+", RegexOptions.Compiled | RegexOptions.Multiline);
@@ -122,6 +123,7 @@ public class NutritionAssistantService : INutritionAssistantService
         var conversation = await ResolveConversationAsync(userId, request.ConversationId, targetDate, cancellationToken);
 
         var history = new List<NutritionAssistantMessage>();
+        IReadOnlyList<string> earlierNotes = Array.Empty<string>();
         if (conversation is not null)
         {
             var userMessageCount = await _unitOfWork.Repository<NutritionAssistantMessage>().GetQueryable()
@@ -140,6 +142,8 @@ public class NutritionAssistantService : INutritionAssistantService
                 // Pencere bir asistan mesajiyla baslamasin.
                 .SkipWhile(m => m.Role != NutritionAssistantMessageRole.User)
                 .ToList();
+
+            earlierNotes = await EarlierUserNotesAsync(conversation.Id, history.FirstOrDefault()?.Id, cancellationToken);
         }
 
         var context = await _contextBuilder.BuildAsync(userId, targetDate, localTime, cancellationToken);
@@ -154,7 +158,7 @@ public class NutritionAssistantService : INutritionAssistantService
         try
         {
             result = await _modelClient.CompleteAsync(
-                new NutritionAssistantModelRequest(NutritionAssistantPrompt.Instructions, NutritionAssistantPrompt.ContextBlock(context), modelMessages),
+                new NutritionAssistantModelRequest(NutritionAssistantPrompt.Instructions, NutritionAssistantPrompt.ContextBlock(context, earlierNotes), modelMessages),
                 cancellationToken);
         }
         catch (ExternalServiceUnavailableException)
@@ -204,8 +208,8 @@ public class NutritionAssistantService : INutritionAssistantService
         await AddUsageResultAsync(usage, stopwatch.ElapsedMilliseconds, result);
 
         _logger.LogInformation(
-            "Beslenme asistani yaniti. UserId: {UserId}, ConversationId: {ConversationId}, Model: {Model}, InputTokens: {InputTokens}, OutputTokens: {OutputTokens}, StopReason: {StopReason}, DurationMs: {DurationMs}",
-            userId, conversation.Id, result.Model, result.InputTokens, result.OutputTokens, result.StopReason, stopwatch.ElapsedMilliseconds);
+            "Beslenme asistani yaniti. UserId: {UserId}, ConversationId: {ConversationId}, Provider: {Provider}, Model: {Model}, InputTokens: {InputTokens}, OutputTokens: {OutputTokens}, StopReason: {StopReason}, DurationMs: {DurationMs}",
+            userId, conversation.Id, result.Provider, result.Model, result.InputTokens, result.OutputTokens, result.StopReason, stopwatch.ElapsedMilliseconds);
 
         return new NutritionAssistantChatResponse
         {
@@ -218,6 +222,48 @@ public class NutritionAssistantService : INutritionAssistantService
                 history.Where(m => m.Role == NutritionAssistantMessageRole.User).Select(m => m.Content).Append(text)),
             RemainingMessages = Math.Max(0, remaining - 1),
         };
+    }
+
+    public async Task<bool> DeleteConversationAsync(long userId, DateOnly? date, CancellationToken cancellationToken = default)
+    {
+        var (targetDate, _) = ResolveDate(date);
+        var repository = _unitOfWork.Repository<NutritionAssistantConversation>();
+        // Yalnizca kullanicinin kendi sohbeti; mesajlar cascade ile silinir.
+        var conversation = await repository.GetQueryable(asNoTracking: false)
+            .FirstOrDefaultAsync(c => c.UserId == userId && c.Date == targetDate, cancellationToken);
+        if (conversation is null)
+        {
+            return false;
+        }
+
+        repository.Remove(conversation);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Beslenme asistani sohbeti silindi. UserId: {UserId}, ConversationId: {ConversationId}", userId, conversation.Id);
+        return true;
+    }
+
+    /// <summary>
+    /// Modele birebir gonderilen pencerenin disinda kalan eski kullanici mesajlari, kisaltilmis notlar olarak
+    /// (ek model cagrisi olmadan) baglama eklenir; boylece uzun sohbette "tavuk istemiyorum" gibi tercihler
+    /// unutulmaz ve gecmis sinirsiz buyumez.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> EarlierUserNotesAsync(long conversationId, long? firstHistoryId, CancellationToken cancellationToken)
+    {
+        if (firstHistoryId is not { } beforeId || _options.EarlierUserNoteLimit <= 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var notes = await _unitOfWork.Repository<NutritionAssistantMessage>().GetQueryable()
+            .Where(m => m.ConversationId == conversationId && m.Role == NutritionAssistantMessageRole.User && m.Id < beforeId)
+            .OrderByDescending(m => m.Id)
+            .Take(_options.EarlierUserNoteLimit)
+            .Select(m => m.Content)
+            .ToListAsync(cancellationToken);
+        notes.Reverse();
+        return notes
+            .Select(n => n.Length > EarlierNoteLength ? n[..EarlierNoteLength].TrimEnd() + "…" : n)
+            .ToList();
     }
 
     /// <summary>
@@ -365,6 +411,7 @@ public class NutritionAssistantService : INutritionAssistantService
                 RequestId = request.Id,
                 ResultJson = JsonSerializer.Serialize(new
                 {
+                    provider = result.Provider,
                     inputTokens = result.InputTokens,
                     outputTokens = result.OutputTokens,
                     stopReason = result.StopReason,

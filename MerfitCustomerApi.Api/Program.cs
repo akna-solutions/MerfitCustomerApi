@@ -108,10 +108,43 @@ builder.Services.AddHttpClient<IFoodProductLookup, OpenFoodFactsProductLookup>((
     client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
     client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
 });
-// Beslenme asistani (beslenme ekranindaki sohbet penceresi): Anthropic Claude ile, yalnizca backend'den.
-// Anahtar appsettings'e yazilmaz; NutritionAssistant__ApiKey (ya da ANTHROPIC_API_KEY) ortam degiskeni ile verilir.
+// Beslenme asistani (beslenme ekranindaki sohbet penceresi): saglayiciya yalnizca backend baglanir.
+// Varsayilan saglayici Groq; Gemini istege bagli yedek, Anthropic ucretli secenek. Anahtarlar appsettings'e
+// yazilmaz; GROQ_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY ortam degiskenleri ile verilir.
 builder.Services.Configure<NutritionAssistantOptions>(builder.Configuration.GetSection(NutritionAssistantOptions.SectionName));
-builder.Services.AddSingleton<INutritionAssistantModelClient, AnthropicNutritionAssistantModelClient>();
+var nutritionAssistantOptions = builder.Configuration.GetSection(NutritionAssistantOptions.SectionName).Get<NutritionAssistantOptions>() ?? new NutritionAssistantOptions();
+builder.Services.AddSingleton<NutritionAssistantMetrics>();
+builder.Services.AddSingleton<NutritionAiProviderState>();
+// Typed client'lar: baglanti havuzu paylasilir, DNS degisiklikleri icin baglantilar periyodik yenilenir.
+// Zaman asimi saglayici icinde istek bazinda uygulanir; HttpClient.Timeout yalnizca son guvencedir.
+static SocketsHttpHandler NutritionAiHandler() => new()
+{
+    PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+    MaxConnectionsPerServer = 32,
+};
+builder.Services.AddHttpClient<GroqNutritionAiProvider>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<NutritionAssistantOptions>>().Value;
+    if (!string.IsNullOrWhiteSpace(options.Groq.BaseUrl)) client.BaseAddress = new Uri(options.Groq.BaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds) + 10);
+}).ConfigurePrimaryHttpMessageHandler(NutritionAiHandler);
+builder.Services.AddHttpClient<GeminiNutritionAiProvider>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<NutritionAssistantOptions>>().Value;
+    if (!string.IsNullOrWhiteSpace(options.Gemini.BaseUrl)) client.BaseAddress = new Uri(options.Gemini.BaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds) + 10);
+}).ConfigurePrimaryHttpMessageHandler(NutritionAiHandler);
+builder.Services.AddSingleton<AnthropicNutritionAiProvider>();
+builder.Services.AddTransient<INutritionAiProvider>(sp => sp.GetRequiredService<GroqNutritionAiProvider>());
+builder.Services.AddTransient<INutritionAiProvider>(sp => sp.GetRequiredService<GeminiNutritionAiProvider>());
+builder.Services.AddTransient<INutritionAiProvider>(sp => sp.GetRequiredService<AnthropicNutritionAiProvider>());
+builder.Services.AddScoped<INutritionAssistantModelClient, NutritionAiProviderRouter>();
+// Sohbet ucu icin kullanici ve IP basina dakikalik hiz siniri (diger uclar etkilenmez).
+builder.Services.AddRateLimiter(options =>
+{
+    options.GlobalLimiter = NutritionAssistantRateLimits.Create(nutritionAssistantOptions);
+    options.OnRejected = NutritionAssistantRateLimits.OnRejectedAsync;
+});
 builder.Services.AddScoped<NutritionAssistantContextBuilder>();
 builder.Services.AddScoped<INutritionAssistantService, NutritionAssistantService>();
 builder.Services.AddScoped<IProgressService, ProgressService>();
@@ -255,6 +288,8 @@ else
 app.UseCors(AdminAppCorsPolicy);
 
 app.UseAuthentication();
+// Hiz siniri kullanici kimligini token'dan okudugu icin kimlik dogrulamadan sonra calisir.
+app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapControllers();

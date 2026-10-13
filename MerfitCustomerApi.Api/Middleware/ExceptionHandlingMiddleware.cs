@@ -101,6 +101,10 @@ public class ExceptionHandlingMiddleware
 
         context.Response.ContentType = "application/json";
         context.Response.StatusCode = (int)statusCode;
+        if (exception is ExternalServiceUnavailableException { RetryAfter: { } retryAfter })
+        {
+            context.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+        }
 
         await context.Response.WriteAsync(JsonSerializer.Serialize(response, response.GetType(), SerializerOptions));
     }
