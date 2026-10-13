@@ -325,6 +325,86 @@ public class NutritionAssistantServiceTests
         Assert.Equal(8, _uow.Set<NutritionAssistantMessage>().Count);
     }
 
+    [Fact]
+    public async Task LongConversation_KeepsEarlierPreferences_AsShortNotes_WithoutGrowingHistory()
+    {
+        var first = await Send("Tavuk yemek istemiyorum, balık da sevmem.");
+        foreach (var message in new[] { "2", "3", "4" })
+        {
+            await Send(message, first.ConversationId);
+        }
+
+        var request = _model.Requests[^1];
+        // HistoryMessageLimit = 4: ilk mesaj birebir gonderilmez, ama tercih notu olarak baglamda kalir.
+        Assert.DoesNotContain(request.Messages, m => m.Content.Contains("Tavuk"));
+        Assert.Contains("daha önce yazdıkları", request.Context);
+        Assert.Contains("- Tavuk yemek istemiyorum, balık da sevmem.", request.Context);
+        Assert.Equal(5, request.Messages.Count);
+    }
+
+    [Fact]
+    public async Task EarlierNotes_AreLimitedAndTruncated()
+    {
+        _options.HistoryMessageLimit = 2;
+        _options.EarlierUserNoteLimit = 2;
+        _options.DailyMessageLimitPerUser = 50;
+        var first = await Send(new string('a', 600));
+        foreach (var message in new[] { "b", "c", "d" })
+        {
+            await Send(message, first.ConversationId);
+        }
+
+        var context = _model.Requests[^1].Context;
+        // Pencere: "c", "yanıt 3" + yeni mesaj. Notlar: pencereden onceki en fazla 2 kullanici mesaji, kisaltilmis.
+        Assert.Contains("- " + new string('a', 200) + "…", context);
+        Assert.DoesNotContain(new string('a', 201), context);
+        Assert.Contains("- b", context);
+        Assert.DoesNotContain("- c", context);
+        Assert.Equal(new[] { "c", "yanıt 3", "d" }, _model.Requests[^1].Messages.Select(m => m.Content));
+    }
+
+    [Fact]
+    public async Task MissingProfileData_IsSentAsUnknown_NotInvented()
+    {
+        _uow.Set<UserProfile>().Clear();
+        _uow.Set<UserProfile>().Add(new UserProfile { Id = 2, UserId = UserId, FirstName = "Ayşe" });
+
+        await Send("Ne yemeliyim?");
+
+        var context = _model.Requests[^1].Context;
+        Assert.Contains("Alerjiler: belirtilmemiş", context);
+        Assert.DoesNotContain("süt", context);
+        Assert.DoesNotContain("62 kg", context);
+        Assert.Contains("kilo bilinmiyor", context);
+    }
+
+    [Fact]
+    public async Task DeleteConversation_RemovesOnlyOwnConversation()
+    {
+        await Send("merhaba");
+        _uow.Set<NutritionAssistantConversation>().Add(new NutritionAssistantConversation { Id = 950, UserId = OtherUserId, Date = Today, LastMessageAt = _clock.Now.UtcDateTime });
+
+        Assert.True(await CreateService().DeleteConversationAsync(UserId, Today));
+
+        Assert.DoesNotContain(_uow.Set<NutritionAssistantConversation>(), c => c.UserId == UserId);
+        Assert.Contains(_uow.Set<NutritionAssistantConversation>(), c => c.Id == 950);
+        Assert.False(await CreateService().DeleteConversationAsync(UserId, Today));
+    }
+
+    [Fact]
+    public async Task UsageRecord_StoresProvider_WithoutMessageContent()
+    {
+        _model.NextResult = new NutritionAssistantModelResult("tamam", 50, 5, "stop", "openai/gpt-oss-120b", false, "Groq");
+
+        await Send("Tavuk istemiyorum");
+
+        var usage = Assert.Single(_uow.Set<AiGenerationRequest>());
+        Assert.Equal("openai/gpt-oss-120b", usage.Model);
+        var json = Assert.Single(_uow.Set<AiGenerationResult>()).ResultJson;
+        Assert.Contains("\"provider\":\"Groq\"", json);
+        Assert.DoesNotContain("Tavuk", json + usage.Prompt);
+    }
+
     private sealed class FakeClock : TimeProvider
     {
         public FakeClock(DateTimeOffset now) => Now = now;

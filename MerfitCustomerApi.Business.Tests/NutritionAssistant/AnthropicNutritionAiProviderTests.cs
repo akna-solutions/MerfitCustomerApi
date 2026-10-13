@@ -6,25 +6,23 @@ using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.NutritionAssistant;
 using MerfitCustomerApi.Domain.Entities.Enums;
-using MerfitCustomerApi.Domain.Exceptions;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace MerfitCustomerApi.Business.Tests.NutritionAssistant;
 
 /// <summary>
-/// Anthropic istemcisinin gercek SDK ile urettigi HTTP istegini yerel sahte bir sunucuya karsi dogrular:
+/// Anthropic saglayicisinin gercek SDK ile urettigi HTTP istegini yerel sahte bir sunucuya karsi dogrular:
 /// model/effort/sistem bloklari/geri donus (fallback) ayari, anahtarin yalnizca header'da gitmesi,
 /// yanit ayristirma ve hata/zaman asimi esleme.
 /// </summary>
-public sealed class AnthropicNutritionAssistantModelClientTests : IDisposable
+public sealed class AnthropicNutritionAiProviderTests : IDisposable
 {
     private readonly HttpListener _listener = new();
     private readonly string _baseUrl;
     private readonly List<(string Path, Dictionary<string, string> Headers, string Body)> _requests = new();
 
-    public AnthropicNutritionAssistantModelClientTests()
+    public AnthropicNutritionAiProviderTests()
     {
         var port = FreePort();
         _baseUrl = $"http://127.0.0.1:{port}";
@@ -68,11 +66,13 @@ public sealed class AnthropicNutritionAssistantModelClientTests : IDisposable
         }
     });
 
-    private AnthropicNutritionAssistantModelClient Client(Action<NutritionAssistantOptions>? configure = null)
+    private AnthropicNutritionAiProvider Client(Action<NutritionAssistantOptions>? configure = null)
     {
-        var options = new NutritionAssistantOptions { ApiKey = "test-key", BaseUrl = _baseUrl, TimeoutSeconds = 5 };
+        var options = new NutritionAssistantOptions { TimeoutSeconds = 5, MaxOutputTokens = 2048 };
+        options.Anthropic.ApiKey = "test-key";
+        options.Anthropic.BaseUrl = _baseUrl;
         configure?.Invoke(options);
-        return new AnthropicNutritionAssistantModelClient(Options.Create(options), NullLogger<AnthropicNutritionAssistantModelClient>.Instance);
+        return new AnthropicNutritionAiProvider(Options.Create(options));
     }
 
     private static NutritionAssistantModelRequest Request() => new(
@@ -106,6 +106,7 @@ public sealed class AnthropicNutritionAssistantModelClientTests : IDisposable
         Assert.Equal("end_turn", result.StopReason);
         Assert.Equal("claude-opus-5-5", result.Model);
         Assert.False(result.Refused);
+        Assert.Equal("Anthropic", result.Provider);
 
         var (path, headers, body) = Assert.Single(_requests);
         Assert.Equal("/v1/messages", path);
@@ -130,19 +131,6 @@ public sealed class AnthropicNutritionAssistantModelClientTests : IDisposable
     }
 
     [Fact]
-    public async Task FallbackDisabled_SendsNoFallbackParameter()
-    {
-        var server = Serve(200, OkResponse);
-
-        await Client(o => o.EnableRefusalFallback = false).CompleteAsync(Request());
-        await server;
-
-        var (_, headers, body) = Assert.Single(_requests);
-        Assert.False(headers.ContainsKey("anthropic-beta") && headers["anthropic-beta"].Contains("server-side-fallback"));
-        Assert.DoesNotContain("fallbacks", body);
-    }
-
-    [Fact]
     public async Task Refusal_IsReported()
     {
         var server = Serve(200, """
@@ -158,33 +146,48 @@ public sealed class AnthropicNutritionAssistantModelClientTests : IDisposable
     }
 
     [Fact]
-    public async Task ServerError_MapsToServiceUnavailable()
+    public async Task ServerError_IsTransient_AndSdkDoesNotRetry()
     {
-        var server = Serve(500, """{"type":"error","error":{"type":"api_error","message":"boom"}}""", times: 2);
+        var server = Serve(500, """{"type":"error","error":{"type":"api_error","message":"boom"}}""");
 
-        var ex = await Assert.ThrowsAsync<ExternalServiceUnavailableException>(() => Client().CompleteAsync(Request()));
+        var ex = await Assert.ThrowsAsync<NutritionAiProviderException>(() => Client().CompleteAsync(Request()));
         await server;
 
-        Assert.Contains("yanıt veremiyor", ex.Message);
+        Assert.Equal(NutritionAiFailureKind.Transient, ex.Kind);
+        Assert.Single(_requests);
     }
 
     [Fact]
-    public async Task InvalidKey_MapsToServiceUnavailable()
+    public async Task RateLimit_IsReportedAsRateLimited()
+    {
+        var server = Serve(429, """{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}""");
+
+        var ex = await Assert.ThrowsAsync<NutritionAiProviderException>(() => Client().CompleteAsync(Request()));
+        await server;
+
+        Assert.Equal(NutritionAiFailureKind.RateLimited, ex.Kind);
+    }
+
+    [Fact]
+    public async Task InvalidKey_IsRejected_WithoutLeakingKey()
     {
         var server = Serve(401, """{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}""");
 
-        await Assert.ThrowsAsync<ExternalServiceUnavailableException>(() => Client().CompleteAsync(Request()));
+        var ex = await Assert.ThrowsAsync<NutritionAiProviderException>(() => Client().CompleteAsync(Request()));
         await server;
+
+        Assert.Equal(NutritionAiFailureKind.Rejected, ex.Kind);
+        Assert.DoesNotContain("test-key", ex.ToString());
     }
 
     [Fact]
     public async Task SlowProvider_TimesOut()
     {
-        _ = Serve(200, OkResponse, times: 2, delay: TimeSpan.FromSeconds(12));
+        _ = Serve(200, OkResponse, times: 1, delay: TimeSpan.FromSeconds(12));
 
-        var ex = await Assert.ThrowsAsync<ExternalServiceUnavailableException>(() => Client().CompleteAsync(Request()));
+        var ex = await Assert.ThrowsAsync<NutritionAiProviderException>(() => Client().CompleteAsync(Request()));
 
-        Assert.Contains("gecikti", ex.Message);
+        Assert.Equal(NutritionAiFailureKind.Timeout, ex.Kind);
     }
 
     [Fact]
@@ -203,7 +206,7 @@ public sealed class AnthropicNutritionAssistantModelClientTests : IDisposable
         Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", null);
         try
         {
-            Assert.False(Client(o => o.ApiKey = null).IsConfigured);
+            Assert.False(Client(o => o.Anthropic.ApiKey = null).IsConfigured);
         }
         finally
         {

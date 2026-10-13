@@ -5,8 +5,12 @@ namespace MerfitCustomerApi.Domain.Exceptions;
 /// </summary>
 public class ExternalServiceUnavailableException : Exception
 {
-    public ExternalServiceUnavailableException(string message, Exception? innerException = null)
+    public ExternalServiceUnavailableException(string message, Exception? innerException = null, TimeSpan? retryAfter = null)
         : base(message, innerException)
     {
+        RetryAfter = retryAfter;
     }
+
+    /// <summary>Servisin ne zaman yeniden denenebilecegi biliniyorsa (orn. saglayici kotasi); yanitta Retry-After olarak doner.</summary>
+    public TimeSpan? RetryAfter { get; }
 }
