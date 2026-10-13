@@ -7,20 +7,23 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace MerfitCustomerApi.Api.Middleware;
 
 /// <summary>
-/// E-posta dogrulama ve sifre sifirlama uclarinin IP basina HTTP hiz siniri (kaba kuvvet ve e-posta
-/// bombardimanina karsi). Her uc kendi penceresine sahiptir; giris/kayit ve diger uclar etkilenmez.
+/// E-posta dogrulama, sifre sifirlama ve kullanici adi kontrolu uclarinin IP basina HTTP hiz siniri (kaba kuvvet,
+/// e-posta bombardimani ve kullanici adi taramasina karsi). Her uc kendi penceresine sahiptir; giris/kayit ve
+/// diger uclar etkilenmez.
 /// Hesap basina bekleme suresi ve saatlik sinir ayrica veritabaninda uygulanir (bkz. AccountEmailService).
 /// Sinir sunucu ornegi basinadir; vekil sunucu arkasinda ForwardedHeaders yapilandirilmazsa IP siniri tum
 /// istemcilere ortak uygulanir.
 /// </summary>
 public static class AccountEmailRateLimits
 {
+    public const string UsernameAvailabilityPath = "/api/auth/username-availability";
+
     public static readonly string[] LimitedPaths =
     {
         "/api/auth/email-verification/resend",
         "/api/auth/email-verification/confirm",
         "/api/auth/password/forgot",
-        "/api/auth/password/reset/validate",
+        "/api/auth/password/reset/verify-code",
         "/api/auth/password/reset",
     };
 
@@ -30,7 +33,10 @@ public static class AccountEmailRateLimits
         PartitionedRateLimiter.Create<HttpContext, string>(context =>
         {
             var path = MatchPath(context);
-            if (path is null || options.PerIpRequestsPerWindow <= 0)
+            var permitLimit = path == UsernameAvailabilityPath
+                ? options.UsernameCheckRequestsPerWindow
+                : options.PerIpRequestsPerWindow;
+            if (path is null || permitLimit <= 0)
             {
                 return RateLimitPartition.GetNoLimiter("none");
             }
@@ -38,7 +44,7 @@ public static class AccountEmailRateLimits
             var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             return RateLimitPartition.GetSlidingWindowLimiter($"account-email:{path}:{ip}", _ => new SlidingWindowRateLimiterOptions
             {
-                PermitLimit = options.PerIpRequestsPerWindow,
+                PermitLimit = permitLimit,
                 Window = options.RateLimitWindow,
                 SegmentsPerWindow = 5,
                 QueueLimit = 0,
@@ -63,12 +69,19 @@ public static class AccountEmailRateLimits
 
     private static string? MatchPath(HttpContext context)
     {
+        var requestPath = context.Request.Path.Value?.TrimEnd('/');
+        if (HttpMethods.IsGet(context.Request.Method))
+        {
+            return string.Equals(requestPath, UsernameAvailabilityPath, StringComparison.OrdinalIgnoreCase)
+                ? UsernameAvailabilityPath
+                : null;
+        }
+
         if (!HttpMethods.IsPost(context.Request.Method))
         {
             return null;
         }
 
-        var requestPath = context.Request.Path.Value?.TrimEnd('/');
         return LimitedPaths.FirstOrDefault(p => string.Equals(p, requestPath, StringComparison.OrdinalIgnoreCase));
     }
 }

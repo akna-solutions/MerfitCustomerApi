@@ -15,20 +15,23 @@ namespace MerfitCustomerApi.Business.Services.Auth;
 /// <see cref="IAccountEmailService"/> implementasyonu.
 ///
 /// Guvenlik kurallari:
-/// - Jeton 256 bit rastgeledir; veritabaninda yalnizca SHA-256 ozeti tutulur (bkz. AccountTokenGenerator).
-/// - Jeton sureli ve tek kullanimliktir. UsedAt concurrency token'dir; ayni jetonla es zamanli iki istekten
-///   yalnizca biri basarili olur. Yeni jeton gonderildiginde ayni turdeki eski jetonlar iptal edilir.
-/// - Jeton, uretildigi andaki e-posta adresine baglidir; kullanici e-postasini degistirirse eski jeton gecersizdir.
+/// - Kod 6 haneli kriptografik rastgele sayidir; veritabaninda yalnizca SHA-256 ozeti tutulur (bkz. AccountTokenGenerator).
+/// - Kod sureli ve tek kullanimliktir; kullanici ve amac basina ayni anda yalnizca en son gonderilen kod gecerlidir.
+/// - Kod basina en fazla MaxCodeAttempts deneme yapilir. Her deneme, kod karsilastirilmadan once sayaci artirip
+///   kaydeder (AttemptCount concurrency token); paralel isteklerle sinir asilamaz. UsedAt da concurrency token'dir.
+/// - Kod, uretildigi andaki e-posta adresine baglidir; kullanici e-postasini degistirirse eski kod gecersizdir.
 /// - Sifremi unuttum, hesap olsun olmasin ayni yaniti doner. Saglayici hic yapilandirilmamissa bu kontrol hesap
 ///   aranmadan once yapilir; boylece 503 yaniti da hesabin varligini aciga cikarmaz.
-/// - Jeton, parola ve e-posta adresleri loglanmaz.
+/// - Kod, parola ve e-posta adresleri loglanmaz.
 /// </summary>
 public class AccountEmailService : IAccountEmailService
 {
     public const string ForgotPasswordGenericMessage =
-        "Bu e-posta adresiyle kayıtlı bir hesap varsa şifre sıfırlama bağlantısı gönderdik. Gelen kutunu ve spam klasörünü kontrol et.";
-    public const string InvalidLinkMessage = "Bağlantı geçersiz veya daha önce kullanılmış. Yeni bir bağlantı iste.";
-    public const string ExpiredLinkMessage = "Bağlantının süresi dolmuş. Yeni bir bağlantı iste.";
+        "Bu e-posta adresiyle kayıtlı bir hesap varsa şifre sıfırlama kodu gönderdik. Gelen kutunu ve spam klasörünü kontrol et.";
+    public const string InvalidCodeMessage = "Kod hatalı. Lütfen e-postadaki 6 haneli kodu kontrol et.";
+    public const string NoActiveCodeMessage = "Geçerli bir kod yok. Yeni kod iste.";
+    public const string ExpiredCodeMessage = "Kodun süresi dolmuş. Yeni kod iste.";
+    public const string TooManyAttemptsMessage = "Çok fazla hatalı deneme yaptın. Yeni kod iste.";
     public const string PasswordResetSuccessMessage = "Şifren güncellendi. Yeni şifrenle giriş yapabilirsin.";
     public const string ResendCooldownMessage = "Yeni bir e-posta istemeden önce biraz beklemelisin.";
 
@@ -95,9 +98,17 @@ public class AccountEmailService : IAccountEmailService
         };
     }
 
-    public async Task<ConfirmEmailResponse> ConfirmEmailAsync(string token, CancellationToken cancellationToken = default)
+    public async Task<ConfirmEmailResponse> ConfirmEmailAsync(long userId, string code, CancellationToken cancellationToken = default)
     {
-        var (accountToken, user) = await GetUsableTokenAsync(token, AccountTokenPurpose.EmailVerification, cancellationToken);
+        var user = await GetActiveUserAsync(userId, cancellationToken)
+            ?? throw new UnauthorizedException("Oturumun geçersiz. Lütfen tekrar giriş yap.");
+
+        if (user.EmailConfirmed)
+        {
+            return new ConfirmEmailResponse { Email = user.Email, EmailConfirmed = true };
+        }
+
+        var accountToken = await ConsumeAttemptAsync(user, AccountTokenPurpose.EmailVerification, code, cancellationToken);
         var now = UtcNow;
 
         accountToken.UsedAt = now;
@@ -151,9 +162,10 @@ public class AccountEmailService : IAccountEmailService
         return generic;
     }
 
-    public async Task ValidatePasswordResetTokenAsync(string token, CancellationToken cancellationToken = default)
+    public async Task VerifyPasswordResetCodeAsync(string email, string code, CancellationToken cancellationToken = default)
     {
-        await GetUsableTokenAsync(token, AccountTokenPurpose.PasswordReset, cancellationToken);
+        var user = await FindUserForResetAsync(email, cancellationToken);
+        await ConsumeAttemptAsync(user, AccountTokenPurpose.PasswordReset, code, cancellationToken);
     }
 
     public async Task<AccountActionResponse> ResetPasswordAsync(ResetPasswordRequest request, string? ipAddress, CancellationToken cancellationToken = default)
@@ -168,7 +180,8 @@ public class AccountEmailService : IAccountEmailService
             throw new AppValidationException(nameof(request.NewPassword), "Şifre 6-100 karakter arasında olmalıdır.");
         }
 
-        var (accountToken, user) = await GetUsableTokenAsync(request.Token, AccountTokenPurpose.PasswordReset, cancellationToken);
+        var user = await FindUserForResetAsync(request.Email, cancellationToken);
+        var accountToken = await ConsumeAttemptAsync(user, AccountTokenPurpose.PasswordReset, request.Code, cancellationToken);
         var now = UtcNow;
 
         accountToken.UsedAt = now;
@@ -176,12 +189,12 @@ public class AccountEmailService : IAccountEmailService
         _unitOfWork.Repository<UserAccountToken>().Update(accountToken);
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
-        // Baglanti bu adrese gonderildi ve acildi: adresin sahibi oldugu kanitlandi.
+        // Kod bu adrese gonderildi ve dogru girildi: adresin sahibi oldugu kanitlandi.
         user.EmailConfirmed = true;
         user.UpdatedAt = now;
         _unitOfWork.Repository<ApplicationUser>().Update(user);
 
-        // Ayni kullanicinin bekleyen diger sifirlama baglantilari da gecersiz olur.
+        // Ayni kullanicinin bekleyen diger sifirlama kodlari da gecersiz olur.
         await RevokeActiveTokensAsync(user.Id, AccountTokenPurpose.PasswordReset, exceptTokenId: accountToken.Id, now, cancellationToken);
 
         // Tum oturumlar kapatilir: tum aktif refresh token'lar iptal edilir. (Access token'lar kendi
@@ -208,8 +221,8 @@ public class AccountEmailService : IAccountEmailService
     }
 
     /// <summary>
-    /// Yeni jeton uretir, e-postayi gonderir ve ancak gonderim basariliysa ayni turdeki eski jetonlari iptal eder.
-    /// Gonderim basarisizsa yeni jeton silinir (bekleme suresini tuketmez, eski baglanti calismaya devam eder).
+    /// Yeni kod uretir, e-postayi gonderir ve ancak gonderim basariliysa ayni turdeki eski kodlari iptal eder.
+    /// Gonderim basarisizsa yeni kod silinir (bekleme suresini tuketmez, eski kod calismaya devam eder).
     /// </summary>
     private async Task IssueAndSendAsync(ApplicationUser user, string? firstName, AccountTokenPurpose purpose, string? ipAddress, CancellationToken cancellationToken)
     {
@@ -217,13 +230,13 @@ public class AccountEmailService : IAccountEmailService
         var lifetime = purpose == AccountTokenPurpose.EmailVerification
             ? _options.EmailVerificationTokenLifetime
             : _options.PasswordResetTokenLifetime;
-        var (token, tokenHash) = AccountTokenGenerator.Create();
+        var (code, codeHash) = AccountTokenGenerator.CreateCode(user.Id, purpose);
 
         var accountToken = new UserAccountToken
         {
             UserId = user.Id,
             Purpose = purpose,
-            TokenHash = tokenHash,
+            TokenHash = codeHash,
             NormalizedEmail = user.NormalizedEmail,
             ExpiresAt = now.Add(lifetime),
             RequestedByIp = ipAddress,
@@ -234,12 +247,12 @@ public class AccountEmailService : IAccountEmailService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         var email = purpose == AccountTokenPurpose.EmailVerification
-            ? AccountEmailTemplates.EmailVerification(user.Email, firstName, BuildLink("verify-email", token), lifetime)
-            : AccountEmailTemplates.PasswordReset(user.Email, firstName, BuildLink("reset-password", token), lifetime);
+            ? AccountEmailTemplates.EmailVerification(user.Email, firstName, code, lifetime)
+            : AccountEmailTemplates.PasswordReset(user.Email, firstName, code, lifetime);
 
         try
         {
-            // Idempotency anahtari jetona ozeldir: yeniden denemeler ayni e-postayi ikinci kez gondermez.
+            // Idempotency anahtari koda ozeldir: yeniden denemeler ayni e-postayi ikinci kez gondermez.
             await _emailSender.SendAsync(email, $"account-{purpose}-{accountToken.Id}", cancellationToken);
         }
         catch (EmailDeliveryException)
@@ -306,38 +319,83 @@ public class AccountEmailService : IAccountEmailService
     }
 
     /// <summary>
-    /// Jetonu ozetinden bulur ve kullanilabilir oldugunu dogrular (amac, sure, tek kullanim, iptal, hesap durumu
-    /// ve e-posta eslesmesi). Donen kayitlar takip edilir (tracked); cagiran guncelleyip kaydedebilir.
+    /// Sifre sifirlama icin hesabi e-postadan bulur. Hesap yoksa "gecerli kod yok" hatasi doner: kod hic
+    /// gonderilmemis bir hesapla ayni yanit oldugu icin hesabin varligini aciga cikarmaz.
     /// </summary>
-    private async Task<(UserAccountToken Token, ApplicationUser User)> GetUsableTokenAsync(string token, AccountTokenPurpose purpose, CancellationToken cancellationToken)
+    private async Task<ApplicationUser> FindUserForResetAsync(string? email, CancellationToken cancellationToken)
     {
-        if (!AccountTokenGenerator.HasValidFormat(token))
+        var normalizedEmail = (email ?? string.Empty).Trim().ToUpperInvariant();
+        var user = normalizedEmail.Length == 0
+            ? null
+            : await _unitOfWork.Repository<ApplicationUser>()
+                .GetQueryable(asNoTracking: false)
+                .FirstOrDefaultAsync(u => u.NormalizedEmail == normalizedEmail && u.DeletedAt == null, cancellationToken);
+
+        if (user is null || !user.IsActive)
         {
-            throw new AppValidationException("token", InvalidLinkMessage);
+            throw new AppValidationException("code", NoActiveCodeMessage);
         }
 
-        var tokenHash = AccountTokenGenerator.Hash(token);
+        return user;
+    }
+
+    /// <summary>
+    /// Kullanicinin bu amactaki en son kodunu bulur, bir deneme hakkini kaydederek tuketir ve ancak ondan sonra
+    /// kodu karsilastirir. Kod dogruysa takip edilen (tracked) kaydi doner; cagiran UsedAt'i isaretleyip kaydeder.
+    /// </summary>
+    private async Task<UserAccountToken> ConsumeAttemptAsync(ApplicationUser user, AccountTokenPurpose purpose, string? code, CancellationToken cancellationToken)
+    {
+        var normalizedCode = AccountTokenGenerator.Normalize(code)
+            ?? throw new AppValidationException("code", "Kod 6 haneli olmalıdır.");
+
+        var now = UtcNow;
         var accountToken = await _unitOfWork.Repository<UserAccountToken>()
             .GetQueryable(asNoTracking: false)
-            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
+            .Where(t => t.UserId == user.Id && t.Purpose == purpose && t.UsedAt == null && t.RevokedAt == null)
+            .OrderByDescending(t => t.CreatedAt)
+            .ThenByDescending(t => t.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 
-        if (accountToken is null || accountToken.Purpose != purpose || accountToken.UsedAt is not null || accountToken.RevokedAt is not null)
+        if (accountToken is null || accountToken.NormalizedEmail != user.NormalizedEmail)
         {
-            throw new AppValidationException("token", InvalidLinkMessage);
+            throw new AppValidationException("code", NoActiveCodeMessage);
         }
 
-        if (accountToken.ExpiresAt <= UtcNow)
+        if (accountToken.ExpiresAt <= now)
         {
-            throw new AppValidationException("token", ExpiredLinkMessage);
+            throw new AppValidationException("code", ExpiredCodeMessage);
         }
 
-        var user = await GetActiveUserAsync(accountToken.UserId, cancellationToken);
-        if (user is null || user.NormalizedEmail != accountToken.NormalizedEmail)
+        if (accountToken.AttemptCount >= _options.MaxCodeAttempts)
         {
-            throw new AppValidationException("token", InvalidLinkMessage);
+            throw new AppValidationException("code", TooManyAttemptsMessage);
         }
 
-        return (accountToken, user);
+        // Deneme hakki, kod karsilastirilmadan once kaydedilir. Es zamanli bir deneme sayaci once artirdiysa
+        // bu istek kodu hic karsilastirmadan reddedilir.
+        accountToken.AttemptCount++;
+        accountToken.UpdatedAt = now;
+        _unitOfWork.Repository<UserAccountToken>().Update(accountToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new AppValidationException("code", InvalidCodeMessage);
+        }
+
+        var expectedHash = AccountTokenGenerator.Hash(user.Id, purpose, normalizedCode);
+        if (!AccountTokenGenerator.HashEquals(accountToken.TokenHash, expectedHash))
+        {
+            _logger.LogInformation("Hatali {Purpose} kodu denendi ({Attempt}/{Max}). UserId: {UserId}",
+                purpose, accountToken.AttemptCount, _options.MaxCodeAttempts, user.Id);
+            throw new AppValidationException("code", accountToken.AttemptCount >= _options.MaxCodeAttempts
+                ? TooManyAttemptsMessage
+                : InvalidCodeMessage);
+        }
+
+        return accountToken;
     }
 
     private async Task<ApplicationUser?> GetActiveUserAsync(long userId, CancellationToken cancellationToken)
@@ -354,8 +412,8 @@ public class AccountEmailService : IAccountEmailService
         }
         catch (DbUpdateConcurrencyException)
         {
-            // Ayni jeton es zamanli baska bir istekte kullanildi.
-            throw new AppValidationException("token", InvalidLinkMessage);
+            // Ayni kod es zamanli baska bir istekte kullanildi.
+            throw new AppValidationException("code", NoActiveCodeMessage);
         }
     }
 
@@ -372,7 +430,4 @@ public class AccountEmailService : IAccountEmailService
             // Bilgilendirme e-postasidir; sifre zaten degisti. Hata ResendEmailSender'da loglandi.
         }
     }
-
-    private string BuildLink(string path, string token) =>
-        $"{_options.PublicBaseUrl.TrimEnd('/')}/{path}#token={token}";
 }

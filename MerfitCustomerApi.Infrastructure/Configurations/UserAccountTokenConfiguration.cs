@@ -6,9 +6,10 @@ namespace MerfitCustomerApi.Infrastructure.Configurations;
 
 /// <summary>
 /// UserAccountToken (e-posta dogrulama / sifre sifirlama jetonu) veritabani yapilandirmasi.
-/// - TokenHash benzersizdir; jeton yalnizca ozetiyle aranir.
-/// - UsedAt iyimser eszamanlilik belirtecidir; ayni jeton iki kez kullanilamaz.
-/// - (UserId, Purpose, CreatedAt) indeksi tekrar gonderim bekleme suresi ve saatlik sinir sorgulari icindir.
+/// - UsedAt ve AttemptCount iyimser eszamanlilik belirtecidir; ayni kod iki kez kullanilamaz ve paralel
+///   isteklerle deneme siniri asilamaz.
+/// - (UserId, Purpose, CreatedAt) indeksi tekrar gonderim bekleme suresi ve saatlik sinir sorgulari ile
+///   kullanicinin aktif kodunun bulunmasi icindir.
 /// </summary>
 public class UserAccountTokenConfiguration : IEntityTypeConfiguration<UserAccountToken>
 {
@@ -37,11 +38,12 @@ public class UserAccountTokenConfiguration : IEntityTypeConfiguration<UserAccoun
         builder.Property(x => x.UsedAt)
             .IsConcurrencyToken();
 
+        builder.Property(x => x.AttemptCount)
+            .HasDefaultValue(0)
+            .IsConcurrencyToken();
+
         builder.Property(x => x.RequestedByIp)
             .HasMaxLength(300);
-
-        builder.HasIndex(x => x.TokenHash)
-            .IsUnique();
 
         builder.HasIndex(x => new { x.UserId, x.Purpose, x.CreatedAt });
 

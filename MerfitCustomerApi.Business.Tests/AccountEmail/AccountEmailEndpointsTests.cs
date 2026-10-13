@@ -22,7 +22,7 @@ namespace MerfitCustomerApi.Business.Tests.AccountEmail;
 /// <summary>
 /// Yeni auth uclarinin gercek ASP.NET Core pipeline'i uzerinden davranisi: kimlik dogrulama gereksinimi,
 /// ApiResponse hata govdesi, 429 + Retry-After, IP hiz siniri (giris/kayit etkilenmez), eksik API anahtari
-/// ile uygulamanin acilmasi ve e-posta baglanti sayfalarinin guvenlik basliklari.
+/// ile uygulamanin acilmasi ve kullanici adi anlik kontrolu.
 /// </summary>
 public class AccountEmailEndpointsTests : IClassFixture<WebApplicationFactory<AuthController>>
 {
@@ -140,17 +140,85 @@ public class AccountEmailEndpointsTests : IClassFixture<WebApplicationFactory<Au
     }
 
     [Fact]
-    public async Task ConfirmEmail_InvalidToken_Returns400WithMessage()
+    public async Task ConfirmEmail_RequiresAuthentication()
     {
         var service = new Mock<IAccountEmailService>();
-        service.Setup(s => s.ConfirmEmailAsync("bad", It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new AppValidationException("token", AccountEmailService.InvalidLinkMessage));
         using var factory = CreateFactory(service);
 
-        var response = await factory.CreateClient().PostAsJsonAsync("/api/auth/email-verification/confirm", new { token = "bad" });
+        var response = await factory.CreateClient().PostAsJsonAsync("/api/auth/email-verification/confirm", new { code = "123456" });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        service.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task ConfirmEmail_WrongCode_Returns400WithMessage_ForUserFromToken()
+    {
+        var service = new Mock<IAccountEmailService>();
+        service.Setup(s => s.ConfirmEmailAsync(42, "111111", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AppValidationException("code", AccountEmailService.InvalidCodeMessage));
+        using var factory = CreateFactory(service);
+
+        var response = await Authorized(factory, 42).PostAsJsonAsync("/api/auth/email-verification/confirm", new { code = "111111" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(AccountEmailService.InvalidLinkMessage, (await BodyAsync(response)).GetProperty("errorMessage").GetString());
+        Assert.Equal(AccountEmailService.InvalidCodeMessage, (await BodyAsync(response)).GetProperty("errorMessage").GetString());
+    }
+
+    [Fact]
+    public async Task VerifyResetCode_PassesEmailAndCode()
+    {
+        var service = new Mock<IAccountEmailService>();
+        using var factory = CreateFactory(service);
+
+        var response = await factory.CreateClient().PostAsJsonAsync("/api/auth/password/reset/verify-code", new { email = "a@example.com", code = "123456" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        service.Verify(s => s.VerifyPasswordResetCodeAsync("a@example.com", "123456", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UsernameAvailability_IsAnonymous_AndReturnsResult()
+    {
+        var auth = new Mock<IAuthService>();
+        auth.Setup(a => a.CheckUsernameAvailabilityAsync("Mert_1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UsernameAvailabilityResponse { Username = "mert_1", Available = false, Message = "Bu kullanıcı adı zaten kullanılıyor." });
+        using var factory = CreateFactory(auth: auth);
+
+        var response = await factory.CreateClient().GetAsync("/api/auth/username-availability?username=Mert_1");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await BodyAsync(response);
+        Assert.False(body.GetProperty("available").GetBoolean());
+        Assert.Equal("mert_1", body.GetProperty("username").GetString());
+    }
+
+    [Fact]
+    public async Task UsernameAvailability_HasItsOwnRateLimit()
+    {
+        var auth = new Mock<IAuthService>();
+        auth.Setup(a => a.CheckUsernameAvailabilityAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UsernameAvailabilityResponse { Available = true });
+        using var factory = _baseFactory.WithWebHostBuilder(builder => builder
+            .UseSetting("AccountEmail:UsernameCheckRequestsPerWindow", "3")
+            .UseSetting("AccountEmail:PerIpRequestsPerWindow", "1000")
+            .UseSetting("Resend:ApiKey", string.Empty)
+            .ConfigureTestServices(services =>
+            {
+                services.Remove(services.Single(d => d.ImplementationType == typeof(PersonalizationBackgroundWorker)));
+                services.Remove(services.Single(d => d.ImplementationType == typeof(NotificationBackgroundWorker)));
+                services.AddScoped(_ => auth.Object);
+            }));
+        var client = factory.CreateClient();
+
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/auth/username-availability?username=user{i}")).StatusCode);
+        }
+
+        var limited = await client.GetAsync("/api/auth/username-availability?username=user9");
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.NotNull(limited.Headers.RetryAfter?.Delta);
     }
 
     [Fact]
@@ -190,35 +258,12 @@ public class AccountEmailEndpointsTests : IClassFixture<WebApplicationFactory<Au
         service.Verify(s => s.RequestPasswordResetAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
 
         // Her uc kendi penceresine sahip; giris ucu hic sinirlanmaz.
-        var reset = await client.PostAsJsonAsync("/api/auth/password/reset", new { token = "t", newPassword = "123456", confirmPassword = "123456" });
+        var reset = await client.PostAsJsonAsync("/api/auth/password/reset", new { email = "a@example.com", code = "123456", newPassword = "123456", confirmPassword = "123456" });
         Assert.Equal(HttpStatusCode.OK, reset.StatusCode);
         for (var i = 0; i < 4; i++)
         {
             var login = await client.PostAsJsonAsync("/api/auth/login", new { emailOrUsername = "mert", password = "password1" });
             Assert.Equal(HttpStatusCode.OK, login.StatusCode);
         }
-    }
-
-    [Theory]
-    [InlineData("/verify-email")]
-    [InlineData("/reset-password")]
-    public async Task LinkPages_AreServedWithSecurityHeaders_AndChangeNothing(string path)
-    {
-        var service = new Mock<IAccountEmailService>(MockBehavior.Strict);
-        using var factory = CreateFactory(service);
-
-        var response = await factory.CreateClient().GetAsync(path);
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
-        var csp = Assert.Single(response.Headers.GetValues("Content-Security-Policy"));
-        Assert.Contains("default-src 'none'", csp);
-        Assert.Contains("form-action 'none'", csp);
-        Assert.True(response.Headers.CacheControl?.NoStore);
-        Assert.Equal("no-referrer", Assert.Single(response.Headers.GetValues("Referrer-Policy")));
-        var html = await response.Content.ReadAsStringAsync();
-        Assert.Contains("mbfitnativeapp", html);
-        Assert.Contains("location.hash", html);
-        // Sayfa acilisi servisi cagirmaz (Strict mock: herhangi bir cagri hata olurdu).
     }
 }

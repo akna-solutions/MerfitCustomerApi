@@ -62,6 +62,7 @@ public class AuthServiceEmailVerificationTests
         var (email, _) = Assert.Single(fx.Sender.Sent);
         Assert.Equal("mert@example.com", email.To);
         Assert.Contains("Merhaba Mert,", email.TextBody);
+        Assert.Matches("^[0-9]{6}$", FakeEmailSender.ExtractCode(email));
     }
 
     [Fact]
@@ -124,5 +125,41 @@ public class AuthServiceEmailVerificationTests
 
         await Assert.ThrowsAsync<UnauthorizedException>(() =>
             fx.Service.LoginAsync(new LoginRequest { EmailOrUsername = "mert@example.com", Password = "wrong-pass" }, null));
+    }
+
+    // --- Kullanici adi anlik kontrolu ---
+
+    [Theory]
+    [InlineData("mert", false, "Bu kullanıcı adı zaten kullanılıyor.")]
+    [InlineData("  MERT ", false, "Bu kullanıcı adı zaten kullanılıyor.")]
+    [InlineData("mert_2", true, null)]
+    [InlineData("ab", false, "Kullanıcı adı 3-30 karakter arasında olmalıdır.")]
+    [InlineData("", false, "Kullanıcı adı 3-30 karakter arasında olmalıdır.")]
+    [InlineData(null, false, "Kullanıcı adı 3-30 karakter arasında olmalıdır.")]
+    [InlineData("mert akpınar", false, "Kullanıcı adı yalnızca harf, rakam ve alt çizgi (_) içerebilir.")]
+    [InlineData("şule", false, "Kullanıcı adı yalnızca harf, rakam ve alt çizgi (_) içerebilir.")]
+    public async Task UsernameAvailability_ChecksFormatAndExistingProfiles(string? username, bool available, string? message)
+    {
+        var fx = new Fixture();
+        await fx.Service.RegisterAsync(Request, null);
+
+        var result = await fx.Service.CheckUsernameAvailabilityAsync(username);
+
+        Assert.Equal(available, result.Available);
+        Assert.Equal(message, result.Message);
+    }
+
+    [Fact]
+    public async Task UsernameAvailability_AgreesWithRegistration()
+    {
+        var fx = new Fixture();
+        Assert.True((await fx.Service.CheckUsernameAvailabilityAsync("mert")).Available);
+
+        await fx.Service.RegisterAsync(Request, null);
+
+        Assert.False((await fx.Service.CheckUsernameAvailabilityAsync("mert")).Available);
+        var duplicate = Request;
+        duplicate.Email = "other@example.com";
+        await Assert.ThrowsAsync<ConflictException>(() => fx.Service.RegisterAsync(duplicate, null));
     }
 }

@@ -31,13 +31,13 @@ internal sealed class FakeEmailSender : IEmailSender
         return Task.CompletedTask;
     }
 
-    /// <summary>E-postadaki baglantidan jetonu cikarir (kullanicinin e-postayi acmasi).</summary>
-    public static string ExtractToken(OutgoingEmail email)
+    /// <summary>E-postadaki 6 haneli kodu cikarir (kullanicinin e-postayi okumasi).</summary>
+    public static string ExtractCode(OutgoingEmail email)
     {
-        var match = Regex.Match(email.TextBody, "#token=([A-Za-z0-9_-]{43})");
+        var match = Regex.Match(email.TextBody, @"^\s*(\d{6})\s*$", RegexOptions.Multiline);
         if (!match.Success)
         {
-            throw new InvalidOperationException("E-postada jeton bulunamadi.");
+            throw new InvalidOperationException("E-postada kod bulunamadi.");
         }
 
         return match.Groups[1].Value;

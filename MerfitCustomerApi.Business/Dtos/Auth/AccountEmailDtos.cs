@@ -18,8 +18,9 @@ public class ResendVerificationEmailResponse
 /// <summary>POST /api/auth/email-verification/confirm istegi.</summary>
 public class ConfirmEmailRequest
 {
-    [Required(ErrorMessage = "Doğrulama bağlantısı geçersiz.")]
-    public string Token { get; set; } = string.Empty;
+    [Required(ErrorMessage = "Doğrulama kodu zorunludur.")]
+    [StringLength(20)]
+    public string Code { get; set; } = string.Empty;
 }
 
 /// <summary>POST /api/auth/email-verification/confirm yaniti.</summary>
@@ -40,17 +41,27 @@ public class ForgotPasswordRequest
 }
 
 /// <summary>POST /api/auth/password/reset/validate istegi.</summary>
-public class ValidatePasswordResetTokenRequest
+public class VerifyPasswordResetCodeRequest
 {
-    [Required(ErrorMessage = "Şifre sıfırlama bağlantısı geçersiz.")]
-    public string Token { get; set; } = string.Empty;
+    [Required(ErrorMessage = "E-posta alanı zorunludur.")]
+    [StringLength(500)]
+    public string Email { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Kod zorunludur.")]
+    [StringLength(20)]
+    public string Code { get; set; } = string.Empty;
 }
 
 /// <summary>POST /api/auth/password/reset istegi.</summary>
 public class ResetPasswordRequest
 {
-    [Required(ErrorMessage = "Şifre sıfırlama bağlantısı geçersiz.")]
-    public string Token { get; set; } = string.Empty;
+    [Required(ErrorMessage = "E-posta alanı zorunludur.")]
+    [StringLength(500)]
+    public string Email { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Kod zorunludur.")]
+    [StringLength(20)]
+    public string Code { get; set; } = string.Empty;
 
     /// <summary>Kayittaki parola kuraliyla ayni (bkz. RegisterRequest.Password).</summary>
     [Required(ErrorMessage = "Yeni şifre zorunludur.")]
@@ -65,4 +76,15 @@ public class ResetPasswordRequest
 public class AccountActionResponse
 {
     public string Message { get; set; } = string.Empty;
+}
+
+public class UsernameAvailabilityResponse
+{
+    /// <summary>Kontrol edilen kullanici adi (kucuk harfe cevrilmis, bosluklari kirpilmis).</summary>
+    public string Username { get; set; } = string.Empty;
+
+    public bool Available { get; set; }
+
+    /// <summary>Kullaniciya gosterilecek kisa aciklama (bicim hatasi veya alinmis).</summary>
+    public string? Message { get; set; }
 }

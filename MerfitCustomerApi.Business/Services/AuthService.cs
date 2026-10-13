@@ -1,4 +1,5 @@
-﻿using MerfitCustomerApi.Business.Common;
+﻿using System.Text.RegularExpressions;
+using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Auth;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Progress;
@@ -240,6 +241,35 @@ public class AuthService : IAuthService
             EmailConfirmed = user.EmailConfirmed,
             VerificationEmailSent = verificationEmailSent,
         };
+    }
+
+    // RegisterRequest.Username dogrulama kurallariyla ayni (3-30 karakter, harf/rakam/alt cizgi).
+    private static readonly Regex UsernamePattern = new("^[a-zA-Z0-9_]{3,30}$", RegexOptions.Compiled);
+
+    public async Task<UsernameAvailabilityResponse> CheckUsernameAvailabilityAsync(string? username, CancellationToken cancellationToken = default)
+    {
+        var normalizedUsername = (username ?? string.Empty).Trim().ToLowerInvariant();
+        var response = new UsernameAvailabilityResponse { Username = normalizedUsername };
+
+        if (normalizedUsername.Length is < 3 or > 30)
+        {
+            response.Message = "Kullanıcı adı 3-30 karakter arasında olmalıdır.";
+            return response;
+        }
+
+        if (!UsernamePattern.IsMatch(normalizedUsername))
+        {
+            response.Message = "Kullanıcı adı yalnızca harf, rakam ve alt çizgi (_) içerebilir.";
+            return response;
+        }
+
+        var taken = await _unitOfWork.Repository<UserProfile>()
+            .GetQueryable()
+            .AnyAsync(p => p.Username == normalizedUsername, cancellationToken);
+
+        response.Available = !taken;
+        response.Message = taken ? "Bu kullanıcı adı zaten kullanılıyor." : null;
+        return response;
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, string? ipAddress)
