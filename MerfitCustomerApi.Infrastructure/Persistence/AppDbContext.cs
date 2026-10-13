@@ -254,6 +254,16 @@ public class AppDbContext : DbContext
     public DbSet<MiniGameSession> MiniGameSessions => Set<MiniGameSession>();
 
     /// <summary>
+    /// Beslenme asistani sohbetleri (kullanici ve gun basina bir sohbet).
+    /// </summary>
+    public DbSet<NutritionAssistantConversation> NutritionAssistantConversations => Set<NutritionAssistantConversation>();
+
+    /// <summary>
+    /// Beslenme asistani sohbet mesajlari.
+    /// </summary>
+    public DbSet<NutritionAssistantMessage> NutritionAssistantMessages => Set<NutritionAssistantMessage>();
+
+    /// <summary>
     /// MerfitScoreBreakdown kayitlarina erisim saglayan DbSet.
     /// </summary>
     public DbSet<MerfitScoreBreakdown> MerfitScoreBreakdowns => Set<MerfitScoreBreakdown>();

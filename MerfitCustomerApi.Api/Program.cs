@@ -10,6 +10,7 @@ using MerfitCustomerApi.Business.Services.Leaderboard;
 using MerfitCustomerApi.Business.Services.MiniGames;
 using MerfitCustomerApi.Business.Services.Scoring;
 using MerfitCustomerApi.Business.Services.Nutrition;
+using MerfitCustomerApi.Business.Services.NutritionAssistant;
 using MerfitCustomerApi.Business.Services.Personalization;
 using MerfitCustomerApi.Business.Services.Personalization.Generators;
 using MerfitCustomerApi.Business.Services.Profile;
@@ -107,6 +108,12 @@ builder.Services.AddHttpClient<IFoodProductLookup, OpenFoodFactsProductLookup>((
     client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
     client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
 });
+// Beslenme asistani (beslenme ekranindaki sohbet penceresi): Anthropic Claude ile, yalnizca backend'den.
+// Anahtar appsettings'e yazilmaz; NutritionAssistant__ApiKey (ya da ANTHROPIC_API_KEY) ortam degiskeni ile verilir.
+builder.Services.Configure<NutritionAssistantOptions>(builder.Configuration.GetSection(NutritionAssistantOptions.SectionName));
+builder.Services.AddSingleton<INutritionAssistantModelClient, AnthropicNutritionAssistantModelClient>();
+builder.Services.AddScoped<NutritionAssistantContextBuilder>();
+builder.Services.AddScoped<INutritionAssistantService, NutritionAssistantService>();
 builder.Services.AddScoped<IProgressService, ProgressService>();
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 // MB FIT puan motoru: kullanicinin aksiyonlarindan puan, siralama ve basari hesaplar.

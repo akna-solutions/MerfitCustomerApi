@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using MerfitCustomerApi.Business.Dtos.Customer.NutritionAssistant;
 
 namespace MerfitCustomerApi.Business.Dtos.Customer.Nutrition;
 
@@ -18,6 +19,12 @@ public class CustomerNutritionResponse
     public CustomerWaterDto Water { get; set; } = new();
 
     public List<CustomerMealEntryDto> Meals { get; set; } = new();
+
+    /// <summary>
+    /// Hedeflerle kaydedilen tuketimin karsilastirmasindan uretilen dinamik degerlendirme
+    /// (ekranin altindaki asistan karti). Bkz. NutritionInsightEvaluator.
+    /// </summary>
+    public NutritionInsightDto Insight { get; set; } = new();
 }
 
 public class CustomerMacroOverviewDto

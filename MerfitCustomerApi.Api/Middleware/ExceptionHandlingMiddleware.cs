@@ -34,6 +34,15 @@ public class ExceptionHandlingMiddleware
         {
             await _next(context);
         }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // Istemci istegi iptal etti (orn. mobilde sohbet penceresi kapandi); yanit okunmayacak.
+            _logger.LogInformation("Istek istemci tarafindan iptal edildi. TraceId: {TraceId}", context.TraceIdentifier);
+            if (!context.Response.HasStarted)
+            {
+                context.Response.StatusCode = 499;
+            }
+        }
         catch (Exception exception)
         {
             await HandleExceptionAsync(context, exception);

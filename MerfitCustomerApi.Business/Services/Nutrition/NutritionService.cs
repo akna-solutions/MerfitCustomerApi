@@ -1,6 +1,7 @@
 ﻿using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Customer.Nutrition;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.NutritionAssistant;
 using MerfitCustomerApi.Business.Services.Notifications.Engine;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
@@ -77,7 +78,7 @@ public class NutritionService : INutritionService
             .Where(w => w.UserId == userId && w.Date >= dayStart && w.Date < dayEnd)
             .SumAsync(w => (decimal?)w.AmountMl, cancellationToken) ?? 0;
 
-        return new CustomerNutritionResponse
+        var response = new CustomerNutritionResponse
         {
             HasLoggedFirstMeal = mealEntries.Count > 0,
             DailyCalories = (int)Math.Round(goal.DailyCalories),
@@ -106,6 +107,8 @@ public class NutritionService : INutritionService
             },
             Meals = mealEntries,
         };
+        response.Insight = NutritionInsightEvaluator.Evaluate(response);
+        return response;
     }
 
     public async Task<CustomerMealEntryDto> LogMealItemAsync(long userId, LogMealItemRequest request, CancellationToken cancellationToken = default)
