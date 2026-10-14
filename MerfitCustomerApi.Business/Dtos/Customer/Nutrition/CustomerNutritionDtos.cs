@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using MerfitCustomerApi.Business.Dtos.Customer.Foods;
 using MerfitCustomerApi.Business.Dtos.Customer.NutritionAssistant;
 
 namespace MerfitCustomerApi.Business.Dtos.Customer.Nutrition;
@@ -84,6 +85,43 @@ public class LogMealItemRequest
     /// Quantity yerine kullanilir ve carpan Amount / Food.ServingSize olarak hesaplanir. Yalnizca
     /// tartilabilir (g/ml) birimli besinlerde gecerlidir.
     /// </summary>
+    [Range(1, 5000, ErrorMessage = "Amount 1 ile 5000 arasinda olmalidir.")]
+    public decimal? Amount { get; set; }
+}
+
+/// <summary>
+/// GET /api/nutrition/meals/{id} - gunlukteki bir kaydin duzenleme ekrani icin detayi. Food, kayit anindaki
+/// porsiyon basina degerlerle (anlik goruntu) doner; boylece katalogdaki besin sonradan degisse bile
+/// duzenleme kaydedilen degerlerle hesaplanir.
+/// </summary>
+public class CustomerMealItemDetailDto
+{
+    public long Id { get; set; }
+
+    /// <summary>"Kahvaltı" | "Öğle Yemeği" | "Akşam Yemeği" | "Atıştırmalık".</summary>
+    public string Type { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+    public int Calories { get; set; }
+
+    /// <summary>Porsiyon carpani (Food.ServingSize'a gore).</summary>
+    public decimal Quantity { get; set; }
+
+    /// <summary>Tartilabilir (g/ml) birimli besinlerde tuketilen miktar; digerlerinde null.</summary>
+    public decimal? Amount { get; set; }
+
+    /// <summary>Kaydin porsiyon basina degerleri; mobil miktar seciciye dogrudan verilir.</summary>
+    public CustomerFoodListItemDto Food { get; set; } = new();
+}
+
+/// <summary>PUT /api/nutrition/meals/{id} govdesi: kaydin miktarini degistirir.</summary>
+public class UpdateMealItemRequest
+{
+    /// <summary>Porsiyon carpani. Amount verilirse kullanilmaz.</summary>
+    [Range(0.01, 100, ErrorMessage = "Quantity gecerli bir deger olmalidir.")]
+    public decimal? Quantity { get; set; }
+
+    /// <summary>Besinin kendi biriminde miktar (g veya ml); yalnizca tartilabilir birimli besinlerde.</summary>
     [Range(1, 5000, ErrorMessage = "Amount 1 ile 5000 arasinda olmalidir.")]
     public decimal? Amount { get; set; }
 }

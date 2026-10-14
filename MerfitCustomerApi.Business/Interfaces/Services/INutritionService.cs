@@ -19,6 +19,19 @@ public interface INutritionService
     /// <exception cref="Domain.Exceptions.AppValidationException">MealType degeri gecersizse firlatilir.</exception>
     Task<CustomerMealEntryDto> LogMealItemAsync(long userId, LogMealItemRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Kullanicinin gunlugundeki bir kaydin duzenleme detayini dondurur.</summary>
+    /// <exception cref="Domain.Exceptions.NotFoundException">Kayit yoksa ya da baska kullaniciya aitse firlatilir.</exception>
+    Task<CustomerMealItemDetailDto> GetMealItemAsync(long userId, long mealItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>Kaydin miktarini degistirir; besin degerleri kayit anindaki porsiyon degerleriyle yeniden hesaplanir.</summary>
+    /// <exception cref="Domain.Exceptions.NotFoundException">Kayit yoksa ya da baska kullaniciya aitse firlatilir.</exception>
+    /// <exception cref="Domain.Exceptions.AppValidationException">Miktar gecersizse firlatilir.</exception>
+    Task<CustomerMealEntryDto> UpdateMealItemAsync(long userId, long mealItemId, UpdateMealItemRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Kaydi gunlukten siler.</summary>
+    /// <exception cref="Domain.Exceptions.NotFoundException">Kayit yoksa ya da baska kullaniciya aitse firlatilir.</exception>
+    Task DeleteMealItemAsync(long userId, long mealItemId, CancellationToken cancellationToken = default);
+
     /// <summary>Verilen tarih icin su tuketimi kaydi ekler ve guncel toplami dondurur.</summary>
     Task<CustomerWaterDto> LogWaterAsync(long userId, LogWaterRequest request, CancellationToken cancellationToken = default);
 }

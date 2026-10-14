@@ -44,6 +44,34 @@ public class NutritionController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
+    /// <summary>Gunlukteki bir kaydin duzenleme detayini dondurur.</summary>
+    [HttpGet("meals/{id:long}")]
+    public async Task<ActionResult<CustomerMealItemDetailDto>> GetMealItem(long id, CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        return Ok(await _nutritionService.GetMealItemAsync(userId, id, cancellationToken));
+    }
+
+    /// <summary>Kaydin miktarini (g/ml ya da porsiyon) degistirir.</summary>
+    [HttpPut("meals/{id:long}")]
+    public async Task<ActionResult<CustomerMealEntryDto>> UpdateMealItem(
+        long id,
+        [FromBody] UpdateMealItemRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        return Ok(await _nutritionService.UpdateMealItemAsync(userId, id, request, cancellationToken));
+    }
+
+    /// <summary>Kaydi gunlukten siler.</summary>
+    [HttpDelete("meals/{id:long}")]
+    public async Task<IActionResult> DeleteMealItem(long id, CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        await _nutritionService.DeleteMealItemAsync(userId, id, cancellationToken);
+        return NoContent();
+    }
+
     /// <summary>Su tuketimi ekler ve guncel gunluk toplami dondurur.</summary>
     [HttpPost("water")]
     public async Task<ActionResult<CustomerWaterDto>> LogWater(
