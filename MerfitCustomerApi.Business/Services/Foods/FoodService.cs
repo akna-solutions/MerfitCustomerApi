@@ -1,6 +1,7 @@
 using MerfitCustomerApi.Business.Common.Pagination;
 using MerfitCustomerApi.Business.Dtos.Customer.Foods;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.FoodAnalysis;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
@@ -24,7 +25,9 @@ public class FoodService : IFoodService
 
     public async Task<PagedResult<CustomerFoodListItemDto>> SearchFoodsAsync(CustomerFoodListRequest request, CancellationToken cancellationToken = default)
     {
-        var query = _unitOfWork.Repository<Food>().GetQueryable();
+        // Fotograf analizinden kullaniciya ozel olusturulan tahmini besinler ortak aramada gosterilmez.
+        var query = _unitOfWork.Repository<Food>().GetQueryable()
+            .Where(f => f.Brand == null || f.Brand != FoodAnalysisService.EstimatedFoodBrand);
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {

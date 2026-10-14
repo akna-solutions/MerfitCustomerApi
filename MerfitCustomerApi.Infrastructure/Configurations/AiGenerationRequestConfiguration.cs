@@ -47,6 +47,11 @@ public class AiGenerationRequestConfiguration : IEntityTypeConfiguration<AiGener
             .IsRequired(false)
             .HasMaxLength(2000);
 
+        // Fotograf analizinde "ogune kaydedildi" isareti; ayni analizin eszamanli iki onayindan yalnizca biri
+        // kayit olusturabilsin diye iyimser eszamanlilik belirteci (veritabani semasini degistirmez).
+        builder.Property(x => x.UpdatedAt)
+            .IsConcurrencyToken();
+
         // Iliskiler (foreign key) yapilandirmasi.
         // Istegi olusturan kullanicinin kimligi.
         builder.HasOne<ApplicationUser>()
