@@ -22,14 +22,14 @@ public class NutritionService : INutritionService
 
     private readonly IMerfitScoreService _scoreService;
 
-    private readonly INotificationReminderCanceller? _reminderCanceller;
+    private readonly MealLogWriter _mealLogWriter;
 
     public NutritionService(IUnitOfWork unitOfWork, INutritionCalculator nutritionCalculator, IMerfitScoreService scoreService, INotificationReminderCanceller? reminderCanceller = null)
     {
         _unitOfWork = unitOfWork;
         _nutritionCalculator = nutritionCalculator;
         _scoreService = scoreService;
-        _reminderCanceller = reminderCanceller;
+        _mealLogWriter = new MealLogWriter(unitOfWork, scoreService, reminderCanceller);
     }
 
     public async Task<CustomerNutritionResponse> GetDailyNutritionAsync(long userId, DateOnly date, CancellationToken cancellationToken = default)
@@ -113,10 +113,7 @@ public class NutritionService : INutritionService
 
     public async Task<CustomerMealEntryDto> LogMealItemAsync(long userId, LogMealItemRequest request, CancellationToken cancellationToken = default)
     {
-        if (!Enum.TryParse<MealType>(request.MealType, ignoreCase: true, out var mealType))
-        {
-            throw new AppValidationException(nameof(request.MealType), "Gecersiz ogun turu.");
-        }
+        var mealType = MealLogWriter.ParseMealType(request.MealType, nameof(request.MealType));
 
         var food = await _unitOfWork.Repository<Food>().GetByIdAsync(request.FoodId, cancellationToken);
         if (food is null)
@@ -128,44 +125,12 @@ public class NutritionService : INutritionService
 
         var date = (request.Date ?? DateOnly.FromDateTime(DateTime.UtcNow)).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
 
-        var meal = await _unitOfWork.Repository<Meal>()
-            .GetQueryable(asNoTracking: false)
-            .FirstOrDefaultAsync(m => m.UserId == userId && m.Date == date && m.MealType == mealType, cancellationToken);
-
-        if (meal is null)
-        {
-            meal = new Meal
-            {
-                UserId = userId,
-                Date = date,
-                MealType = mealType,
-                CreatedAt = DateTime.UtcNow,
-            };
-            await _unitOfWork.Repository<Meal>().AddAsync(meal, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-
-        var mealItem = new MealItem
-        {
-            MealId = meal.Id,
-            FoodId = food.Id,
-            Quantity = Math.Round(quantity, 2),
-            ServingSize = food.ServingSize,
-            Calories = Math.Round(food.Calories * quantity, 2),
-            Protein = Math.Round(food.Protein * quantity, 2),
-            Carbs = Math.Round(food.Carbs * quantity, 2),
-            Fat = Math.Round(food.Fat * quantity, 2),
-            Fiber = food.Fiber.HasValue ? Math.Round(food.Fiber.Value * quantity, 2) : null,
-            CreatedAt = DateTime.UtcNow,
-        };
-        await _unitOfWork.Repository<MealItem>().AddAsync(mealItem, cancellationToken);
+        var meal = await _mealLogWriter.GetOrCreateMealAsync(userId, date, mealType, cancellationToken);
+        var mealItem = await _mealLogWriter.AddItemAsync(meal, food, quantity, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await _scoreService.TryRefreshUserAsync(userId, cancellationToken);
-
-        // Bu ogun icin bekleyen hatirlatmayi iptal et (hata ogun kaydini bozmaz).
-        await NotificationReminderCancellation.TryRunAsync(_unitOfWork, _reminderCanceller,
-            c => c.CancelMealRemindersAsync(userId, DateOnly.FromDateTime(date), mealType, cancellationToken), cancellationToken);
+        // Puan ozeti ve bu ogun icin bekleyen hatirlatmanin iptali (hata ogun kaydini bozmaz).
+        await _mealLogWriter.AfterLoggedAsync(userId, date, mealType, cancellationToken);
 
         return new CustomerMealEntryDto
         {
@@ -265,12 +230,5 @@ public class NutritionService : INutritionService
         return amount / food.ServingSize;
     }
 
-    private static string MapMealType(MealType mealType) => mealType switch
-    {
-        MealType.Breakfast => "Kahvaltı",
-        MealType.Lunch => "Öğle Yemeği",
-        MealType.Dinner => "Akşam Yemeği",
-        MealType.Snack => "Atıştırmalık",
-        _ => mealType.ToString(),
-    };
+    private static string MapMealType(MealType mealType) => MealLogWriter.MapMealType(mealType);
 }

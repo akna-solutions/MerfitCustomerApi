@@ -85,6 +85,18 @@ public class ExceptionHandlingMiddleware
                 HttpStatusCode.ServiceUnavailable,
                 ApiResponse.Fail(externalServiceException.Message)),
 
+            // Govde boyut siniri ([RequestSizeLimit]) asildi ya da istek govdesi okunamadi (orn. kesilmis yukleme).
+            BadHttpRequestException badRequestException => (
+                (HttpStatusCode)badRequestException.StatusCode,
+                ApiResponse.Fail(badRequestException.StatusCode == StatusCodes.Status413PayloadTooLarge
+                    ? "Gönderilen dosya çok büyük."
+                    : "İstek gövdesi okunamadı.")),
+
+            // Multipart form okunamadi (bozuk sinir, form limiti asimi).
+            InvalidDataException => (
+                HttpStatusCode.BadRequest,
+                ApiResponse.Fail("İstek gövdesi okunamadı.")),
+
             _ => (HttpStatusCode.InternalServerError, HandleUnexpected(exception, traceId)),
         };
 

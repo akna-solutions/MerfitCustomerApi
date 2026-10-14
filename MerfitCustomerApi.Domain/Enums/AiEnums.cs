@@ -24,7 +24,12 @@ public enum AiRequestType
     /// <summary>
     /// Beslenme asistani sohbet yaniti (MerfitNativeApp beslenme ekranindaki sohbet penceresi).
     /// </summary>
-    NutritionAssistant
+    NutritionAssistant,
+    /// <summary>
+    /// Yemek fotografindan kalori/makro analizi (MerfitNativeApp "Fotoğrafla ekle" akisi).
+    /// Fotograf saklanmaz; kayit kota, sahiplik ve tekrar kayit korumasi icin tutulur.
+    /// </summary>
+    FoodPhotoAnalysis
 }
 
 /// <summary>

@@ -6,6 +6,7 @@ using MerfitCustomerApi.Business.Services.Auth;
 using MerfitCustomerApi.Business.Services.Dashboard;
 using MerfitCustomerApi.Business.Services.Email;
 using MerfitCustomerApi.Business.Services.Equipment;
+using MerfitCustomerApi.Business.Services.FoodAnalysis;
 using MerfitCustomerApi.Business.Services.Foods;
 using MerfitCustomerApi.Business.Services.Leaderboard;
 using MerfitCustomerApi.Business.Services.MiniGames;
@@ -142,6 +143,19 @@ builder.Services.AddTransient<INutritionAiProvider>(sp => sp.GetRequiredService<
 builder.Services.AddTransient<INutritionAiProvider>(sp => sp.GetRequiredService<GeminiNutritionAiProvider>());
 builder.Services.AddTransient<INutritionAiProvider>(sp => sp.GetRequiredService<AnthropicNutritionAiProvider>());
 builder.Services.AddScoped<INutritionAssistantModelClient, NutritionAiProviderRouter>();
+// Yemek fotografindan kalori analizi: goruntu modeli (ilk saglayici Gemini) IFoodImageAnalysisProvider arkasinda.
+// Anahtar appsettings'e yazilmaz; FoodAnalysis__Gemini__ApiKey ya da (asistanla ortak) GEMINI_API_KEY ortam degiskeni.
+// Anahtar yoksa yalnizca analiz ucu 503 doner. Fotograf saklanmaz.
+builder.Services.Configure<FoodAnalysisOptions>(builder.Configuration.GetSection(FoodAnalysisOptions.SectionName));
+var foodAnalysisOptions = builder.Configuration.GetSection(FoodAnalysisOptions.SectionName).Get<FoodAnalysisOptions>() ?? new FoodAnalysisOptions();
+builder.Services.AddSingleton<FoodAnalysisGate>();
+builder.Services.AddHttpClient<IFoodImageAnalysisProvider, GeminiFoodImageAnalysisProvider>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<FoodAnalysisOptions>>().Value;
+    if (!string.IsNullOrWhiteSpace(options.Gemini.BaseUrl)) client.BaseAddress = new Uri(options.Gemini.BaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds) + 10);
+}).ConfigurePrimaryHttpMessageHandler(NutritionAiHandler);
+builder.Services.AddScoped<IFoodAnalysisService, FoodAnalysisService>();
 // E-posta dogrulama / sifre sifirlama: saglayici (Resend) tek bir siniftadir (ResendEmailSender).
 // API anahtari appsettings'e yazilmaz: yerelde User Secrets "Resend:ApiKey", production'da Resend__ApiKey
 // ortam degiskeni. Anahtar yoksa uygulama yine acilir; yalnizca e-posta gerektiren uclar 503 doner.
@@ -157,15 +171,17 @@ builder.Services.AddResend(options =>
 builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
 builder.Services.AddScoped<IAccountEmailService, AccountEmailService>();
 
-// Sohbet ucu icin kullanici ve IP basina dakikalik hiz siniri; e-posta dogrulama / sifre sifirlama uclari
-// icin IP basina pencere siniri. Diger uclar etkilenmez.
+// Sohbet ve fotograf analizi uclari icin kullanici ve IP basina dakikalik hiz siniri; e-posta dogrulama /
+// sifre sifirlama uclari icin IP basina pencere siniri. Diger uclar etkilenmez.
 builder.Services.AddRateLimiter(options =>
 {
     options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
         NutritionAssistantRateLimits.Create(nutritionAssistantOptions),
-        AccountEmailRateLimits.Create(accountEmailOptions));
-    options.OnRejected = (context, cancellationToken) => AccountEmailRateLimits.IsLimitedPath(context.HttpContext)
-        ? AccountEmailRateLimits.OnRejectedAsync(context, cancellationToken)
+        AccountEmailRateLimits.Create(accountEmailOptions),
+        FoodAnalysisRateLimits.Create(foodAnalysisOptions));
+    options.OnRejected = (context, cancellationToken) =>
+        AccountEmailRateLimits.IsLimitedPath(context.HttpContext) ? AccountEmailRateLimits.OnRejectedAsync(context, cancellationToken)
+        : FoodAnalysisRateLimits.IsLimitedPath(context.HttpContext) ? FoodAnalysisRateLimits.OnRejectedAsync(context, cancellationToken)
         : NutritionAssistantRateLimits.OnRejectedAsync(context, cancellationToken);
 });
 builder.Services.AddScoped<NutritionAssistantContextBuilder>();
