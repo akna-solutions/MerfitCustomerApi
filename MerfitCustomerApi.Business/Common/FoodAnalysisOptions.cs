@@ -32,14 +32,24 @@ public class FoodAnalysisOptions
 
     public int MaxImageDimension { get; set; } = 8000;
 
-    /// <summary>Tek saglayici cagrisinin zaman asimi (saniye). Mobil istemci 60 sn bekler.</summary>
-    public int TimeoutSeconds { get; set; } = 40;
+    /// <summary>
+    /// Tek saglayici cagrisinin zaman asimi (saniye). Mobil istemci 95 sn bekler; sira bekleme (QueueTimeoutSeconds)
+    /// ile birlikte bunun altinda kalmalidir.
+    /// </summary>
+    public int TimeoutSeconds { get; set; } = 60;
 
     /// <summary>Gecici hatalarda (5xx, baglanti) en fazla ek deneme.</summary>
     public int MaxRetries { get; set; } = 1;
 
     /// <summary>Yanit basina en fazla cikti token'i (modelin dusunme token'lari dahil).</summary>
     public int MaxOutputTokens { get; set; } = 4096;
+
+    /// <summary>
+    /// Gemini 3.x modellerinin dusunme duzeyi (generationConfig.thinkingConfig.thinkingLevel: minimal, low, medium, high).
+    /// Varsayilan dusunme gorselli istekte yaniti 40 sn'yi asacak kadar uzatabiliyor; tablo okumak icin "low" yeterli.
+    /// Bos birakilirsa alan gonderilmez (thinkingLevel desteklemeyen Gemini 2.5 modelleri icin).
+    /// </summary>
+    public string? ThinkingLevel { get; set; } = "low";
 
     /// <summary>Dusuk tutulur: ayni fotografta tutarli sonuc beklenir.</summary>
     public double Temperature { get; set; } = 0.2;

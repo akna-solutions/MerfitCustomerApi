@@ -64,6 +64,9 @@ public sealed class GeminiFoodImageAnalysisProvider : IFoodImageAnalysisProvider
                 Temperature = _options.Temperature,
                 ResponseMimeType = "application/json",
                 ResponseSchema = request.ResponseSchema,
+                ThinkingConfig = string.IsNullOrWhiteSpace(_options.ThinkingLevel)
+                    ? null
+                    : new ThinkingConfig { ThinkingLevel = _options.ThinkingLevel.Trim() },
             },
         };
 
@@ -150,6 +153,12 @@ public sealed class GeminiFoodImageAnalysisProvider : IFoodImageAnalysisProvider
         [JsonPropertyName("temperature")] public double Temperature { get; init; }
         [JsonPropertyName("responseMimeType")] public string? ResponseMimeType { get; init; }
         [JsonPropertyName("responseSchema")] public object? ResponseSchema { get; init; }
+        [JsonPropertyName("thinkingConfig")] public ThinkingConfig? ThinkingConfig { get; init; }
+    }
+
+    private sealed class ThinkingConfig
+    {
+        [JsonPropertyName("thinkingLevel")] public string? ThinkingLevel { get; init; }
     }
 
     private sealed class GenerateResponse
