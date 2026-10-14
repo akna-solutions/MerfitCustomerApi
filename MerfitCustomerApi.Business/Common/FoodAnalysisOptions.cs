@@ -24,6 +24,13 @@ public class FoodAnalysisOptions
         Paid = false,
     };
 
+    /// <summary>
+    /// Ana model 503 (yogun) ya da 429 (kota) donerse sirayla denenen yedek Gemini modelleri. Her modelin kapasitesi ve
+    /// ucretsiz kotasi ayridir. Virgulle ayrilir (ortam degiskeniyle tek satirda degissin diye dizi degil); bos deger
+    /// yedegi kapatir.
+    /// </summary>
+    public string? FallbackModels { get; set; } = "gemini-flash-lite-latest,gemini-2.5-flash";
+
     /// <summary>Kabul edilen en buyuk fotograf (bayt). Mobil uygulama yuklemeden once ~1280 px JPEG'e kucultur (genelde 150-500 KB).</summary>
     public int MaxImageBytes { get; set; } = 4 * 1024 * 1024;
 

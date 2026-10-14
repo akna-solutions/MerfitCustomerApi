@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.NutritionAssistant;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace MerfitCustomerApi.Business.Services.FoodAnalysis;
@@ -26,10 +28,12 @@ public sealed class GeminiFoodImageAnalysisProvider : IFoodImageAnalysisProvider
     private readonly FoodAnalysisOptions _options;
     private readonly NutritionAiProviderSettings _settings;
     private readonly string? _apiKey;
+    private readonly ILogger<GeminiFoodImageAnalysisProvider> _logger;
 
-    public GeminiFoodImageAnalysisProvider(HttpClient http, IOptions<FoodAnalysisOptions> options)
+    public GeminiFoodImageAnalysisProvider(HttpClient http, IOptions<FoodAnalysisOptions> options, ILogger<GeminiFoodImageAnalysisProvider>? logger = null)
     {
         _http = http;
+        _logger = logger ?? NullLogger<GeminiFoodImageAnalysisProvider>.Instance;
         _options = options.Value;
         _settings = _options.Gemini;
         _apiKey = NutritionAiHttp.ResolveApiKey(_settings, GeminiNutritionAiProvider.ApiKeyEnvironmentVariable);
@@ -43,6 +47,31 @@ public sealed class GeminiFoodImageAnalysisProvider : IFoodImageAnalysisProvider
     {
         if (!IsConfigured) throw new NutritionAiProviderException(Name, NutritionAiFailureKind.Rejected, errorCode: "not_configured");
 
+        // Ana model yogunsa (503) ya da kotasi dolduysa (429) yedek modeller sirayla denenir; her modelin kapasitesi ve
+        // ucretsiz kotasi ayridir. Zaman asiminda gecilmez: ikinci bekleme mobil istemcinin suresini asar.
+        var models = new[] { _settings.Model }
+            .Concat((_options.FallbackModels ?? "").Split(','))
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Select(m => m.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        for (var i = 0; ; i++)
+        {
+            try
+            {
+                return await AnalyzeWithModelAsync(request, models[i], cancellationToken);
+            }
+            catch (NutritionAiProviderException ex) when (i < models.Count - 1
+                && ex.Kind is NutritionAiFailureKind.Transient or NutritionAiFailureKind.RateLimited)
+            {
+                _logger.LogWarning("Gemini modeli kullanilamadi, yedek modele geciliyor. Model: {Model}, Kind: {Kind}, Status: {Status}, Next: {Next}",
+                    models[i], ex.Kind, ex.StatusCode, models[i + 1]);
+            }
+        }
+    }
+
+    private async Task<FoodImageAnalysisProviderResult> AnalyzeWithModelAsync(FoodImageAnalysisProviderRequest request, string model, CancellationToken cancellationToken)
+    {
         var body = new GenerateRequest
         {
             SystemInstruction = new Content { Parts = { new Part { Text = request.Instructions } } },
@@ -64,13 +93,14 @@ public sealed class GeminiFoodImageAnalysisProvider : IFoodImageAnalysisProvider
                 Temperature = _options.Temperature,
                 ResponseMimeType = "application/json",
                 ResponseSchema = request.ResponseSchema,
-                ThinkingConfig = string.IsNullOrWhiteSpace(_options.ThinkingLevel)
+                // Gemini 2.x modelleri thinkingLevel alanini tanimaz.
+                ThinkingConfig = string.IsNullOrWhiteSpace(_options.ThinkingLevel) || model.StartsWith("gemini-2", StringComparison.OrdinalIgnoreCase)
                     ? null
                     : new ThinkingConfig { ThinkingLevel = _options.ThinkingLevel.Trim() },
             },
         };
 
-        using var message = new HttpRequestMessage(HttpMethod.Post, $"models/{Uri.EscapeDataString(_settings.Model)}:generateContent")
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"models/{Uri.EscapeDataString(model)}:generateContent")
         {
             Content = JsonContent.Create(body, options: NutritionAiHttp.Json),
         };
@@ -99,7 +129,7 @@ public sealed class GeminiFoodImageAnalysisProvider : IFoodImageAnalysisProvider
                 usage?.PromptTokenCount ?? 0,
                 (usage?.CandidatesTokenCount ?? 0) + (usage?.ThoughtsTokenCount ?? 0),
                 finish ?? result.PromptFeedback?.BlockReason,
-                string.IsNullOrWhiteSpace(result.ModelVersion) ? _settings.Model : result.ModelVersion,
+                string.IsNullOrWhiteSpace(result.ModelVersion) ? model : result.ModelVersion,
                 Refused: result.PromptFeedback?.BlockReason is not null || (finish is not null && BlockedFinishReasons.Contains(finish)),
                 Provider: Name);
         }

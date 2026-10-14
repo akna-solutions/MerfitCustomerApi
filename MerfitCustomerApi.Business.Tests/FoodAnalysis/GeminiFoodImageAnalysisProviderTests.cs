@@ -15,9 +15,9 @@ public class GeminiFoodImageAnalysisProviderTests
     private const string Key = "AIza_food_test_secret";
     private readonly StubHttpHandler _http = new();
 
-    private GeminiFoodImageAnalysisProvider Provider(string? key = Key)
+    private GeminiFoodImageAnalysisProvider Provider(string? key = Key, string? fallbackModels = "")
     {
-        var options = new FoodAnalysisOptions { TimeoutSeconds = 5 };
+        var options = new FoodAnalysisOptions { TimeoutSeconds = 5, FallbackModels = fallbackModels };
         options.Gemini.ApiKey = key;
         options.Gemini.Model = "gemini-vision-test";
         return new GeminiFoodImageAnalysisProvider(_http.Client("https://gemini.test/v1beta/"), Options.Create(options));
@@ -115,12 +115,60 @@ public class GeminiFoodImageAnalysisProviderTests
         Assert.DoesNotContain("echo of request content", ex.Message);
     }
 
+    private const string EmptyResult = """
+        {"candidates":[{"content":{"role":"model","parts":[{"text":"{\"containsFood\":false,\"items\":[]}"}]},"finishReason":"STOP"}]}
+        """;
+
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task BusyOrExhaustedModel_FallsBackToNextModel(HttpStatusCode status)
+    {
+        _http.Respond(status, """{"error":{"code":503,"status":"UNAVAILABLE"}}""")
+            .Respond(HttpStatusCode.OK, EmptyResult);
+
+        var result = await Provider(fallbackModels: "gemini-lite-test, gemini-2.5-flash").AnalyzeAsync(Request());
+
+        Assert.Equal("gemini-lite-test", result.Model);
+        Assert.Equal(
+            ["models/gemini-vision-test:generateContent", "models/gemini-lite-test:generateContent"],
+            _http.Requests.Select(r => r.Request.RequestUri!.AbsolutePath.Replace("/v1beta/", "")));
+        using var json = JsonDocument.Parse(_http.Requests[1].Body);
+        Assert.Equal("low", json.RootElement.GetProperty("generationConfig").GetProperty("thinkingConfig").GetProperty("thinkingLevel").GetString());
+    }
+
+    [Fact]
+    public async Task Gemini2Fallback_IsSentWithoutThinkingLevel_AndLastErrorIsThrownWhenAllFail()
+    {
+        _http.Respond(HttpStatusCode.ServiceUnavailable, "{}")
+            .Respond(HttpStatusCode.ServiceUnavailable, "{}");
+
+        var ex = await Assert.ThrowsAsync<NutritionAiProviderException>(() => Provider(fallbackModels: "gemini-2.5-flash").AnalyzeAsync(Request()));
+
+        Assert.Equal(NutritionAiFailureKind.Transient, ex.Kind);
+        Assert.Equal(2, _http.Requests.Count);
+        using var json = JsonDocument.Parse(_http.Requests[1].Body);
+        Assert.False(json.RootElement.GetProperty("generationConfig").TryGetProperty("thinkingConfig", out _));
+    }
+
+    [Fact]
+    public async Task RejectedRequest_DoesNotFallBack()
+    {
+        _http.Respond(HttpStatusCode.BadRequest, "{}");
+
+        var ex = await Assert.ThrowsAsync<NutritionAiProviderException>(() => Provider(fallbackModels: "gemini-lite-test").AnalyzeAsync(Request()));
+
+        Assert.Equal(NutritionAiFailureKind.Rejected, ex.Kind);
+        Assert.Single(_http.Requests);
+    }
+
     [Fact]
     public async Task SlowResponse_TimesOut()
     {
         var options = new FoodAnalysisOptions { TimeoutSeconds = 5 };
         options.Gemini.ApiKey = Key;
         _http.Respond(HttpStatusCode.OK, "{}", delay: TimeSpan.FromSeconds(30));
+        // Zaman asiminda yedek modele gecilmez (varsayilan yedekler acik); ikinci istek gelirse stub hata verir.
         var provider = new GeminiFoodImageAnalysisProvider(_http.Client("https://gemini.test/v1beta/"), Options.Create(options));
 
         var ex = await Assert.ThrowsAsync<NutritionAiProviderException>(() => provider.AnalyzeAsync(Request()));
