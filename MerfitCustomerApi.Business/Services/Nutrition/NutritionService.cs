@@ -1,4 +1,5 @@
 ﻿using MerfitCustomerApi.Business.Common;
+using MerfitCustomerApi.Business.Dtos.Customer.Foods;
 using MerfitCustomerApi.Business.Dtos.Customer.Nutrition;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.NutritionAssistant;
@@ -139,6 +140,125 @@ public class NutritionService : INutritionService
             Name = food.Name,
             Calories = (int)Math.Round(mealItem.Calories),
         };
+    }
+
+    public async Task<CustomerMealItemDetailDto> GetMealItemAsync(long userId, long mealItemId, CancellationToken cancellationToken = default)
+    {
+        var (item, meal) = await GetOwnedMealItemAsync(userId, mealItemId, asNoTracking: true, cancellationToken);
+        var food = await _unitOfWork.Repository<Food>().GetByIdAsync(item.FoodId, cancellationToken);
+        var servingUnit = food?.ServingUnit ?? string.Empty;
+        var weighable = ServingUnits.IsWeighable(servingUnit) && item.ServingSize > 0;
+        var perServing = PerServing(item, food);
+
+        return new CustomerMealItemDetailDto
+        {
+            Id = item.Id,
+            Type = MapMealType(meal.MealType),
+            Name = food?.Name ?? string.Empty,
+            Calories = (int)Math.Round(item.Calories),
+            Quantity = item.Quantity,
+            Amount = weighable ? Math.Round(item.Quantity * item.ServingSize, 1) : null,
+            Food = new CustomerFoodListItemDto
+            {
+                Id = item.FoodId,
+                Name = food?.Name ?? string.Empty,
+                Brand = food?.Brand,
+                ServingSize = item.ServingSize,
+                ServingUnit = servingUnit,
+                Calories = (int)Math.Round(perServing.Calories),
+                Protein = Math.Round(perServing.Protein, 2),
+                Carbs = Math.Round(perServing.Carbs, 2),
+                Fat = Math.Round(perServing.Fat, 2),
+                ImageUrl = food?.ImageUrl,
+            },
+        };
+    }
+
+    public async Task<CustomerMealEntryDto> UpdateMealItemAsync(long userId, long mealItemId, UpdateMealItemRequest request, CancellationToken cancellationToken = default)
+    {
+        var (item, meal) = await GetOwnedMealItemAsync(userId, mealItemId, asNoTracking: false, cancellationToken);
+        var food = await _unitOfWork.Repository<Food>().GetByIdAsync(item.FoodId, cancellationToken);
+
+        decimal quantity;
+        if (request.Amount is { } amount)
+        {
+            if (!ServingUnits.IsWeighable(food?.ServingUnit) || item.ServingSize <= 0)
+            {
+                throw new AppValidationException(nameof(request.Amount), "Bu besin gram/ml ile girilemez; porsiyon secin.");
+            }
+            quantity = amount / item.ServingSize;
+        }
+        else if (request.Quantity is { } requested && requested > 0)
+        {
+            quantity = requested;
+        }
+        else
+        {
+            throw new AppValidationException(nameof(request.Quantity), "Miktar girilmelidir.");
+        }
+
+        // Kalori/makrolar kayit anindaki porsiyon degerleriyle olceklenir (katalog sonradan degismis olabilir).
+        var perServing = PerServing(item, food);
+        item.Quantity = Math.Round(quantity, 2);
+        item.Calories = Math.Round(perServing.Calories * quantity, 2);
+        item.Protein = Math.Round(perServing.Protein * quantity, 2);
+        item.Carbs = Math.Round(perServing.Carbs * quantity, 2);
+        item.Fat = Math.Round(perServing.Fat * quantity, 2);
+        item.Fiber = perServing.Fiber is { } fiber ? Math.Round(fiber * quantity, 2) : null;
+        item.UpdatedAt = DateTime.UtcNow;
+
+        _unitOfWork.Repository<MealItem>().Update(item);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _scoreService.TryRefreshUserAsync(userId, cancellationToken);
+
+        return new CustomerMealEntryDto
+        {
+            Id = item.Id,
+            Type = MapMealType(meal.MealType),
+            Name = food?.Name ?? string.Empty,
+            Calories = (int)Math.Round(item.Calories),
+        };
+    }
+
+    public async Task DeleteMealItemAsync(long userId, long mealItemId, CancellationToken cancellationToken = default)
+    {
+        var (item, _) = await GetOwnedMealItemAsync(userId, mealItemId, asNoTracking: false, cancellationToken);
+
+        _unitOfWork.Repository<MealItem>().Remove(item);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _scoreService.TryRefreshUserAsync(userId, cancellationToken);
+    }
+
+    /// <summary>Kaydi ve bagli oldugu ogunu getirir; kayit yoksa ya da baska kullaniciya aitse 404.</summary>
+    private async Task<(MealItem Item, Meal Meal)> GetOwnedMealItemAsync(long userId, long mealItemId, bool asNoTracking, CancellationToken cancellationToken)
+    {
+        var item = await _unitOfWork.Repository<MealItem>()
+            .GetQueryable(asNoTracking)
+            .FirstOrDefaultAsync(mi => mi.Id == mealItemId, cancellationToken);
+        var meal = item is null ? null : await _unitOfWork.Repository<Meal>().GetByIdAsync(item.MealId, cancellationToken);
+
+        if (item is null || meal is null || meal.UserId != userId)
+        {
+            throw new NotFoundException(nameof(MealItem), mealItemId);
+        }
+
+        return (item, meal);
+    }
+
+    /// <summary>
+    /// Kaydin porsiyon basina degerleri: kayitli toplamlar / carpan. Carpan 0 ise (bozuk kayit) besinin guncel degerleri.
+    /// </summary>
+    private static (decimal Calories, decimal Protein, decimal Carbs, decimal Fat, decimal? Fiber) PerServing(MealItem item, Food? food)
+    {
+        if (item.Quantity > 0)
+        {
+            return (item.Calories / item.Quantity, item.Protein / item.Quantity, item.Carbs / item.Quantity,
+                item.Fat / item.Quantity, item.Fiber / item.Quantity);
+        }
+
+        return food is null
+            ? (0, 0, 0, 0, null)
+            : (food.Calories, food.Protein, food.Carbs, food.Fat, food.Fiber);
     }
 
     public async Task<CustomerWaterDto> LogWaterAsync(long userId, LogWaterRequest request, CancellationToken cancellationToken = default)
