@@ -43,6 +43,22 @@ public class FoodAnalysisResultDto
     public DateTime ConfirmBefore { get; set; }
 }
 
+/// <summary>GET /api/food-analysis/status yaniti: mobil analiz oncesi bilgilendirme ve kalan hak.</summary>
+public class FoodAnalysisStatusDto
+{
+    /// <summary>Ozellik acik ve saglayici yapilandirilmis mi? false ise mobil "Fotoğrafla ekle"yi kapali gosterir.</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>Fotografin hangi saglayiciya gittigi ve nasil kullanilabilecegi (analiz oncesi gosterilir).</summary>
+    public string DataNotice { get; set; } = string.Empty;
+
+    /// <summary>Kullanici basina 24 saatlik analiz hakki.</summary>
+    public int DailyLimit { get; set; }
+
+    /// <summary>Son 24 saatte kalan analiz hakki.</summary>
+    public int RemainingAnalyses { get; set; }
+}
+
 public class FoodAnalysisItemDto
 {
     /// <summary>Analiz icindeki sira numarasi (1'den baslar); onayda yemegi tanimlar.</summary>

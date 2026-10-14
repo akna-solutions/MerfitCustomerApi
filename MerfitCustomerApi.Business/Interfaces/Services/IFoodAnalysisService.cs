@@ -6,6 +6,12 @@ namespace MerfitCustomerApi.Business.Interfaces.Services;
 public interface IFoodAnalysisService
 {
     /// <summary>
+    /// Ozelligin acik olup olmadigi, analiz oncesi gosterilecek veri kullanimi bilgilendirmesi ve son 24 saatte
+    /// kalan analiz hakki. Saglayiciya istek atmaz.
+    /// </summary>
+    Task<FoodAnalysisStatusDto> GetStatusAsync(long userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Fotografi dogrular, goruntu modeline gonderir, donen JSON'u dogrular ve yemekleri besin katalogu ile
     /// eslestirir. Hicbir ogun kaydi olusturmaz. Fotograf saklanmaz.
     /// </summary>

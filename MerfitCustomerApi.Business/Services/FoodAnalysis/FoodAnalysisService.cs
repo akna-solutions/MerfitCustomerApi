@@ -84,6 +84,22 @@ public class FoodAnalysisService : IFoodAnalysisService
         _logger = logger;
     }
 
+    public async Task<FoodAnalysisStatusDto> GetStatusAsync(long userId, CancellationToken cancellationToken = default)
+    {
+        var since = _timeProvider.GetUtcNow().UtcDateTime.AddHours(-24);
+        var used = await _unitOfWork.Repository<AiGenerationRequest>().GetQueryable()
+            .CountAsync(r => r.UserId == userId && r.Type == AiRequestType.FoodPhotoAnalysis
+                && r.Status == AiGenerationStatus.Completed && r.CreatedAt >= since, cancellationToken);
+
+        return new FoodAnalysisStatusDto
+        {
+            Enabled = _options.Enabled && _provider.IsConfigured,
+            DataNotice = _options.DataNotice,
+            DailyLimit = _options.DailyAnalysisLimitPerUser,
+            RemainingAnalyses = Math.Max(0, _options.DailyAnalysisLimitPerUser - used),
+        };
+    }
+
     public async Task<FoodAnalysisResultDto> AnalyzeAsync(long userId, FoodImageUpload upload, CancellationToken cancellationToken = default)
     {
         if (!_options.Enabled || !_provider.IsConfigured)

@@ -276,6 +276,25 @@ public class FoodAnalysisServiceTests
     }
 
     [Fact]
+    public async Task Status_ReportsRemainingQuotaAndNotice_WithoutCallingProvider()
+    {
+        var status = await CreateService().GetStatusAsync(UserId);
+        Assert.True(status.Enabled);
+        Assert.Equal(3, status.DailyLimit);
+        Assert.Equal(3, status.RemainingAnalyses);
+        Assert.Contains("Google", status.DataNotice);
+
+        _provider.Returns(ValidModelJson);
+        await Analyze();
+        Assert.Equal(2, (await CreateService().GetStatusAsync(UserId)).RemainingAnalyses);
+        Assert.Equal(3, (await CreateService().GetStatusAsync(OtherUserId)).RemainingAnalyses);
+        Assert.Single(_provider.Requests);
+
+        _provider.Configured = false;
+        Assert.False((await CreateService().GetStatusAsync(UserId)).Enabled);
+    }
+
+    [Fact]
     public async Task Confirm_LogsSelectedItems_WithServerSideValues_AndConfirmedGrams()
     {
         _provider.Returns(ValidModelJson);

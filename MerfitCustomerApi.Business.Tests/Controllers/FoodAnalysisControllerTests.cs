@@ -85,7 +85,33 @@ public class FoodAnalysisControllerTests : IClassFixture<WebApplicationFactory<F
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsync("/api/food-analysis/analyze", Photo(FoodAnalysisTestData.Jpeg()))).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsync("/api/food-analysis/5/confirm", JsonContent.Create(new { mealType = "Lunch" }))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/food-analysis/status")).StatusCode);
         _service.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Status_ReturnsAuthenticatedUsersQuotaAndNotice()
+    {
+        _service.Setup(s => s.GetStatusAsync(42, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FoodAnalysisStatusDto { Enabled = true, DataNotice = "Google", DailyLimit = 15, RemainingAnalyses = 9 });
+
+        var response = await CreateClient(42).GetAsync("/api/food-analysis/status");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await Body(response);
+        Assert.True(body.GetProperty("enabled").GetBoolean());
+        Assert.Equal(9, body.GetProperty("remainingAnalyses").GetInt32());
+        Assert.Equal("Google", body.GetProperty("dataNotice").GetString());
+    }
+
+    [Fact]
+    public async Task Analyze_RequestOverSizeLimit_Returns413ApiResponse_WithoutCallingService()
+    {
+        var response = await CreateClient(42).PostAsync("/api/food-analysis/analyze", Photo(new byte[FoodAnalysisController.MaxAnalyzeRequestBytes + 1024]));
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.False((await Body(response)).GetProperty("isSuccess").GetBoolean());
+        _service.Verify(s => s.AnalyzeAsync(It.IsAny<long>(), It.IsAny<FoodImageUpload>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
