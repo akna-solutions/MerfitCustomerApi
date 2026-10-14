@@ -158,7 +158,7 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<string>("ResultJson")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
+                        .HasColumnType("jsonb");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");

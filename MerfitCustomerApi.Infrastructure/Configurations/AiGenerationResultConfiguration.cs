@@ -24,10 +24,12 @@ public class AiGenerationResultConfiguration : IEntityTypeConfiguration<AiGenera
         // Birincil anahtari tanimlar.
         builder.HasKey(x => x.Id);
 
-        // Uretilen sonucun JSON formatinda tutuldugu alan.
+        // Uretilen sonucun JSON formatinda tutuldugu alan. Canli veritabaninda kolon jsonb'dir; tur belirtilmezse
+        // Npgsql degeri varchar olarak gonderir ve Postgres 42804 ("jsonb but expression is of type character varying") verir.
         builder.Property(x => x.ResultJson)
             .IsRequired(true)
-            .HasMaxLength(2000);
+            .HasMaxLength(2000)
+            .HasColumnType("jsonb");
 
         // Iliskiler (foreign key) yapilandirmasi.
         // Iliskili uretim istegi kimligi.
