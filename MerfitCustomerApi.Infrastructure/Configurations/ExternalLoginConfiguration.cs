@@ -39,6 +39,11 @@ public class ExternalLoginConfiguration : IEntityTypeConfiguration<ExternalLogin
             .IsRequired(false)
             .HasMaxLength(500);
 
+        // Bir Google (saglayici) hesabi yalnizca bir MB FIT hesabina baglanabilir; es zamanli Google kayitlarinda
+        // da ayni kimlikle ikinci hesap acilmasini veritabani engeller (bkz. AuthService.CreateAccountAsync).
+        builder.HasIndex(x => new { x.Provider, x.ProviderUserId })
+            .IsUnique();
+
         // Iliskiler (foreign key) yapilandirmasi.
         // Girisin ait oldugu kullanicinin kimligi.
         builder.HasOne<ApplicationUser>()

@@ -170,6 +170,10 @@ builder.Services.AddResend(options =>
 }).ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(Math.Max(3, resendEmailOptions.TimeoutSeconds)));
 builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
 builder.Services.AddScoped<IAccountEmailService, AccountEmailService>();
+// Google ile giris/kayit: istemci kimlikleri GoogleAuth:ClientIds (production'da GoogleAuth__ClientIds__0, __1 ...).
+// Tanimli degilse uygulama acilir; yalnizca /api/auth/google uclari 503 doner.
+builder.Services.Configure<GoogleAuthOptions>(builder.Configuration.GetSection(GoogleAuthOptions.SectionName));
+builder.Services.AddSingleton<IGoogleIdTokenValidator, GoogleIdTokenValidator>();
 
 // Sohbet ve fotograf analizi uclari icin kullanici ve IP basina dakikalik hiz siniri; e-posta dogrulama /
 // sifre sifirlama uclari icin IP basina pencere siniri. Diger uclar etkilenmez.
@@ -308,6 +312,12 @@ if (string.IsNullOrWhiteSpace(resendEmailOptions.ApiKey))
     // Uygulama acilisi bozulmaz; e-posta dogrulama ve sifre sifirlama e-postalari gonderilemez (503).
     app.Logger.LogWarning("Resend:ApiKey tanimli degil. E-posta dogrulama ve sifre sifirlama e-postalari gonderilemeyecek. " +
         "Yerelde: dotnet user-secrets set \"Resend:ApiKey\" \"re_...\"; production'da: Resend__ApiKey ortam degiskeni.");
+}
+
+if (!app.Services.GetRequiredService<IGoogleIdTokenValidator>().IsConfigured)
+{
+    app.Logger.LogWarning("GoogleAuth:ClientIds tanimli degil. Google ile giris/kayit 503 donecek. " +
+        "Production'da: GoogleAuth__ClientIds__0 (Web istemcisi) ve GoogleAuth__ClientIds__1 (iOS istemcisi) ortam degiskenleri.");
 }
 
 // Pipeline'daki tum istisnalari yakalayip tutarli bir ApiResponse govdesine ceviren middleware;

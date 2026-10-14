@@ -577,6 +577,9 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("Provider", "ProviderUserId")
+                        .IsUnique();
+
                     b.ToTable("ExternalLogin", "authentication");
                 });
 

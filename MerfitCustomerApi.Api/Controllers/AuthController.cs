@@ -50,6 +50,32 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
+    /// Google ile giris. Mobil uygulamanin Google Sign-In'den aldigi ID token sunucuda dogrulanir. Google hesabi bir
+    /// MB FIT hesabina bagliysa veya ayni (Google tarafindan dogrulanmis) e-postayla kayitli bir hesap varsa token
+    /// cifti doner (auth). Hesap yoksa registrationRequired=true ve onboarding'i on dolduracak profil bilgileri doner.
+    /// Gecersiz token: 401; Google yapilandirilmamis: 503.
+    /// </summary>
+    [HttpPost("google")]
+    [AllowAnonymous]
+    public async Task<ActionResult<GoogleSignInResponse>> GoogleSignIn([FromBody] GoogleSignInRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _authService.GoogleSignInAsync(request, ClientIp, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Google ile kayit (onboarding'in son adimi): onboarding alanlari + ID token ile parolasiz hesap olusturur ve
+    /// token cifti doner (201). Hesap bu arada olusmus/baglanabilir durumdaysa yeni hesap acmadan giris yapar (200).
+    /// </summary>
+    [HttpPost("google/register")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AuthResponse>> GoogleRegister([FromBody] GoogleRegisterRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _authService.GoogleRegisterAsync(request, ClientIp, cancellationToken);
+        return result.IsNewUser ? StatusCode(StatusCodes.Status201Created, result) : Ok(result);
+    }
+
+    /// <summary>
     /// Kayit ekraninda kullanici adinin anlik kontrolu: bicim gecerli mi ve baska bir hesapta kullaniliyor mu.
     /// Her zaman 200 doner; sonuc yanittaki available ve message alanlarindadir.
     /// </summary>

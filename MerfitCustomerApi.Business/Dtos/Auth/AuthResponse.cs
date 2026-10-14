@@ -46,4 +46,10 @@ public class AuthResponse
     /// (uygulama "tekrar gonder" sunar). Login yanitinda null.
     /// </summary>
     public bool? VerificationEmailSent { get; set; }
+
+    /// <summary>
+    /// Bu istekte yeni hesap olusturulduysa true (register ve Google ile kayit). Uygulama yeni hesaplarda
+    /// "Hazirsin" ekranini gosterir; giris yanitlarinda false.
+    /// </summary>
+    public bool IsNewUser { get; set; }
 }
