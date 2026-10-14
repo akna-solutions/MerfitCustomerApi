@@ -55,6 +55,26 @@ public class GeminiFoodImageAnalysisProviderTests
         Assert.Equal("application/json", config.GetProperty("responseMimeType").GetString());
         Assert.Equal("OBJECT", config.GetProperty("responseSchema").GetProperty("type").GetString());
         Assert.True(config.GetProperty("responseSchema").GetProperty("properties").TryGetProperty("items", out _));
+        // Varsayilan dusunme gorselli istekte yaniti zaman asimina kadar uzatiyordu.
+        Assert.Equal("low", config.GetProperty("thinkingConfig").GetProperty("thinkingLevel").GetString());
+    }
+
+    [Fact]
+    public async Task OmitsThinkingConfig_WhenThinkingLevelIsEmpty()
+    {
+        _http.Respond(HttpStatusCode.OK, """
+            {"candidates":[{"content":{"role":"model","parts":[{"text":"{\"containsFood\":false,\"items\":[]}"}]},"finishReason":"STOP"}]}
+            """);
+        var options = new FoodAnalysisOptions { TimeoutSeconds = 5, ThinkingLevel = "" };
+        options.Gemini.ApiKey = Key;
+        options.Gemini.Model = "gemini-2.5-flash";
+        var provider = new GeminiFoodImageAnalysisProvider(_http.Client("https://gemini.test/v1beta/"), Options.Create(options));
+
+        await provider.AnalyzeAsync(Request());
+
+        var (_, body) = Assert.Single(_http.Requests);
+        using var json = JsonDocument.Parse(body);
+        Assert.False(json.RootElement.GetProperty("generationConfig").TryGetProperty("thinkingConfig", out _));
     }
 
     [Fact]
