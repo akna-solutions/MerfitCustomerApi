@@ -25,4 +25,18 @@ public interface IAuthService
     /// <see cref="UsernameAvailabilityResponse.Available"/> ve kullaniciya gosterilecek mesajla doner.
     /// </summary>
     Task<UsernameAvailabilityResponse> CheckUsernameAvailabilityAsync(string? username, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Google ID token'i ile giris: bagli hesap (veya ayni dogrulanmis e-postayla kayitli hesap) varsa token cifti
+    /// doner; yoksa RegistrationRequired=true ve onboarding'i on dolduracak Google profil bilgileri doner.
+    /// </summary>
+    /// <exception cref="Domain.Exceptions.UnauthorizedException">Token gecersizse veya hesap pasifse.</exception>
+    /// <exception cref="Domain.Exceptions.ConflictException">E-posta baska bir hesapta kayitli ve Google e-postayi dogrulanmis saymiyorsa.</exception>
+    Task<GoogleSignInResponse> GoogleSignInAsync(GoogleSignInRequest request, string? ipAddress, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Onboarding alanlari + Google ID token ile parolasiz yeni hesap olusturur ve token cifti doner. Hesap bu
+    /// arada olusmus veya baglanabilir bir hesap varsa yeni hesap acmadan onunla giris yapar (IsNewUser=false).
+    /// </summary>
+    Task<AuthResponse> GoogleRegisterAsync(GoogleRegisterRequest request, string? ipAddress, CancellationToken cancellationToken = default);
 }

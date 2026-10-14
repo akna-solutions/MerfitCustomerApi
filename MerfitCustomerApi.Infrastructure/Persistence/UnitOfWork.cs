@@ -99,8 +99,13 @@ public class UnitOfWork : IUnitOfWork
         }
         finally
         {
-            await _currentTransaction.DisposeAsync();
-            _currentTransaction = null;
+            // Hata durumunda RollbackTransactionAsync transaction'i zaten kapatip null yapar; burada tekrar
+            // erismek NullReferenceException ile asil hatayi (orn. unique ihlali) gizliyordu.
+            if (_currentTransaction is not null)
+            {
+                await _currentTransaction.DisposeAsync();
+                _currentTransaction = null;
+            }
         }
     }
 

@@ -39,7 +39,7 @@ public class AuthServiceEmailVerificationTests
             calculator.Setup(c => c.Calculate(It.IsAny<UserProfile>())).Returns(new NutritionCalculationResult { DailyCalories = 2000 });
 
             var accountEmails = new AccountEmailService(Db.Object, Sender, Options.Create(new AccountEmailOptions()), TimeProvider.System, NullLogger<AccountEmailService>.Instance);
-            Service = new AuthService(Db.Object, tokenService.Object, calculator.Object, Options.Create(new JwtSettings { RefreshTokenExpirationDays = 30 }), accountEmails);
+            Service = new AuthService(Db.Object, tokenService.Object, calculator.Object, Options.Create(new JwtSettings { RefreshTokenExpirationDays = 30 }), accountEmails, Mock.Of<IGoogleIdTokenValidator>());
         }
     }
 

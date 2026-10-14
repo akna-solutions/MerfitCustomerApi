@@ -85,7 +85,7 @@ public class AuthServiceRegistrationTests
 
         return new Fixture
         {
-            Service = new AuthService(unitOfWork.Object, tokenService.Object, nutritionCalculator.Object, jwtSettings, AccountEmails.Object),
+            Service = new AuthService(unitOfWork.Object, tokenService.Object, nutritionCalculator.Object, jwtSettings, AccountEmails.Object, Mock.Of<IGoogleIdTokenValidator>()),
             Users = users,
             Profiles = profiles,
             Jobs = jobs,
