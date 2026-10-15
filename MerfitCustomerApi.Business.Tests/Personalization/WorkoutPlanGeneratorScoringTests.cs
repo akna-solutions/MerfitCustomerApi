@@ -604,7 +604,7 @@ public class WorkoutPlanGeneratorScoringTests
         catalog.Profile(goal: FitnessGoal.LoseWeight, trainingDays: 2);
         catalog.Workout(1);
         var options = new WorkoutPlanGenerationOptions();
-        options.AttributeWeightsByGoal.Remove(FitnessGoal.LoseWeight);
+        options.PrimaryAttributeWeightsByGoal.Remove(FitnessGoal.LoseWeight);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.CreateGenerator(options).GenerateAsync(UserId));
     }

@@ -13,7 +13,7 @@ public class WorkoutGoalFitCalculatorTests
 {
     private static readonly WorkoutPlanGenerationOptions DefaultOptions = new();
 
-    private static GoalAttributeWeights WeightsFor(FitnessGoal goal) => DefaultOptions.AttributeWeightsByGoal[goal];
+    private static GoalAttributeWeights WeightsFor(FitnessGoal goal) => DefaultOptions.PrimaryAttributeWeightsByGoal[goal];
 
     private static Dictionary<WorkoutAttributeType, int> AllScores(int value) =>
         Enum.GetValues<WorkoutAttributeType>().ToDictionary(t => t, _ => value);

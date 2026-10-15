@@ -21,15 +21,15 @@ public class WorkoutPlanGenerationOptionsValidator : IValidateOptions<WorkoutPla
             errors.Add($"{nameof(WorkoutPlanGenerationOptions.GoalFitMaxScore)} negatif olamaz.");
         }
 
-        if (options.AttributeWeightsByGoal is null)
+        if (options.PrimaryAttributeWeightsByGoal is null)
         {
-            errors.Add($"{nameof(WorkoutPlanGenerationOptions.AttributeWeightsByGoal)} tanimlanmalidir.");
+            errors.Add($"{nameof(WorkoutPlanGenerationOptions.PrimaryAttributeWeightsByGoal)} tanimlanmalidir.");
             return ValidateOptionsResult.Fail(errors);
         }
 
         foreach (var goal in FitnessGoals.Primary)
         {
-            if (!options.AttributeWeightsByGoal.TryGetValue(goal, out var weights) || weights is null)
+            if (!options.PrimaryAttributeWeightsByGoal.TryGetValue(goal, out var weights) || weights is null)
             {
                 errors.Add($"{goal} hedefi icin antrenman ozellik agirliklari tanimlanmamis.");
                 continue;

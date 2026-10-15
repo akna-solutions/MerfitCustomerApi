@@ -275,13 +275,13 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
     /// </summary>
     private GoalAttributeWeights ResolveGoalWeights(FitnessGoal goalType)
     {
-        if (_options.AttributeWeightsByGoal.TryGetValue(goalType, out var weights) && weights is not null)
+        if (_options.PrimaryAttributeWeightsByGoal.TryGetValue(goalType, out var weights) && weights is not null)
         {
             return weights;
         }
 
         throw new InvalidOperationException(
-            $"{goalType} hedefi icin antrenman ozellik agirliklari yapilandirilmamis ({WorkoutPlanGenerationOptions.SectionName}:{nameof(WorkoutPlanGenerationOptions.AttributeWeightsByGoal)}).");
+            $"{goalType} hedefi icin antrenman ozellik agirliklari yapilandirilmamis ({WorkoutPlanGenerationOptions.SectionName}:{nameof(WorkoutPlanGenerationOptions.PrimaryAttributeWeightsByGoal)}).");
     }
 
     /// <summary>

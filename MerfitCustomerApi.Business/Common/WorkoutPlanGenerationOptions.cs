@@ -61,7 +61,7 @@ public class WorkoutPlanGenerationOptions
     /// ile uc hedeften birine donusturulur, sonra bu tablodan bir agirlik profili secilir.
     /// Degerler urunun ilk surumu icin baslangic degerleridir; bilimsel olarak dogrulanmis degildir.
     /// </summary>
-    public Dictionary<FitnessGoal, GoalAttributeWeights> AttributeWeightsByGoal { get; set; } = new()
+    public Dictionary<FitnessGoal, GoalAttributeWeights> PrimaryAttributeWeightsByGoal { get; set; } = new()
     {
         [FitnessGoal.BuildMuscle] = new() { Hypertrophy = 65, Strength = 25, Cardio = 10 },
         [FitnessGoal.GetStronger] = new() { Hypertrophy = 25, Strength = 65, Cardio = 10 },
