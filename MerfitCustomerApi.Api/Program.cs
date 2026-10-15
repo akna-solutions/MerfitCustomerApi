@@ -218,8 +218,11 @@ builder.Services.AddScoped<IWorkoutAttributeScoreService, WorkoutAttributeScoreS
 
 // Kisisellestirme altyapisi (FAZ 2): kurallara dayali (AI/ML KULLANMAYAN) antrenman + beslenme
 // programi uretimi, arka planda isleme (worker) ve kisisel plan/durum okuma servisleri.
-// Hedef agirlik profilleri (AttributeWeightsByGoal) hatali/eksikse uygulama baslangicta acik bir
+// Hedef agirlik profilleri (PrimaryAttributeWeightsByGoal) hatali/eksikse uygulama baslangicta acik bir
 // hatayla durur; sessizce yanlis puanlama yapilmaz (bkz. WorkoutPlanGenerationOptionsValidator).
+// Eski "AttributeWeightsByGoal" anahtari (alti ozellikli eski agirliklar) artik okunmaz: sunucuda kalan eski
+// bir ayar dosyasi yeni uc ozellikli agirliklari ezip uygulamanin acilmasini engellemesin diye anahtar
+// yeniden adlandirildi; eski anahtar bulunursa acilista uyari loglanir.
 builder.Services.AddOptions<WorkoutPlanGenerationOptions>()
     .Bind(builder.Configuration.GetSection(WorkoutPlanGenerationOptions.SectionName))
     .ValidateOnStart();
@@ -312,6 +315,13 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+if (builder.Configuration.GetSection($"{WorkoutPlanGenerationOptions.SectionName}:AttributeWeightsByGoal").Exists())
+{
+    // Eski alti ozellikli agirliklar yok sayilir; gecerli agirliklar PrimaryAttributeWeightsByGoal veya kod varsayilanlaridir.
+    app.Logger.LogWarning("WorkoutPlanGeneration:AttributeWeightsByGoal artik kullanilmiyor ve yok sayildi. " +
+        "Sunucudaki ayar dosyasindan bu bolumu kaldirin; agirliklar icin WorkoutPlanGeneration:PrimaryAttributeWeightsByGoal kullanilir.");
+}
 
 if (string.IsNullOrWhiteSpace(resendEmailOptions.ApiKey))
 {

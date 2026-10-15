@@ -6,7 +6,7 @@ using Xunit;
 namespace MerfitCustomerApi.Business.Tests.Personalization;
 
 /// <summary>
-/// Hedef agirlik profillerinin (AttributeWeightsByGoal) dogrulamasini ve appsettings.json'daki
+/// Hedef agirlik profillerinin (PrimaryAttributeWeightsByGoal) dogrulamasini ve appsettings.json'daki
 /// gercek degerlerin gecerli oldugunu dogrular.
 /// </summary>
 public class WorkoutPlanGenerationOptionsValidatorTests
@@ -21,7 +21,7 @@ public class WorkoutPlanGenerationOptionsValidatorTests
         Assert.True(_validator.Validate(null, options).Succeeded);
         foreach (var goal in FitnessGoals.Primary)
         {
-            Assert.Equal(100, options.AttributeWeightsByGoal[goal].Total);
+            Assert.Equal(100, options.PrimaryAttributeWeightsByGoal[goal].Total);
         }
     }
 
@@ -30,7 +30,7 @@ public class WorkoutPlanGenerationOptionsValidatorTests
     {
         var options = new WorkoutPlanGenerationOptions();
         // Toplam yine 100 kalir; yalnizca negatif deger hatasi beklenir.
-        options.AttributeWeightsByGoal[FitnessGoal.BuildMuscle] = new GoalAttributeWeights
+        options.PrimaryAttributeWeightsByGoal[FitnessGoal.BuildMuscle] = new GoalAttributeWeights
         {
             Hypertrophy = 80, Strength = 25, Cardio = -5,
         };
@@ -45,7 +45,7 @@ public class WorkoutPlanGenerationOptionsValidatorTests
     public void Validate_Fails_WhenGoalWeightsDoNotSumToHundred()
     {
         var options = new WorkoutPlanGenerationOptions();
-        options.AttributeWeightsByGoal[FitnessGoal.LoseWeight].Cardio = 35;
+        options.PrimaryAttributeWeightsByGoal[FitnessGoal.LoseWeight].Cardio = 35;
 
         var result = _validator.Validate(null, options);
 
@@ -57,7 +57,7 @@ public class WorkoutPlanGenerationOptionsValidatorTests
     public void Validate_Fails_WhenAPrimaryGoalIsMissing()
     {
         var options = new WorkoutPlanGenerationOptions();
-        options.AttributeWeightsByGoal.Remove(FitnessGoal.GetStronger);
+        options.PrimaryAttributeWeightsByGoal.Remove(FitnessGoal.GetStronger);
 
         var result = _validator.Validate(null, options);
 
@@ -69,10 +69,10 @@ public class WorkoutPlanGenerationOptionsValidatorTests
     public void Validate_IgnoresLegacyGoals_WhichAreNormalizedBeforeScoring()
     {
         var options = new WorkoutPlanGenerationOptions();
-        Assert.False(options.AttributeWeightsByGoal.ContainsKey(FitnessGoal.ImproveEndurance));
+        Assert.False(options.PrimaryAttributeWeightsByGoal.ContainsKey(FitnessGoal.ImproveEndurance));
 
         // Eski bir appsettings'ten kalan hatali eski anahtar uygulamayi durdurmaz.
-        options.AttributeWeightsByGoal[FitnessGoal.MaintainWeight] = new GoalAttributeWeights { Hypertrophy = 10 };
+        options.PrimaryAttributeWeightsByGoal[FitnessGoal.MaintainWeight] = new GoalAttributeWeights { Hypertrophy = 10 };
 
         Assert.True(_validator.Validate(null, options).Succeeded);
     }
@@ -100,7 +100,7 @@ public class WorkoutPlanGenerationOptionsValidatorTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["WorkoutPlanGeneration:AttributeWeightsByGoal:GetStronger:Strength"] = "70",
+                ["WorkoutPlanGeneration:PrimaryAttributeWeightsByGoal:GetStronger:Strength"] = "70",
             })
             .Build();
         var options = new WorkoutPlanGenerationOptions();
@@ -124,12 +124,37 @@ public class WorkoutPlanGenerationOptionsValidatorTests
 
         Assert.True(_validator.Validate(null, options).Succeeded);
 
-        var buildMuscle = options.AttributeWeightsByGoal[FitnessGoal.BuildMuscle];
+        var buildMuscle = options.PrimaryAttributeWeightsByGoal[FitnessGoal.BuildMuscle];
         Assert.Equal((65, 25, 10), (buildMuscle.Hypertrophy, buildMuscle.Strength, buildMuscle.Cardio));
-        var getStronger = options.AttributeWeightsByGoal[FitnessGoal.GetStronger];
+        var getStronger = options.PrimaryAttributeWeightsByGoal[FitnessGoal.GetStronger];
         Assert.Equal((25, 65, 10), (getStronger.Hypertrophy, getStronger.Strength, getStronger.Cardio));
-        var loseWeight = options.AttributeWeightsByGoal[FitnessGoal.LoseWeight];
+        var loseWeight = options.PrimaryAttributeWeightsByGoal[FitnessGoal.LoseWeight];
         Assert.Equal((45, 25, 30), (loseWeight.Hypertrophy, loseWeight.Strength, loseWeight.Cardio));
         Assert.Equal(3, options.CardioSessionsPerWeekByGoal[FitnessGoal.LoseWeight]);
+    }
+
+    [Fact]
+    public void LegacyWeightSection_LeftOnTheServer_IsIgnored_AndStartupValidationPasses()
+    {
+        // Uretimde sunucuda kalan eski ayar dosyasi alti ozellikli eski agirliklari tasiyordu; eski anahtar
+        // yeni agirliklari ezip toplamlari 75/70/55 yaptigi icin uygulama acilmiyordu.
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["WorkoutPlanGeneration:AttributeWeightsByGoal:BuildMuscle:Hypertrophy"] = "50",
+                ["WorkoutPlanGeneration:AttributeWeightsByGoal:BuildMuscle:Strength"] = "20",
+                ["WorkoutPlanGeneration:AttributeWeightsByGoal:BuildMuscle:Cardio"] = "5",
+                ["WorkoutPlanGeneration:AttributeWeightsByGoal:BuildMuscle:Endurance"] = "5",
+                ["WorkoutPlanGeneration:AttributeWeightsByGoal:LoseWeight:Cardio"] = "35",
+                ["WorkoutPlanGeneration:AttributeWeightsByGoal:ImproveFitness:Cardio"] = "25",
+            })
+            .Build();
+        var options = new WorkoutPlanGenerationOptions();
+
+        configuration.GetSection(WorkoutPlanGenerationOptions.SectionName).Bind(options);
+
+        Assert.True(_validator.Validate(null, options).Succeeded);
+        var buildMuscle = options.PrimaryAttributeWeightsByGoal[FitnessGoal.BuildMuscle];
+        Assert.Equal((65, 25, 10), (buildMuscle.Hypertrophy, buildMuscle.Strength, buildMuscle.Cardio));
     }
 }
