@@ -7,17 +7,18 @@ namespace MerfitCustomerApi.Business.Services.Personalization.Generators;
 /// Bir antrenmanin ozellik puanlarindan (WorkoutAttributeScore), kullanicinin hedef agirlik profiline
 /// gore 0-100 arasi hedef uyum puanini (FitScore) hesaplar:
 ///
-///     FitScore = SUM(AttributeScore * GoalWeight) / SUM(GoalWeight)
+///     FitScore = (Hipertrofi * W_h + Kuvvet * W_s + Kardiyo * W_c) / 100
 ///
-/// Alti ozelligin tamami puanlanmissa payda 100 oldugundan bu, SUM(AttributeScore * GoalWeight / 100)
-/// formuluyle birebir aynidir.
+/// Yalnizca uc ana ozellik kullanilir (bkz. <see cref="GoalAttributeWeights"/>); Endurance, Mobility ve
+/// CoreStability puanlari yok sayilir.
 ///
 /// Eksik puan stratejisi:
-/// - Bazi ozellikler puanlanmamissa eksik ozellikler varsayilan bir degerle DOLDURULMAZ; mevcut
-///   ozelliklerin agirliklari yeniden normalize edilir (payda yalnizca puanlanmis ozelliklerin
-///   agirlik toplamidir). Boylece sonuc yine 0-100 araliginda kalir.
-/// - Hic puan kaydi yoksa (veya puanlanmis ozelliklerin hedefteki agirlik toplami 0 ise) FitScore
-///   hesaplanamaz ve null doner; cagiran taraf bu antrenmana hedef uyum katkisi vermez.
+/// - Ana ozelliklerden biri puanlanmamissa 0 kabul edilir; agirliklar yeniden normalize EDILMEZ. Onceki
+///   surumdeki normalizasyon, yalnizca tek bir ozelligi (orn. sadece Hipertrofi = 95) puanlanmis bir
+///   antrenmanin tam puanli antrenmanlarin onune gecmesine yol aciyordu. Eksik puan artik antrenmani
+///   yukseltmez, yalnizca kismi katki verir; admin ekrani uc ana puanin birlikte girilmesini ister.
+/// - Uc ana ozelligin hicbiri puanlanmamissa FitScore hesaplanamaz ve null doner; cagiran taraf bu
+///   antrenmana hedef uyum katkisi vermez (eski kriterlerle siralanir).
 /// </summary>
 public static class WorkoutGoalFitCalculator
 {
@@ -26,15 +27,23 @@ public static class WorkoutGoalFitCalculator
         GoalAttributeWeights weights)
     {
         var weightedSum = 0m;
-        var coveredWeight = 0;
+        var anyPrimaryScored = false;
 
-        foreach (var (attributeType, score) in attributeScores)
+        foreach (var attributeType in GoalAttributeWeights.PrimaryAttributes)
         {
-            var weight = weights.GetWeight(attributeType);
-            weightedSum += score * weight;
-            coveredWeight += weight;
+            if (!attributeScores.TryGetValue(attributeType, out var score))
+            {
+                continue;
+            }
+
+            anyPrimaryScored = true;
+            weightedSum += score * weights.GetWeight(attributeType);
         }
 
-        return coveredWeight == 0 ? null : weightedSum / coveredWeight;
+        return anyPrimaryScored ? weightedSum / GoalAttributeWeights.RequiredTotal : null;
     }
+
+    /// <summary>Uc ana ozelligin tamami puanlanmis mi.</summary>
+    public static bool HasAllPrimaryScores(IReadOnlyDictionary<WorkoutAttributeType, int> attributeScores) =>
+        GoalAttributeWeights.PrimaryAttributes.All(attributeScores.ContainsKey);
 }

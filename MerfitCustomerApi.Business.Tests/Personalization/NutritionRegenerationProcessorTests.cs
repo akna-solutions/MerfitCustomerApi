@@ -30,6 +30,7 @@ public class NutritionRegenerationProcessorTests
     {
         public List<PersonalizationJob> Jobs { get; } = new();
         public List<UserProfile> Profiles { get; } = new();
+        public List<BodyMeasurement> Measurements { get; } = new();
         public List<Food> Foods { get; } = NutritionTestCatalog.Create();
         public List<NutritionGoal> Goals { get; } = new();
         public List<NutritionPlan> Plans { get; } = new();
@@ -45,6 +46,7 @@ public class NutritionRegenerationProcessorTests
         {
             Setup(Jobs);
             Setup(Profiles);
+            Setup(Measurements);
             Setup(Foods);
             Setup(Goals);
             Setup(Plans);

@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Customer.WorkoutPlans;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Domain.Entities;
@@ -42,7 +43,7 @@ public class MyPlanService : IMyPlanService
         {
             Id = plan.Id,
             Name = plan.Name,
-            Goal = plan.Goal?.ToString(),
+            Goal = plan.Goal is null ? null : FitnessGoals.Normalize(plan.Goal.Value).ToString(),
             StartDate = plan.StartDate,
             EndDate = plan.EndDate,
             IsActive = plan.IsActive,
@@ -103,7 +104,10 @@ public class MyPlanService : IMyPlanService
         }
 
         var dayIds = days.Select(d => d.Id).ToList();
-        var workoutIds = days.Select(d => d.WorkoutId).Distinct().ToList();
+        var workoutIds = days.Select(d => d.WorkoutId)
+            .Concat(days.Where(d => d.CardioWorkoutId.HasValue).Select(d => d.CardioWorkoutId!.Value))
+            .Distinct()
+            .ToList();
 
         var workouts = await _unitOfWork.Repository<Workout>()
             .GetQueryable()
@@ -137,6 +141,15 @@ public class MyPlanService : IMyPlanService
                     DurationMin = workout?.DurationMin ?? 0,
                     ImageUrl = workout?.ImageUrl,
                 },
+                CardioFinisher = day.CardioWorkoutId is long cardioId && workouts.TryGetValue(cardioId, out var cardio)
+                    ? new CustomerWorkoutPlanWorkoutDto
+                    {
+                        Id = cardio.Id,
+                        Title = cardio.Title,
+                        DurationMin = cardio.DurationMin,
+                        ImageUrl = cardio.ImageUrl,
+                    }
+                    : null,
                 Exercises = exercisesForDay.Select(pe => new CustomerWorkoutPlanExerciseDto
                 {
                     ExerciseId = pe.ExerciseId,
@@ -144,6 +157,7 @@ public class MyPlanService : IMyPlanService
                     Order = pe.Order,
                     Sets = pe.Sets,
                     Reps = pe.Reps,
+                    RepsMax = pe.RepsMax,
                     RestSeconds = pe.RestSeconds,
                     DurationSeconds = pe.DurationSeconds,
                 }).ToList(),

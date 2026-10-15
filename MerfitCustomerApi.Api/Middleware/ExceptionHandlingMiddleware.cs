@@ -69,6 +69,11 @@ public class ExceptionHandlingMiddleware
                 HttpStatusCode.NotFound,
                 ApiResponse.Fail(notFoundException.Message)),
 
+            // Kullanici onayi gereken hedef uyarisi: istemci Errors icindeki kodla uyari ekranini acar.
+            LowBodyFatConfirmationRequiredException lowBodyFatException => (
+                HttpStatusCode.Conflict,
+                ApiResponse.Fail(lowBodyFatException.Message, new[] { LowBodyFatConfirmationRequiredException.Code })),
+
             ConflictException conflictException => (
                 HttpStatusCode.Conflict,
                 ApiResponse.Fail(conflictException.Message)),

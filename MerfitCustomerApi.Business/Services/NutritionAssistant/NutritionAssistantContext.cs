@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Customer.Nutrition;
 using MerfitCustomerApi.Business.Dtos.Customer.NutritionAssistant;
 using MerfitCustomerApi.Business.Services.Nutrition;
@@ -145,15 +146,11 @@ public sealed class NutritionAssistantContext
 
     private static string N(int value) => value.ToString("N0", Tr);
 
-    private static string GoalLabel(FitnessGoal? goal) => goal switch
+    private static string GoalLabel(FitnessGoal? goal) => goal is null ? "bilinmiyor" : FitnessGoals.Normalize(goal.Value) switch
     {
-        FitnessGoal.LoseWeight => "kilo vermek",
-        FitnessGoal.BuildMuscle => "kas kazanmak",
-        FitnessGoal.MaintainWeight => "kilosunu korumak",
-        FitnessGoal.ImproveEndurance => "dayanıklılığı artırmak",
+        FitnessGoal.LoseWeight => "yağ kaybı",
         FitnessGoal.GetStronger => "güçlenmek",
-        FitnessGoal.ImproveFitness => "genel formu iyileştirmek",
-        _ => "bilinmiyor",
+        _ => "kas geliştirmek",
     };
 
     private static string GenderLabel(Gender? gender) => gender switch

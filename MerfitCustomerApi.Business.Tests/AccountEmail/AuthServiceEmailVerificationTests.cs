@@ -36,7 +36,7 @@ public class AuthServiceEmailVerificationTests
             tokenService.Setup(t => t.GenerateAccessToken(It.IsAny<ApplicationUser>())).Returns(("access", DateTime.UtcNow.AddHours(1)));
             tokenService.Setup(t => t.GenerateRefreshToken()).Returns(() => Guid.NewGuid().ToString("N"));
             var calculator = new Mock<INutritionCalculator>();
-            calculator.Setup(c => c.Calculate(It.IsAny<UserProfile>())).Returns(new NutritionCalculationResult { DailyCalories = 2000 });
+            calculator.Setup(c => c.Calculate(It.IsAny<UserProfile>(), It.IsAny<MerfitCustomerApi.Business.Services.BodyComposition.BodyFatAssessment?>())).Returns(new NutritionCalculationResult { DailyCalories = 2000 });
 
             var accountEmails = new AccountEmailService(Db.Object, Sender, Options.Create(new AccountEmailOptions()), TimeProvider.System, NullLogger<AccountEmailService>.Instance);
             Service = new AuthService(Db.Object, tokenService.Object, calculator.Object, Options.Create(new JwtSettings { RefreshTokenExpirationDays = 30 }), accountEmails, Mock.Of<IGoogleIdTokenValidator>());

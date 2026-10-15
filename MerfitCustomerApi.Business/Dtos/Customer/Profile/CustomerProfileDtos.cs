@@ -29,7 +29,10 @@ public class CustomerProfileResponse
     public decimal Weight { get; set; }
     public decimal TargetWeight { get; set; }
 
-    /// <summary>"LOSE_WEIGHT" | "BUILD_MUSCLE" | "MAINTAIN_WEIGHT" | "IMPROVE_ENDURANCE" | "GET_STRONGER" | "GENERAL_FITNESS".</summary>
+    /// <summary>
+    /// "BUILD_MUSCLE" (Kas Gelistirme) | "GET_STRONGER" (Guclenme) | "LOSE_WEIGHT" (Yag Kaybi). Eski hedefler
+    /// (kiloyu koruma, dayaniklilik, genel fitness) bu uc hedeften birine eslenerek dondurulur.
+    /// </summary>
     public string Goal { get; set; } = string.Empty;
 
     /// <summary>"BEGINNER" | "INTERMEDIATE" | "ADVANCED".</summary>
@@ -142,7 +145,18 @@ public class UpdateProfileRequest
     [Range(20, 400)]
     public decimal? TargetWeight { get; set; }
 
+    /// <summary>
+    /// "BUILD_MUSCLE" | "GET_STRONGER" | "LOSE_WEIGHT". Eski istemcilerin gonderdigi eski kodlar
+    /// (MAINTAIN_WEIGHT, IMPROVE_ENDURANCE, GENERAL_FITNESS) kabul edilir ve ana hedeflere eslenir.
+    /// </summary>
     public string? Goal { get; set; }
+
+    /// <summary>
+    /// Yag Kaybi secilirken yag orani dusuk aralikta gorunuyorsa API 409 ve LOW_BODY_FAT_CONFIRMATION_REQUIRED
+    /// doner. Kullanici uyariyi okuyup "devam et" derse istek bu alan true olarak tekrar gonderilir.
+    /// </summary>
+    public bool? ConfirmLowBodyFatWarning { get; set; }
+
     public string? ExperienceLevel { get; set; }
 
     [Range(5, 240)]

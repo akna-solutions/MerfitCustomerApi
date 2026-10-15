@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Domain.Entities.Enums;
 
 namespace MerfitCustomerApi.Business.Services.Progress;
@@ -10,7 +11,7 @@ namespace MerfitCustomerApi.Business.Services.Progress;
 /// <item>Kas kazanma: deneyime gore ~6 aylik gercekci yagsiz kutle artisi (baslangic %6, orta %3,
 /// ileri %1.5); en az saglikli alt sinir (BMI 18.5).</item>
 /// <item>Guclenme: kas kazanmanin yarisi kadar artis.</item>
-/// <item>Kilo koruma, kondisyon, dayaniklilik: mevcut kilo.</item>
+/// <item>Eski hedefler (kilo koruma, kondisyon, dayaniklilik) once ana hedeflere eslenir (FitnessGoals.Normalize).</item>
 /// </list>
 /// Sonuc 0.5 kg'a yuvarlanir. Boy veya kilo bilinmiyorsa null doner (tahmin yapilmaz).
 /// </summary>
@@ -40,6 +41,7 @@ public static class TargetWeightCalculator
         var heightSquared = heightM * heightM;
         var healthyMin = HealthyBmiMin * heightSquared;
 
+        goal = FitnessGoals.Normalize(goal);
         var target = goal switch
         {
             FitnessGoal.LoseWeight => weight > IdealBmi * heightSquared

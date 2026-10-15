@@ -51,6 +51,7 @@ public class ProfileServiceNutritionPreferenceTests
         unitOfWork.Setup(u => u.Repository<ApplicationUser>()).Returns(MockRepositoryFactory.Create(new List<ApplicationUser> { new() { Id = UserId, Email = "ayse@example.com" } }).Object);
         unitOfWork.Setup(u => u.Repository<UserProfile>()).Returns(MockRepositoryFactory.Create(new List<UserProfile> { profile }).Object);
         unitOfWork.Setup(u => u.Repository<UserGoal>()).Returns(MockRepositoryFactory.Create(new List<UserGoal>()).Object);
+        unitOfWork.Setup(u => u.Repository<GoalHistory>()).Returns(MockRepositoryFactory.Create(new List<GoalHistory>()).Object);
         unitOfWork.Setup(u => u.Repository<BodyMeasurement>()).Returns(MockRepositoryFactory.Create(new List<BodyMeasurement>()).Object);
         unitOfWork.Setup(u => u.Repository<UserPreference>()).Returns(MockRepositoryFactory.Create(new List<UserPreference>()).Object);
         unitOfWork.Setup(u => u.Repository<UserNotificationSetting>()).Returns(MockRepositoryFactory.Create(new List<UserNotificationSetting>()).Object);

@@ -119,6 +119,13 @@ public class NutritionCalculationOptions
         [FitnessGoal.ImproveEndurance] = 0m,
     };
 
+    /// <summary>
+    /// Bu hedeflerde kalori fazlasi yalnizca vucut yag orani biliniyor ve yuksek aralikta degilse uygulanir.
+    /// Guclenme hedefinde kuvvet ve toparlanma icin bakim kalorisi genellikle yeterlidir; her kullaniciya
+    /// otomatik fazla verilmez. Kas Gelistirme'de kontrollu fazla, yag orani yuksek gorunmedikce uygulanir.
+    /// </summary>
+    public List<FitnessGoal> SurplusRequiresKnownBodyFat { get; set; } = new() { FitnessGoal.GetStronger };
+
     /// <summary>Hedefe gore kalori duzeltmesinin mutlak ust siniri (kcal/gun).</summary>
     public Dictionary<FitnessGoal, decimal> GoalCalorieAdjustmentCaps { get; set; } = new()
     {
@@ -130,10 +137,15 @@ public class NutritionCalculationOptions
     /// <summary>Gunluk kalori hedefinin inebilecegi minimum guvenli deger. Hedef ayrica BMR'nin altina inmez.</summary>
     public decimal MinimumDailyCalories { get; set; } = 1200m;
 
-    /// <summary>Hedefe gore referans kilo basina gunluk protein (g/kg).</summary>
+    /// <summary>
+    /// Hedefe gore referans kilo basina gunluk protein (g/kg). Yag Kaybi'nda kalori acigi sirasinda kas
+    /// kutlesini ve hipertrofi antrenmanini korumak icin en yuksek deger kullanilir (sporcular icin onerilen
+    /// 1.6-2.2 g/kg araliginda). Eski hedeflerin degerleri yalnizca geriye donuk konfigurasyon icin durur;
+    /// hesaplama hedefi once ana hedeflerden birine esler.
+    /// </summary>
     public Dictionary<FitnessGoal, decimal> ProteinGramsPerKg { get; set; } = new()
     {
-        [FitnessGoal.LoseWeight] = 1.8m,
+        [FitnessGoal.LoseWeight] = 2.0m,
         [FitnessGoal.BuildMuscle] = 1.8m,
         [FitnessGoal.GetStronger] = 1.7m,
         [FitnessGoal.ImproveEndurance] = 1.4m,

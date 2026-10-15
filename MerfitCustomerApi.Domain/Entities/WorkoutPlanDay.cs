@@ -30,4 +30,11 @@ public class WorkoutPlanDay : BaseEntity
     /// Ayni gun icindeki siralama degeri.
     /// </summary>
     public int Order { get; set; }
+
+    /// <summary>
+    /// Ana direnc antrenmaninin sonuna eklenen kardiyo bolumunun antrenmani (opsiyonel). Kardiyo,
+    /// kullanicinin hedefine gore programa destekleyici bilesen olarak eklenir; ana gun antrenmani
+    /// (<see cref="WorkoutId"/>) her zaman direnc/hipertrofi antrenmanidir. Null ise o gun kardiyo yoktur.
+    /// </summary>
+    public long? CardioWorkoutId { get; set; }
 }

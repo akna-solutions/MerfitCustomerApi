@@ -47,7 +47,12 @@ public class CustomerWorkoutSessionExerciseDto
 
     /// <summary>Hedef set sayisi (antrenman planindan).</summary>
     public int TargetSets { get; set; }
+
+    /// <summary>Hedef tekrar (kisisel planda tekrar araliginin alt siniri).</summary>
     public int? TargetReps { get; set; }
+
+    /// <summary>Tekrar araliginin ust siniri (kisisel plan); aralik yoksa null.</summary>
+    public int? TargetRepsMax { get; set; }
     public int? RestSeconds { get; set; }
     public int? DurationSeconds { get; set; }
     public string? VideoUrl { get; set; }
@@ -67,6 +72,34 @@ public class CustomerWorkoutSessionExerciseDto
 
     /// <summary>Kullanicinin bu egzersizi en son tamamladigi oturumdaki setleri ("Geçen sefer"); hic yoksa null.</summary>
     public CustomerLastPerformanceDto? LastPerformance { get; set; }
+
+    /// <summary>
+    /// Cift progresyon onerisi (bir sonraki hedef): son tamamlanan antrenmana gore agirlik artisi veya
+    /// ayni agirlikla ust tekrar hedefi. Sureye dayali egzersizlerde null.
+    /// </summary>
+    public CustomerProgressionSuggestionDto? Progression { get; set; }
+}
+
+/// <summary>Bir egzersiz icin bir sonraki hedef.</summary>
+public class CustomerProgressionSuggestionDto
+{
+    /// <summary>"start" | "increase_weight" | "keep_weight" | "increase_reps".</summary>
+    public string Action { get; set; } = string.Empty;
+
+    /// <summary>Son antrenmandaki calisma agirligi (kg).</summary>
+    public decimal? PreviousWeightKg { get; set; }
+
+    /// <summary>Onerilen agirlik (kg); vucut agirligi egzersizinde null.</summary>
+    public decimal? SuggestedWeightKg { get; set; }
+
+    /// <summary>Onerilen artis (kg); yalnizca increase_weight.</summary>
+    public decimal? IncreaseKg { get; set; }
+
+    public int TargetRepsMin { get; set; }
+    public int TargetRepsMax { get; set; }
+
+    /// <summary>Kullaniciya gosterilecek kisa metin.</summary>
+    public string Message { get; set; } = string.Empty;
 }
 
 public class CustomerLastPerformanceDto

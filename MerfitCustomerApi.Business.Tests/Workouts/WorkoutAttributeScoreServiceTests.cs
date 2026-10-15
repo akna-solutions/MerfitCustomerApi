@@ -37,24 +37,48 @@ public class WorkoutAttributeScoreServiceTests
     public async Task SetAsync_AddsUpdatesAndRemoves_ToMatchRequest()
     {
         _scores.Add(new WorkoutAttributeScore { Id = 1, WorkoutId = WorkoutId, AttributeType = WorkoutAttributeType.Hypertrophy, Score = 50 });
-        _scores.Add(new WorkoutAttributeScore { Id = 2, WorkoutId = WorkoutId, AttributeType = WorkoutAttributeType.Cardio, Score = 30 });
+        _scores.Add(new WorkoutAttributeScore { Id = 2, WorkoutId = WorkoutId, AttributeType = WorkoutAttributeType.Mobility, Score = 30 });
 
         var result = await _service.SetAsync(
             WorkoutId,
-            Request((WorkoutAttributeType.Hypertrophy, 90), (WorkoutAttributeType.Strength, 75)),
+            Request((WorkoutAttributeType.Hypertrophy, 90), (WorkoutAttributeType.Strength, 75), (WorkoutAttributeType.Cardio, 20)),
             adminUserId: 42);
 
-        Assert.Equal(2, _scores.Count);
+        Assert.Equal(3, _scores.Count);
         var hypertrophy = Assert.Single(_scores, s => s.AttributeType == WorkoutAttributeType.Hypertrophy);
         Assert.Equal(90, hypertrophy.Score);
         Assert.Equal(42, hypertrophy.UpdatedUser);
         var strength = Assert.Single(_scores, s => s.AttributeType == WorkoutAttributeType.Strength);
         Assert.Equal(42, strength.CreatedUser);
-        Assert.DoesNotContain(_scores, s => s.AttributeType == WorkoutAttributeType.Cardio);
+        Assert.DoesNotContain(_scores, s => s.AttributeType == WorkoutAttributeType.Mobility);
 
-        Assert.Equal(new[] { "Hypertrophy", "Strength" }, result.Scores.Select(s => s.AttributeType));
-        Assert.Equal(new[] { "Cardio", "Endurance", "Mobility", "CoreStability" }, result.MissingAttributeTypes);
+        Assert.Equal(new[] { "Hypertrophy", "Strength", "Cardio" }, result.Scores.Select(s => s.AttributeType));
+        Assert.Equal(new[] { "Endurance", "Mobility", "CoreStability" }, result.MissingAttributeTypes);
+        Assert.Empty(result.MissingPrimaryAttributeTypes);
+        Assert.True(result.IsPrimaryComplete);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SetAsync_RejectsPartialPrimaryScores()
+    {
+        var ex = await Assert.ThrowsAsync<AppValidationException>(() =>
+            _service.SetAsync(WorkoutId, Request((WorkoutAttributeType.Hypertrophy, 95), (WorkoutAttributeType.Endurance, 40)), adminUserId: 1));
+
+        Assert.Contains("Strength", ex.Message + string.Join(",", ex.Errors?.SelectMany(e => e.Value) ?? Array.Empty<string>()));
+        Assert.Empty(_scores);
+    }
+
+    [Fact]
+    public async Task SetAsync_AllowsEmptyList_ToClearScores()
+    {
+        _scores.Add(new WorkoutAttributeScore { Id = 1, WorkoutId = WorkoutId, AttributeType = WorkoutAttributeType.Hypertrophy, Score = 50 });
+
+        var result = await _service.SetAsync(WorkoutId, Request(), adminUserId: 1);
+
+        Assert.Empty(_scores);
+        Assert.False(result.IsPrimaryComplete);
+        Assert.Equal(3, result.MissingPrimaryAttributeTypes.Count);
     }
 
     [Theory]

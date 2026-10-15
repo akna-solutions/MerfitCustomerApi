@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Services.BodyComposition;
 using MerfitCustomerApi.Business.Services.Nutrition;
 using MerfitCustomerApi.Domain.Entities;
 
@@ -17,7 +18,11 @@ public interface INutritionCalculator
     /// gostermek zorunda olunan" yerlerde kullanilir. Girdiler tamsa sonuc <see cref="Evaluate"/> ile aynidir.
     /// </summary>
     /// <param name="profile">Hesaplama icin kullanilacak kullanici profili.</param>
-    NutritionCalculationResult Calculate(UserProfile profile);
+    /// <param name="bodyFat">
+    /// Guncel vucut yag orani degerlendirmesi (opsiyonel). Kalori fazlasi/acigi kararinda kullanilir; null veya
+    /// Unknown ise yag oranina bagli kurallar uygulanmaz (eksik veriyle dusuk/yuksek sonucu uydurulmaz).
+    /// </param>
+    NutritionCalculationResult Calculate(UserProfile profile, BodyFatAssessment? bodyFat = null);
 
     /// <summary>
     /// Kati hesaplama: kisisel plan uretimi icin. Kilo, boy, yas, hedef ve aktivite (seviye veya haftalik
@@ -25,5 +30,6 @@ public interface INutritionCalculator
     /// alanlarin listesi doner. Hicbir varsayilan deger kullanilmaz.
     /// </summary>
     /// <param name="profile">Hesaplama icin kullanilacak kullanici profili.</param>
-    NutritionTargetEvaluation Evaluate(UserProfile profile);
+    /// <param name="bodyFat">Guncel vucut yag orani degerlendirmesi (opsiyonel), bkz. <see cref="Calculate"/>.</param>
+    NutritionTargetEvaluation Evaluate(UserProfile profile, BodyFatAssessment? bodyFat = null);
 }

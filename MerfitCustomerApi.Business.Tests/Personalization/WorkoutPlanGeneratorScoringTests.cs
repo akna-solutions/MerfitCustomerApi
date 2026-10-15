@@ -182,18 +182,35 @@ public class WorkoutPlanGeneratorScoringTests
     }
 
     [Fact]
-    public async Task MissingGoal_FallsBackToMaintainWeightProfile()
+    public async Task MissingGoal_FallsBackToBuildMuscleProfile()
     {
         var catalog = new Catalog();
         catalog.Profile(goal: null, trainingDays: 2);
-        catalog.Workout(1); catalog.Scores(1, hypertrophy: 90, strength: 90);
+        catalog.Workout(1); catalog.Scores(1, hypertrophy: 90, strength: 60, cardio: 10);
+        catalog.Workout(2); catalog.Scores(2, hypertrophy: 40, strength: 90, cardio: 10);
+
+        var result = await catalog.CreateGenerator().GenerateAsync(UserId);
+
+        Assert.Equal(FitnessGoal.BuildMuscle, result.Plan.Goal);
+        Assert.Equal(1, result.Days[0].Day.WorkoutId);
+        Assert.StartsWith("Kas Geliştirme", result.Plan.Name);
+    }
+
+    [Theory]
+    [InlineData(FitnessGoal.MaintainWeight)]
+    [InlineData(FitnessGoal.ImproveFitness)]
+    [InlineData(FitnessGoal.ImproveEndurance)]
+    public async Task LegacyGoal_IsGeneratedAsBuildMuscle(FitnessGoal legacy)
+    {
+        var catalog = new Catalog();
+        catalog.Profile(goal: legacy, trainingDays: 2);
+        catalog.Workout(1); catalog.Scores(1, hypertrophy: 90, strength: 60, cardio: 10);
         catalog.Workout(2); catalog.Scores(2, hypertrophy: 10, strength: 10, cardio: 95, endurance: 95);
 
         var result = await catalog.CreateGenerator().GenerateAsync(UserId);
 
-        Assert.Equal(FitnessGoal.MaintainWeight, result.Plan.Goal);
-        // MaintainWeight: Cardio 25 + Endurance 20 agirlikli -> W2 = 46.25, W1 = 27
-        Assert.Equal(2, result.Days[0].Day.WorkoutId);
+        Assert.Equal(FitnessGoal.BuildMuscle, result.Plan.Goal);
+        Assert.All(result.Days, d => Assert.Equal(1L, d.Day.WorkoutId));
     }
 
     [Fact]
@@ -431,17 +448,153 @@ public class WorkoutPlanGeneratorScoringTests
     }
 
     [Fact]
-    public async Task PartiallyScoredWorkout_UsesNormalizedWeights()
+    public async Task PartiallyScoredWorkout_IsNotOverboosted_ByMissingScores()
     {
         var catalog = new Catalog();
         catalog.Profile(goal: FitnessGoal.BuildMuscle, trainingDays: 2);
-        // Yalnizca Hypertrophy=80 -> normalize FitScore 80; tam puanli W2 -> 50*0.5+... = 59
-        catalog.Workout(1); catalog.Score(1, WorkoutAttributeType.Hypertrophy, 80);
-        catalog.Workout(2); catalog.Scores(2, hypertrophy: 70, strength: 70, cardio: 30, endurance: 30, mobility: 30, coreStability: 30);
+        // Yalnizca Hypertrophy=90 -> FitScore 58.5 (eksikler 0); tam puanli W2 -> 80*65+75*25+20*10 = 72.75
+        catalog.Workout(1); catalog.Score(1, WorkoutAttributeType.Hypertrophy, 90);
+        catalog.Workout(2); catalog.Scores(2, hypertrophy: 80, strength: 75, cardio: 20);
+
+        var picks = await catalog.GeneratePickedWorkoutIdsAsync();
+
+        Assert.Equal(new long[] { 2, 1 }, picks);
+    }
+
+    [Fact]
+    public async Task SecondaryAttributes_DoNotAffectRanking()
+    {
+        var catalog = new Catalog();
+        catalog.Profile(goal: FitnessGoal.LoseWeight, trainingDays: 2);
+        catalog.Workout(1); catalog.Scores(1, hypertrophy: 70, strength: 60, cardio: 40);
+        catalog.Workout(2); catalog.Scores(2, hypertrophy: 60, strength: 60, cardio: 40, endurance: 100, mobility: 100, coreStability: 100);
 
         var picks = await catalog.GeneratePickedWorkoutIdsAsync();
 
         Assert.Equal(1L, picks[0]);
+    }
+
+    [Fact]
+    public async Task LoseWeight_KeepsResistanceDays_AndAddsCardioFinishers()
+    {
+        var catalog = new Catalog();
+        catalog.Profile(goal: FitnessGoal.LoseWeight, trainingDays: 3, durationMin: 60);
+        catalog.Workout(1, durationMin: 40); catalog.Scores(1, hypertrophy: 80, strength: 60, cardio: 30);
+        catalog.Workout(2, durationMin: 40); catalog.Scores(2, hypertrophy: 70, strength: 70, cardio: 30);
+        catalog.Workout(3, durationMin: 40); catalog.Scores(3, hypertrophy: 75, strength: 50, cardio: 20);
+        catalog.Workout(4, durationMin: 20); catalog.Scores(4, hypertrophy: 10, strength: 10, cardio: 95);
+        catalog.Workout(5, durationMin: 15); catalog.Scores(5, hypertrophy: 15, strength: 10, cardio: 90);
+
+        var result = await catalog.CreateGenerator().GenerateAsync(UserId);
+
+        // Program yalnizca kardiyodan olusmaz: ana gunler direnc antrenmanidir.
+        Assert.All(result.Days, d => Assert.Contains(d.Day.WorkoutId, new long[] { 1, 2, 3 }));
+        // Yag kaybinda haftada 3 kardiyo: her gun antrenman sonu kardiyo.
+        Assert.All(result.Days, d => Assert.Contains(d.Day.CardioWorkoutId!.Value, new long[] { 4, 5 }));
+        Assert.Equal(FitnessGoal.LoseWeight, result.Plan.Goal);
+        Assert.Contains("kardiyo", result.Summary);
+    }
+
+    [Fact]
+    public async Task BuildMuscle_AddsSingleCardioFinisher()
+    {
+        var catalog = new Catalog();
+        catalog.Profile(goal: FitnessGoal.BuildMuscle, trainingDays: 3, durationMin: 60);
+        catalog.Workout(1, durationMin: 40); catalog.Scores(1, hypertrophy: 90, strength: 60, cardio: 10);
+        catalog.Workout(2, durationMin: 40); catalog.Scores(2, hypertrophy: 85, strength: 60, cardio: 10);
+        catalog.Workout(3, durationMin: 40); catalog.Scores(3, hypertrophy: 80, strength: 60, cardio: 10);
+        catalog.Workout(4, durationMin: 15); catalog.Scores(4, hypertrophy: 10, strength: 10, cardio: 95);
+
+        var result = await catalog.CreateGenerator().GenerateAsync(UserId);
+
+        Assert.Single(result.Days, d => d.Day.CardioWorkoutId == 4);
+        Assert.DoesNotContain(result.Days, d => d.Day.WorkoutId == 4);
+    }
+
+    [Fact]
+    public async Task CardioFinisher_RespectsDurationBudget_AndEquipment()
+    {
+        var catalog = new Catalog();
+        catalog.Profile(goal: FitnessGoal.LoseWeight, trainingDays: 2, durationMin: 45);
+        catalog.Workout(1, durationMin: 45); catalog.Scores(1, hypertrophy: 80, strength: 60, cardio: 20);
+        catalog.Workout(2, durationMin: 35); catalog.Scores(2, hypertrophy: 70, strength: 60, cardio: 20);
+        // Butce: 45+15 = 60. W1 gununde 15 dk, W2 gununde 25 dk kalir.
+        catalog.Workout(3, durationMin: 25); catalog.Scores(3, hypertrophy: 5, strength: 5, cardio: 95);
+        // Ekipmani kullanicida olmayan kardiyo hic secilmez.
+        catalog.Workout(4, durationMin: 10); catalog.Scores(4, hypertrophy: 5, strength: 5, cardio: 99);
+        catalog.RequireEquipment(4, equipmentId: 77);
+
+        var result = await catalog.CreateGenerator().GenerateAsync(UserId);
+
+        var day1 = Assert.Single(result.Days, d => d.Day.WorkoutId == 1);
+        var day2 = Assert.Single(result.Days, d => d.Day.WorkoutId == 2);
+        Assert.Null(day1.Day.CardioWorkoutId);
+        Assert.Equal(3L, day2.Day.CardioWorkoutId);
+    }
+
+    [Fact]
+    public async Task MixedWorkout_CountsAsCardioComponent()
+    {
+        var catalog = new Catalog();
+        catalog.Profile(goal: FitnessGoal.BuildMuscle, trainingDays: 2, durationMin: 60);
+        // Karma antrenman: Kardiyo 60 (esik), ama Hipertrofi daha yuksek -> direnc gunu.
+        catalog.Workout(1, durationMin: 40); catalog.Scores(1, hypertrophy: 90, strength: 60, cardio: 60);
+        catalog.Workout(2, durationMin: 40); catalog.Scores(2, hypertrophy: 50, strength: 40, cardio: 10);
+        catalog.Workout(3, durationMin: 15); catalog.Scores(3, hypertrophy: 5, strength: 5, cardio: 95);
+
+        var result = await catalog.CreateGenerator().GenerateAsync(UserId);
+
+        Assert.Equal(1L, result.Days[0].Day.WorkoutId);
+        Assert.All(result.Days, d => Assert.Null(d.Day.CardioWorkoutId));
+    }
+
+    [Fact]
+    public async Task CardioOnlyCatalog_StillProducesPlan()
+    {
+        var catalog = new Catalog();
+        catalog.Profile(goal: FitnessGoal.LoseWeight, trainingDays: 2);
+        catalog.Workout(1); catalog.Scores(1, hypertrophy: 10, strength: 10, cardio: 90);
+
+        var result = await catalog.CreateGenerator().GenerateAsync(UserId);
+
+        Assert.All(result.Days, d => Assert.Equal(1L, d.Day.WorkoutId));
+    }
+
+    [Fact]
+    public async Task SameMuscleGroup_OnCalendarAdjacentDays_GetsRecoveryPenalty()
+    {
+        var catalog = new Catalog();
+        // 4 gun: Pzt, Sal, Per, Cmt. Pzt-Sal ardisik.
+        catalog.Profile(goal: FitnessGoal.BuildMuscle, trainingDays: 4);
+        catalog.Workout(1, muscleGroupId: 10); catalog.Scores(1, hypertrophy: 100, strength: 100, cardio: 0);
+        catalog.Workout(2, muscleGroupId: 10); catalog.Scores(2, hypertrophy: 100, strength: 60, cardio: 0);
+        catalog.Workout(3, muscleGroupId: 20); catalog.Scores(3, hypertrophy: 40, strength: 40, cardio: 0);
+
+        var picks = await catalog.GeneratePickedWorkoutIdsAsync(new WorkoutPlanGenerationOptions
+        {
+            ConsecutiveMuscleGroupPenaltyScore = 0,
+            AdjacentDayMuscleGroupPenaltyScore = 30,
+        });
+
+        // W2 (FitScore 80 -> 50 + 32 = 82) Sali gunu ayni kas grubu + ardisik gun: 82 - 30 = 52 < W3 (50 + 14.4).
+        Assert.Equal(3L, picks[1]);
+    }
+
+    [Theory]
+    [InlineData(FitnessGoal.BuildMuscle, 8, 12)]
+    [InlineData(FitnessGoal.GetStronger, 3, 6)]
+    [InlineData(FitnessGoal.LoseWeight, 10, 15)]
+    public async Task PlanExercises_CarryRepRange_ForDoubleProgression(FitnessGoal goal, int min, int max)
+    {
+        var catalog = new Catalog();
+        catalog.Profile(goal: goal, trainingDays: 2);
+        catalog.Workout(1); catalog.Scores(1, hypertrophy: 80, strength: 80, cardio: 10);
+
+        var result = await catalog.CreateGenerator().GenerateAsync(UserId);
+
+        var exercise = result.Days[0].Exercises[0];
+        Assert.Equal(min, exercise.Reps);
+        Assert.Equal(max, exercise.RepsMax);
     }
 
     [Fact]

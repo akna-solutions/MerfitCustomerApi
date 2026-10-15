@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using MerfitCustomerApi.Business.Services.BodyComposition;
 
 namespace MerfitCustomerApi.Business.Dtos.Auth;
 
@@ -56,9 +57,33 @@ public abstract class AccountProfileRequest
     public decimal? Weight { get; set; }
 
     /// <summary>
-    /// lose_weight | build_muscle | get_stronger | improve_fitness | maintain_weight | improve_endurance (GoalStep).
+    /// build_muscle (Kas Gelistirme) | get_stronger (Guclenme) | lose_weight (Yag Kaybi) (GoalStep). Eski
+    /// istemcilerin gonderdigi improve_fitness | maintain_weight | improve_endurance kabul edilir ve
+    /// Kas Gelistirme'ye eslenir.
     /// </summary>
     public string? Goal { get; set; }
+
+    /// <summary>Opsiyonel: kullanicinin bildigi vucut yag orani (%), BodyStep.</summary>
+    [Range(BodyMeasurementLimits.MinBodyFatPercentage, BodyMeasurementLimits.MaxBodyFatPercentage, ErrorMessage = "Vücut yağ oranı %2-75 arasında olmalıdır.")]
+    public decimal? BodyFatPercentage { get; set; }
+
+    /// <summary>Opsiyonel: boyun cevresi (cm), yag orani tahmini icin.</summary>
+    [Range(BodyMeasurementLimits.MinNeckCm, BodyMeasurementLimits.MaxNeckCm, ErrorMessage = "Boyun çevresi 20-80 cm arasında olmalıdır.")]
+    public decimal? NeckCm { get; set; }
+
+    /// <summary>Opsiyonel: bel cevresi (cm), yag orani tahmini icin.</summary>
+    [Range(BodyMeasurementLimits.MinWaistCm, BodyMeasurementLimits.MaxWaistCm, ErrorMessage = "Bel çevresi 40-250 cm arasında olmalıdır.")]
+    public decimal? WaistCm { get; set; }
+
+    /// <summary>Opsiyonel: kalca cevresi (cm), kadinlarda yag orani tahmini icin.</summary>
+    [Range(BodyMeasurementLimits.MinHipCm, BodyMeasurementLimits.MaxHipCm, ErrorMessage = "Kalça çevresi 50-250 cm arasında olmalıdır.")]
+    public decimal? HipCm { get; set; }
+
+    /// <summary>
+    /// Yag Kaybi secilip olcumlere gore yag orani dusuk araliktaysa kayit 409 (LOW_BODY_FAT_CONFIRMATION_REQUIRED)
+    /// ile reddedilir; kullanici uyariyi onaylarsa istek bu alan true olarak tekrar gonderilir.
+    /// </summary>
+    public bool? ConfirmLowBodyFatWarning { get; set; }
 
     /// <summary>sedentary | light | moderate | active | athlete (ActivityStep).</summary>
     public string? ActivityLevel { get; set; }

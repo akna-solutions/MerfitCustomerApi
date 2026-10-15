@@ -96,7 +96,7 @@ public class NutritionAssistantServiceTests
         Assert.Contains("protein 65 g", request.Context);
         Assert.Contains("Kalan (hedef - kaydedilen, negatifse aşım): 640 kcal, protein 65 g", request.Context);
         Assert.Contains("Alerjiler: süt", request.Context);
-        Assert.Contains("hedef kas kazanmak", request.Context);
+        Assert.Contains("hedef kas geliştirmek", request.Context);
         Assert.Contains("Kaydı olmayan öğünler: Akşam Yemeği", request.Context);
         Assert.Contains("bugün, kullanıcının yerel saati 19:30", request.Context);
         Assert.DoesNotContain("Yılmaz", request.Context); // soyadi gerekmiyor

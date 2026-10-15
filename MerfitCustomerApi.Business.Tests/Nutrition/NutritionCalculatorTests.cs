@@ -15,8 +15,9 @@ public class NutritionCalculatorTests
 {
     private static readonly NutritionCalculator Calculator = new(Options.Create(new NutritionCalculationOptions()));
 
+    // Guclenme, yag orani bilinmedikce kalori fazlasi almaz: bakim kalorisi referansi olarak kullanilir.
     private static UserProfile Profile(
-        FitnessGoal? goal = FitnessGoal.MaintainWeight,
+        FitnessGoal? goal = FitnessGoal.GetStronger,
         decimal? weight = 80m,
         decimal? height = 180m,
         int? age = 30,
@@ -57,7 +58,7 @@ public class NutritionCalculatorTests
     [Fact]
     public void Goals_ProduceDirectionallyCorrect_AndConservativeTargets()
     {
-        var maintain = Targets(Profile(FitnessGoal.MaintainWeight));
+        var maintain = Targets(Profile(FitnessGoal.GetStronger));
         var lose = Targets(Profile(FitnessGoal.LoseWeight));
         var muscle = Targets(Profile(FitnessGoal.BuildMuscle));
 
@@ -70,7 +71,7 @@ public class NutritionCalculatorTests
 
         // Kilo verirken protein, korumadan daha yuksek (kas kaybini sinirlamak icin).
         Assert.True(lose.ProteinTarget > maintain.ProteinTarget);
-        Assert.Equal(Math.Round(1.8m * 80m), lose.ProteinTarget);
+        Assert.Equal(Math.Round(2.0m * 80m), lose.ProteinTarget);
     }
 
     [Fact]
@@ -127,7 +128,7 @@ public class NutritionCalculatorTests
         // 170 cm, 140 kg (VKI ~48): protein 27 VKI'deki kiloya gore (~78 kg) hesaplanir.
         var result = Targets(Profile(FitnessGoal.LoseWeight, weight: 140m, height: 170m));
 
-        Assert.Equal(Math.Round(1.8m * 27m * 1.7m * 1.7m), result.ProteinTarget);
+        Assert.Equal(Math.Round(2.0m * 27m * 1.7m * 1.7m), result.ProteinTarget);
     }
 
     [Fact]

@@ -27,9 +27,25 @@ public class BodyMeasurement : BaseEntity
     public decimal? WeightKg { get; set; }
 
     /// <summary>
-    /// Vucut yag orani (yuzde).
+    /// Kullanicinin girdigi veya bir cihazla (tarti, DEXA vb.) olculmus vucut yag orani (yuzde).
+    /// Cevre olcumlerinden hesaplanan tahmin buraya YAZILMAZ; bkz. <see cref="EstimatedBodyFatPercentage"/>.
     /// </summary>
     public decimal? BodyFatPercentage { get; set; }
+
+    /// <summary>
+    /// Bu olcumdeki cevre degerlerinden (boyun, bel, kalca) ve profildeki boy/cinsiyetten hesaplanan
+    /// tahmini vucut yag orani (yuzde). Gerekli olcumler yoksa null. Olcum aninda hesaplanip saklanir;
+    /// boy sonradan degisse de gecmis kayit degismez.
+    /// </summary>
+    public decimal? EstimatedBodyFatPercentage { get; set; }
+
+    /// <summary>Tahmini yag oraninin hesaplandigi yontem (orn. "UsNavy"); tahmin yoksa null.</summary>
+    public string? BodyFatEstimationMethod { get; set; }
+
+    /// <summary>
+    /// Boyun cevresi (santimetre). Cevre olcumlerinden yag orani tahmini (US Navy yontemi) icin gereklidir.
+    /// </summary>
+    public decimal? NeckCm { get; set; }
 
     /// <summary>
     /// Vucut kitle indeksi.

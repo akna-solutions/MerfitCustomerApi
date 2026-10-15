@@ -3,6 +3,7 @@ using MerfitCustomerApi.Business.Services.Notifications.Engine;
 using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Auth;
+using MerfitCustomerApi.Business.Services.BodyComposition;
 using MerfitCustomerApi.Business.Services.Dashboard;
 using MerfitCustomerApi.Business.Services.Email;
 using MerfitCustomerApi.Business.Services.Equipment;
@@ -93,6 +94,11 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 // (sonradan eksik NutritionGoal olusturma) tarafindan kullanilir.
 builder.Services.Configure<NutritionCalculationOptions>(builder.Configuration.GetSection(NutritionCalculationOptions.SectionName));
 builder.Services.AddScoped<INutritionCalculator, NutritionCalculator>();
+
+// Vucut olcumleri ve yag orani degerlendirmesi (yas/cinsiyete gore araliklar, olcum gecerlilik suresi).
+builder.Services.Configure<BodyCompositionOptions>(builder.Configuration.GetSection(BodyCompositionOptions.SectionName));
+builder.Services.Configure<ProgressiveOverloadOptions>(builder.Configuration.GetSection(ProgressiveOverloadOptions.SectionName));
+builder.Services.AddScoped<IBodyCompositionService, BodyCompositionService>();
 
 // MerfitNativeApp (mobil musteri uygulamasi) icin musteri-yuzlu servisler.
 builder.Services.AddScoped<IWorkoutService, WorkoutService>();

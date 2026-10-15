@@ -9,7 +9,7 @@ public class CustomerWorkoutPlanDto
     public long Id { get; set; }
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>"LoseWeight" | "BuildMuscle" | "GetStronger" | "ImproveFitness" | "MaintainWeight" | "ImproveEndurance"</summary>
+    /// <summary>"LoseWeight" | "BuildMuscle" | "GetStronger". Eski hedeflerle uretilmis planlar da bu uc degerden biriyle doner.</summary>
     public string? Goal { get; set; }
 
     public DateTime StartDate { get; set; }
@@ -32,6 +32,12 @@ public class CustomerWorkoutPlanDayDto
 
     public CustomerWorkoutPlanWorkoutDto Workout { get; set; } = new();
     public List<CustomerWorkoutPlanExerciseDto> Exercises { get; set; } = new();
+
+    /// <summary>
+    /// Ana antrenmandan sonra yapilacak kisa kardiyo (antrenman sonu kardiyo); yoksa null. Ayri bir
+    /// katalog antrenmani olarak baslatilir (WorkoutId ile, plan gunu olmadan).
+    /// </summary>
+    public CustomerWorkoutPlanWorkoutDto? CardioFinisher { get; set; }
 }
 
 public class CustomerWorkoutPlanWorkoutDto
@@ -48,7 +54,13 @@ public class CustomerWorkoutPlanExerciseDto
     public string Name { get; set; } = string.Empty;
     public int Order { get; set; }
     public int Sets { get; set; }
+
+    /// <summary>Hedef tekrar; tekrar araligi varsa alt sinir.</summary>
     public int? Reps { get; set; }
+
+    /// <summary>Tekrar araliginin ust siniri (orn. 8-12 icin 12); aralik yoksa null.</summary>
+    public int? RepsMax { get; set; }
+
     public int? RestSeconds { get; set; }
     public int? DurationSeconds { get; set; }
 }

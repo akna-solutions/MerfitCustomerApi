@@ -8,7 +8,7 @@ public class CustomerProgressResponse
 {
     public bool HasCompletedFirstWorkout { get; set; }
 
-    /// <summary>"lose_weight" | "build_muscle" | "get_stronger" | "improve_fitness" | "maintain_weight" | "improve_endurance".</summary>
+    /// <summary>"build_muscle" | "get_stronger" | "lose_weight" (eski hedefler bunlara eslenir).</summary>
     public string GoalType { get; set; } = string.Empty;
     public string GoalLabel { get; set; } = string.Empty;
 
@@ -21,10 +21,10 @@ public class CustomerProgressResponse
     /// <summary>"lose" | "gain" | "maintain": hedef kiloya ulasmak icin kilonun gitmesi gereken yon.</summary>
     public string WeightDirection { get; set; } = "maintain";
 
-    /// <summary>improve_fitness/improve_endurance icin - bu haftaki tamamlanan antrenman sayisi.</summary>
+    /// <summary>Eski improve_fitness/improve_endurance hedefleri icindi; artik her zaman null.</summary>
     public int? WorkoutsCompleted { get; set; }
 
-    /// <summary>improve_fitness/improve_endurance icin - haftalik antrenman hedefi (profilden).</summary>
+    /// <summary>Eski improve_fitness/improve_endurance hedefleri icindi; artik her zaman null.</summary>
     public int? WorkoutsGoal { get; set; }
 
     public decimal CurrentWeight { get; set; }
@@ -53,6 +53,12 @@ public class CustomerProgressResponse
     public List<bool> WeeklyWorkouts { get; set; } = new();
 
     public List<CustomerWeightPointDto> WeightHistory { get; set; } = new();
+
+    /// <summary>Secilen araliktaki yag orani olcumleri; tahmini olanlar IsEstimated=true.</summary>
+    public List<CustomerBodyMetricPointDto> BodyFatHistory { get; set; } = new();
+
+    /// <summary>Secilen araliktaki bel cevresi olcumleri (cm).</summary>
+    public List<CustomerBodyMetricPointDto> WaistHistory { get; set; } = new();
     public List<CustomerBodyMetricDto> BodyMetrics { get; set; } = new();
     public List<CustomerRecentActivityDto> RecentActivity { get; set; } = new();
 
@@ -86,6 +92,17 @@ public class CustomerWeightLogResponse
     public string Date { get; set; } = string.Empty;
     public decimal WeightKg { get; set; }
     public decimal? TargetWeight { get; set; }
+}
+
+/// <summary>Kilo disindaki bir vucut olcumu serisinin tek noktasi.</summary>
+public class CustomerBodyMetricPointDto
+{
+    public string Date { get; set; } = string.Empty;
+    public string IsoDate { get; set; } = string.Empty;
+    public decimal Value { get; set; }
+
+    /// <summary>Deger cevre olcumlerinden hesaplanan tahminse true.</summary>
+    public bool IsEstimated { get; set; }
 }
 
 public class CustomerBodyMetricDto

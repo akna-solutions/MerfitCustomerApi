@@ -1,5 +1,6 @@
 using System.Globalization;
 using MerfitCustomerApi.Business.Common;
+using MerfitCustomerApi.Business.Services.BodyComposition;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Nutrition;
 using MerfitCustomerApi.Business.Services.Personalization.Models;
@@ -97,13 +98,16 @@ public class NutritionPlanGenerator : INutritionPlanGenerator
     private readonly INutritionCalculator _nutritionCalculator;
     private readonly NutritionPlanGenerationOptions _options;
     private readonly ILogger<NutritionPlanGenerator> _logger;
+    private readonly BodyCompositionOptions _bodyCompositionOptions;
 
     public NutritionPlanGenerator(
         IUnitOfWork unitOfWork,
         INutritionCalculator nutritionCalculator,
         IOptions<NutritionPlanGenerationOptions> options,
-        ILogger<NutritionPlanGenerator> logger)
+        ILogger<NutritionPlanGenerator> logger,
+        IOptions<BodyCompositionOptions>? bodyCompositionOptions = null)
     {
+        _bodyCompositionOptions = bodyCompositionOptions?.Value ?? new BodyCompositionOptions();
         _unitOfWork = unitOfWork;
         _nutritionCalculator = nutritionCalculator;
         _options = options.Value;
@@ -119,7 +123,14 @@ public class NutritionPlanGenerator : INutritionPlanGenerator
             throw new NotFoundException(nameof(UserProfile), userId);
         }
 
-        var evaluation = _nutritionCalculator.Evaluate(profile);
+        // Hedef ve vucut kompozisyonu birlikte degerlendirilir: yag orani yuksekse kalori fazlasi, Yag Kaybi'nda
+        // dusukse kalori acigi uygulanmaz (bkz. NutritionCalculator). Degerlendirme her uretimde sunucuda yapilir.
+        var measurements = await _unitOfWork.Repository<BodyMeasurement>()
+            .GetQueryable()
+            .Where(m => m.UserId == userId)
+            .ToListAsync(cancellationToken);
+        var bodyFat = BodyFatAssessor.Assess(profile, measurements, DateTime.UtcNow, _bodyCompositionOptions);
+        var evaluation = _nutritionCalculator.Evaluate(profile, bodyFat);
         if (!evaluation.IsComplete)
         {
             throw new PersonalizationGenerationException(
@@ -137,7 +148,7 @@ public class NutritionPlanGenerator : INutritionPlanGenerator
             userId, catalog.Foods.Count, catalog.TotalCount);
 
         var dailyTarget = new MacroTotals(targets.DailyCalories, targets.ProteinTarget, targets.CarbsTarget, targets.FatTarget);
-        var weights = ResolveScoringWeights(profile.Goal);
+        var weights = ResolveScoringWeights(FitnessGoals.Normalize(profile.Goal));
         foreach (var candidate in catalog.Foods)
         {
             candidate.GoalScore = ScoreForGoal(candidate, weights);
@@ -475,7 +486,7 @@ public class NutritionPlanGenerator : INutritionPlanGenerator
             return weights;
         }
 
-        return _options.GoalScoringWeights.TryGetValue(FitnessGoal.MaintainWeight, out var fallback)
+        return _options.GoalScoringWeights.TryGetValue(FitnessGoals.Default, out var fallback)
             ? fallback
             : new FoodScoringWeights();
     }
@@ -851,15 +862,11 @@ public class NutritionPlanGenerator : INutritionPlanGenerator
         return string.Join(" ", parts);
     }
 
-    private static string GoalFocus(FitnessGoal? goal) => goal switch
+    private static string GoalFocus(FitnessGoal? goal) => goal is null ? string.Empty : FitnessGoals.Normalize(goal.Value) switch
     {
-        FitnessGoal.LoseWeight => "Kilo verme hedefin için proteini ve lifi yüksek, enerji yoğunluğu düşük besinler önceliklendirildi.",
-        FitnessGoal.BuildMuscle => "Kas kazanımı hedefin için protein ve karbonhidratı yüksek besinler önceliklendirildi.",
-        FitnessGoal.GetStronger => "Güçlenme hedefin için protein ağırlıklı, yeterli karbonhidratlı besinler önceliklendirildi.",
-        FitnessGoal.ImproveEndurance => "Dayanıklılık hedefin için karbonhidrat ağırlıklı besinler önceliklendirildi.",
-        FitnessGoal.MaintainWeight => "Kilonu koruma hedefin için dengeli ve lifli besinler önceliklendirildi.",
-        FitnessGoal.ImproveFitness => "Genel kondisyon hedefin için dengeli, proteini yeterli besinler önceliklendirildi.",
-        _ => string.Empty,
+        FitnessGoal.LoseWeight => "Yağ kaybı hedefin için hipertrofi antrenmanını destekleyecek kadar proteinli, lifi yüksek ve enerji yoğunluğu düşük besinler önceliklendirildi.",
+        FitnessGoal.GetStronger => "Güçlenme hedefin için kuvvet antrenmanını ve toparlanmayı destekleyen protein ağırlıklı, yeterli karbonhidratlı besinler önceliklendirildi.",
+        _ => "Kas geliştirme hedefin için protein ve karbonhidratı yüksek besinler önceliklendirildi.",
     };
 
     private static string Truncate(string value, int maxLength) =>

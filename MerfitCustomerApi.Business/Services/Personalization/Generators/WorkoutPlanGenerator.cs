@@ -25,7 +25,10 @@ namespace MerfitCustomerApi.Business.Services.Personalization.Generators;
 ///    bkz. WorkoutGoalFitCalculator); gun atarken ayrica tekrar-onleme (repeat) ve kas grubu
 ///    dengesi (consecutive muscle group) cezalari uygulanir.
 /// 3) Haftalik gun sayisina gore sabit (deterministik) DayOfWeek deseni kullanilarak her gune
-///    en yuksek skorlu, henuz kullanilmamis/uygun aday atanir.
+///    en yuksek skorlu, henuz kullanilmamis/uygun direnc antrenmani atanir (kardiyo agirlikli
+///    antrenmanlar ana gunlere girmez). Takvimde ardisik gunlerde ayni kas grubu ek ceza alir.
+/// 3b) Hedefin haftalik kardiyo sayisina gore bazi gunlere, sure butcesi elverdikce antrenman sonu
+///    kardiyo (WorkoutPlanDay.CardioWorkoutId) eklenir. Kardiyo bir hedef degil, bilesendir.
 /// 4) Her gunun Workout'undaki WorkoutExercise katalog satirlarindan, kullanicinin hedef/deneyim
 ///    kombinasyonuna gore set/tekrar/dinlenme degerleri hesaplanarak WorkoutPlanExercise uretilir.
 ///
@@ -61,7 +64,9 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
 
         var activeGoal = await _unitOfWork.Repository<UserGoal>()
             .FirstOrDefaultAsync(g => g.UserId == userId && g.IsActive, cancellationToken);
-        var goalType = activeGoal?.GoalType ?? profile.Goal ?? FitnessGoal.MaintainWeight;
+        // Eski hedefler (MaintainWeight, ImproveFitness, ImproveEndurance) uc ana hedeften birine
+        // donusturulur; hedef yoksa varsayilan Kas Gelistirme.
+        var goalType = FitnessGoals.Normalize(activeGoal?.GoalType ?? profile.Goal);
         var goalWeights = ResolveGoalWeights(goalType);
         var experience = profile.ExperienceLevel ?? ExperienceLevel.Beginner;
         var targetDifficulty = MapExperienceToDifficulty(experience);
@@ -166,9 +171,28 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         }
 
         // Skorlama (deterministik matematiksel kurallar; ML/AI YOK).
-        var fitScores = await CalculateGoalFitScoresAsync(eligible, goalType, goalWeights, cancellationToken);
-        var scored = eligible
-            .Select(w => new ScoredWorkout(w, BaseScore(w, durationPreference, targetDifficulty, fitScores[w.Id])))
+        var attributeProfiles = await CalculateAttributeProfilesAsync(eligible, goalType, goalWeights, cancellationToken);
+
+        // Ana gunler direnc antrenmanidir: kardiyo agirlikli antrenmanlar yalnizca antrenman sonu kardiyo
+        // olarak kullanilir, boylece hicbir hedefte program yalnizca kardiyodan olusmaz.
+        var mainPool = eligible;
+        if (_options.ExcludeCardioDominantFromMainDays)
+        {
+            var resistance = eligible.Where(w => !attributeProfiles[w.Id].IsCardioDominant).ToList();
+            if (resistance.Count > 0)
+            {
+                mainPool = resistance;
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Kullanici {UserId} icin uygun direnc antrenmani bulunamadi; kardiyo agirlikli antrenmanlar ana gunlerde kullanilacak.",
+                    userId);
+            }
+        }
+
+        var scored = mainPool
+            .Select(w => new ScoredWorkout(w, BaseScore(w, durationPreference, targetDifficulty, attributeProfiles[w.Id].FitScore)))
             .OrderByDescending(s => s.Score)
             .ThenBy(s => s.Workout.Id) // esit skorda deterministik tie-break
             .ToList();
@@ -184,12 +208,15 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         var days = new List<WorkoutPlanDayResult>();
         var usedWorkoutIds = new List<long>();
         long? previousMuscleGroupId = null;
+        DayOfWeek? previousDay = null;
 
         foreach (var dayOfWeek in dayPattern)
         {
-            var pick = SelectWorkoutForDay(scored, usedWorkoutIds, previousMuscleGroupId);
+            var isAdjacentDay = previousDay is not null && ((int)dayOfWeek - (int)previousDay.Value + 7) % 7 == 1;
+            var pick = SelectWorkoutForDay(scored, usedWorkoutIds, previousMuscleGroupId, isAdjacentDay);
             usedWorkoutIds.Add(pick.Id);
             previousMuscleGroupId = pick.MuscleGroupId;
+            previousDay = dayOfWeek;
 
             var exercisesForWorkout = workoutExercisesByWorkout
                 .Where(we => we.WorkoutId == pick.Id)
@@ -213,7 +240,9 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             });
         }
 
-        var summary = BuildSummary(experience, trainingDays, ownedEquipmentIds.Count);
+        var cardioDays = AssignCardioFinishers(days, eligible, attributeProfiles, goalType, maxDuration);
+
+        var summary = BuildSummary(experience, trainingDays, ownedEquipmentIds.Count, cardioDays);
 
         var plan = new WorkoutPlan
         {
@@ -272,10 +301,11 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
 
     /// <summary>
     /// Uygun adaylarin ozellik puanlarini TEK sorguyla okuyup her aday icin hedef uyum puanini
-    /// (FitScore) hesaplar. Puani hesaplanamayan (hic puan kaydi olmayan) adaylar icin null doner.
-    /// Eksik puan durumu, aday basina degil uretim basina tek bir log satiriyla raporlanir.
+    /// (FitScore) ve ana ozellik puanlarini dondurur. Puani hesaplanamayan (uc ana ozelligin hicbiri
+    /// puanlanmamis) adaylarin FitScore'u null'dur. Eksik puan durumu, aday basina degil uretim basina
+    /// tek bir log satiriyla raporlanir.
     /// </summary>
-    private async Task<Dictionary<long, decimal?>> CalculateGoalFitScoresAsync(
+    private async Task<Dictionary<long, WorkoutAttributeProfile>> CalculateAttributeProfilesAsync(
         List<Workout> candidates,
         FitnessGoal goalType,
         GoalAttributeWeights goalWeights,
@@ -292,38 +322,135 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             .GroupBy(s => s.WorkoutId)
             .ToDictionary(
                 g => g.Key,
-                g => (IReadOnlyDictionary<WorkoutAttributeType, int>)g.ToDictionary(x => x.AttributeType, x => x.Score));
+                g => (IReadOnlyDictionary<WorkoutAttributeType, int>)g
+                    .GroupBy(x => x.AttributeType)
+                    .ToDictionary(x => x.Key, x => x.First().Score));
 
-        var attributeTypeCount = Enum.GetValues<WorkoutAttributeType>().Length;
         var unscoredCount = 0;
         var partiallyScoredCount = 0;
-        var fitScores = new Dictionary<long, decimal?>(candidates.Count);
+        var profiles = new Dictionary<long, WorkoutAttributeProfile>(candidates.Count);
 
         foreach (var candidate in candidates)
         {
             if (!scoresByWorkout.TryGetValue(candidate.Id, out var scores))
             {
-                unscoredCount++;
-                fitScores[candidate.Id] = null;
-                continue;
+                scores = new Dictionary<WorkoutAttributeType, int>();
             }
 
-            if (scores.Count < attributeTypeCount)
+            var fitScore = WorkoutGoalFitCalculator.Calculate(scores, goalWeights);
+            if (fitScore is null)
+            {
+                unscoredCount++;
+            }
+            else if (!WorkoutGoalFitCalculator.HasAllPrimaryScores(scores))
             {
                 partiallyScoredCount++;
             }
 
-            fitScores[candidate.Id] = WorkoutGoalFitCalculator.Calculate(scores, goalWeights);
+            profiles[candidate.Id] = new WorkoutAttributeProfile(
+                fitScore,
+                scores.TryGetValue(WorkoutAttributeType.Hypertrophy, out var h) ? h : null,
+                scores.TryGetValue(WorkoutAttributeType.Strength, out var st) ? st : null,
+                scores.TryGetValue(WorkoutAttributeType.Cardio, out var c) ? c : null);
         }
 
         if (unscoredCount > 0 || partiallyScoredCount > 0)
         {
             _logger.LogInformation(
-                "Workout goal-fit scoring ({Goal}): {UnscoredCount} of {CandidateCount} eligible workouts have no attribute scores (ranked without goal fit), {PartialCount} are partially scored (weights normalized)",
+                "Workout goal-fit scoring ({Goal}): {UnscoredCount} of {CandidateCount} eligible workouts have no primary attribute scores (ranked without goal fit), {PartialCount} miss some primary scores (missing counted as 0)",
                 goalType, unscoredCount, candidates.Count, partiallyScoredCount);
         }
 
-        return fitScores;
+        return profiles;
+    }
+
+    /// <summary>
+    /// Hedefin haftalik kardiyo sayisina gore bazi gunlere antrenman sonu kardiyo
+    /// (<see cref="WorkoutPlanDay.CardioWorkoutId"/>) ekler. Kurallar:
+    /// - Ana antrenmani zaten karma olan gun (Kardiyo puani &gt;= esik) bir kardiyo bileseni sayilir.
+    /// - Kardiyo yalnizca uygun (ekipman/Premium/zorluk filtrelerinden gecmis) kardiyo agirlikli
+    ///   antrenmanlardan secilir; ana antrenman + kardiyo suresi kullanicinin tercih ettigi sureyi
+    ///   (tolerans dahil) asmaz. Sigmazsa o gune kardiyo eklenmez.
+    /// - Gunler haftaya esit aralikla yayilir; ayni kardiyo antrenmani mumkunse tekrarlanmaz.
+    /// Eklenen (karma dahil) kardiyo gunu sayisini dondurur.
+    /// </summary>
+    private int AssignCardioFinishers(
+        List<WorkoutPlanDayResult> days,
+        List<Workout> eligible,
+        Dictionary<long, WorkoutAttributeProfile> profiles,
+        FitnessGoal goalType,
+        int maxDuration)
+    {
+        if (days.Count == 0)
+        {
+            return 0;
+        }
+
+        var target = _options.CardioSessionsPerWeekByGoal.TryGetValue(goalType, out var configured) ? configured : 0;
+        target = Math.Clamp(target, 0, days.Count);
+        if (target == 0)
+        {
+            return 0;
+        }
+
+        var workoutsById = eligible.ToDictionary(w => w.Id);
+        var mixedDays = days
+            .Where(d => profiles.TryGetValue(d.Day.WorkoutId, out var p) && p.Cardio >= _options.MixedWorkoutCardioScoreThreshold)
+            .ToList();
+        var remaining = target - mixedDays.Count;
+        if (remaining <= 0)
+        {
+            return mixedDays.Count;
+        }
+
+        var cardioCandidates = eligible
+            .Where(w => profiles[w.Id].IsCardioDominant
+                && w.DurationMin >= _options.CardioFinisherMinMinutes
+                && w.DurationMin <= _options.CardioFinisherMaxMinutes)
+            .OrderByDescending(w => profiles[w.Id].Cardio ?? 0)
+            .ThenBy(w => w.DurationMin)
+            .ThenBy(w => w.Id)
+            .ToList();
+        if (cardioCandidates.Count == 0)
+        {
+            return mixedDays.Count;
+        }
+
+        // Esit aralikli tercih sirasi: once yayilmis gunler, sonra digerleri (sure sigmazsa).
+        var openDays = days.Except(mixedDays).ToList();
+        var preferred = Enumerable.Range(0, remaining)
+            .Select(i => (int)Math.Floor((i + 0.5) * openDays.Count / remaining))
+            .Distinct()
+            .Select(i => openDays[i])
+            .ToList();
+        var order = preferred.Concat(openDays.Except(preferred)).ToList();
+
+        var usedCardioIds = new List<long>();
+        var added = 0;
+        foreach (var day in order)
+        {
+            if (added == remaining)
+            {
+                break;
+            }
+
+            var mainDuration = workoutsById.TryGetValue(day.Day.WorkoutId, out var main) ? main.DurationMin : 0;
+            var budget = maxDuration - mainDuration;
+            var cardio = cardioCandidates
+                .Where(c => c.DurationMin <= budget && c.Id != day.Day.WorkoutId)
+                .OrderBy(c => usedCardioIds.Contains(c.Id) ? 1 : 0)
+                .FirstOrDefault();
+            if (cardio is null)
+            {
+                continue;
+            }
+
+            day.Day.CardioWorkoutId = cardio.Id;
+            usedCardioIds.Add(cardio.Id);
+            added++;
+        }
+
+        return mixedDays.Count + added;
     }
 
     /// <summary>Verilen zorluk seviyeleri ve azami sure icinde, kullanicinin erisebildigi aktif Workout'lari getirir.</summary>
@@ -451,7 +578,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
     /// (haftalik gun sayisi aday sayisindan fazlaysa) en yuksek skorlu adaya donulur - ayni
     /// antrenmanin haftada birden fazla kez gorunmesi, hic antrenman atanmamasindan iyidir.
     /// </summary>
-    private Workout SelectWorkoutForDay(List<ScoredWorkout> scored, List<long> usedWorkoutIds, long? previousMuscleGroupId)
+    private Workout SelectWorkoutForDay(List<ScoredWorkout> scored, List<long> usedWorkoutIds, long? previousMuscleGroupId, bool isAdjacentDay)
     {
         var best = scored
             .Select(s =>
@@ -465,6 +592,12 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
                 if (previousMuscleGroupId is not null && s.Workout.MuscleGroupId == previousMuscleGroupId)
                 {
                     adjusted -= _options.ConsecutiveMuscleGroupPenaltyScore;
+
+                    // Takvimde ardisik gunlerde ayni kas grubu: toparlanma icin ek ceza.
+                    if (isAdjacentDay)
+                    {
+                        adjusted -= _options.AdjacentDayMuscleGroupPenaltyScore;
+                    }
                 }
 
                 return (s.Workout, Adjusted: adjusted);
@@ -490,6 +623,8 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             // Sureye dayali (DurationSeconds dolu) egzersizlerde tekrar hedefi anlamsizdir;
             // aksi halde hedef tekrar araliginin alt sinirindan (guvenli/tutucu baslangic) baslanir.
             Reps = catalogExercise.DurationSeconds.HasValue ? null : repsRange.Min,
+            // Cift progresyon: kullanici tum setlerde araligin ust sinirina ulastiginda agirlik artirilir.
+            RepsMax = catalogExercise.DurationSeconds.HasValue ? null : repsRange.Max,
             RestSeconds = restSeconds,
             DurationSeconds = catalogExercise.DurationSeconds,
             CreatedAt = DateTime.UtcNow,
@@ -541,26 +676,13 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         _ => new[] { DifficultyLevel.Beginner, DifficultyLevel.Advanced },
     };
 
-    private static string BuildPlanName(FitnessGoal goal, int trainingDays)
-    {
-        var goalLabel = goal switch
-        {
-            FitnessGoal.LoseWeight => "Kilo Verme",
-            FitnessGoal.BuildMuscle => "Kas Kazanımı",
-            FitnessGoal.GetStronger => "Güçlenme",
-            FitnessGoal.ImproveEndurance => "Dayanıklılık",
-            FitnessGoal.ImproveFitness => "Genel Fitness",
-            FitnessGoal.MaintainWeight => "Kilo Koruma",
-            _ => "Kişisel Program",
-        };
-
-        return $"{goalLabel} - {trainingDays} Gün";
-    }
+    private static string BuildPlanName(FitnessGoal goal, int trainingDays) =>
+        $"{FitnessGoals.Label(goal)} - {trainingDays} Gün";
 
     /// <summary>
     /// Kullaniciya gosterilecek, tamamen kural tabanli (AI kullanilmadan) bir aciklama uretir.
     /// </summary>
-    private static string BuildSummary(ExperienceLevel experience, int trainingDays, int equipmentCount)
+    private static string BuildSummary(ExperienceLevel experience, int trainingDays, int equipmentCount, int cardioDays = 0)
     {
         var experienceLabel = experience switch
         {
@@ -576,8 +698,19 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
 
         var experienceCapitalized = char.ToUpperInvariant(experienceLabel[0]) + experienceLabel[1..];
 
-        return $"{experienceCapitalized} seviyene, haftada {trainingDays} gün antrenman tercihine ve {equipmentPhrase} hazırlandı.";
+        var summary = $"{experienceCapitalized} seviyene, haftada {trainingDays} gün antrenman tercihine ve {equipmentPhrase} hazırlandı.";
+        return cardioDays > 0
+            ? $"{summary} Haftada {cardioDays} gün kardiyo bileşeni içerir."
+            : summary;
     }
 
     private readonly record struct ScoredWorkout(Workout Workout, decimal Score);
+
+    /// <summary>Bir antrenmanin hedef uyum puani ve ana ozellik puanlari (puanlanmamissa null).</summary>
+    private sealed record WorkoutAttributeProfile(decimal? FitScore, int? Hypertrophy, int? Strength, int? Cardio)
+    {
+        /// <summary>Kardiyo puani hem Hipertrofi hem Kuvvet puanindan yuksek.</summary>
+        public bool IsCardioDominant =>
+            Cardio is not null && Cardio > Math.Max(Hypertrophy ?? 0, Strength ?? 0);
+    }
 }

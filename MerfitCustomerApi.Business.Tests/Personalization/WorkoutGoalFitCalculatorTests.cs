@@ -6,7 +6,8 @@ using Xunit;
 namespace MerfitCustomerApi.Business.Tests.Personalization;
 
 /// <summary>
-/// FitScore = SUM(AttributeScore * GoalWeight) / SUM(GoalWeight) formulunu ve eksik puan stratejisini dogrular.
+/// FitScore = (Hipertrofi*W_h + Kuvvet*W_s + Kardiyo*W_c) / 100 formulunu, ikincil ozelliklerin
+/// sayilmadigini ve eksik ana puanin antrenmani yukseltmedigini dogrular.
 /// </summary>
 public class WorkoutGoalFitCalculatorTests
 {
@@ -18,89 +19,64 @@ public class WorkoutGoalFitCalculatorTests
         Enum.GetValues<WorkoutAttributeType>().ToDictionary(t => t, _ => value);
 
     [Fact]
-    public void Calculate_ReturnsWeightedSum_WhenAllSixAttributesAreScored()
+    public void Calculate_UsesOnlyPrimaryAttributes()
     {
         var scores = new Dictionary<WorkoutAttributeType, int>
         {
             [WorkoutAttributeType.Hypertrophy] = 90,
-            [WorkoutAttributeType.Strength] = 75,
+            [WorkoutAttributeType.Strength] = 70,
             [WorkoutAttributeType.Cardio] = 20,
-            [WorkoutAttributeType.Endurance] = 40,
-            [WorkoutAttributeType.Mobility] = 30,
-            [WorkoutAttributeType.CoreStability] = 60,
+            [WorkoutAttributeType.Endurance] = 100,
+            [WorkoutAttributeType.Mobility] = 100,
+            [WorkoutAttributeType.CoreStability] = 100,
         };
 
         var result = WorkoutGoalFitCalculator.Calculate(scores, WeightsFor(FitnessGoal.BuildMuscle));
 
-        // 90*50 + 75*20 + 20*5 + 40*5 + 30*10 + 60*10 = 7200 -> /100 = 72
-        Assert.Equal(72m, result);
+        // 90*65 + 70*25 + 20*10 = 7800 -> /100 = 78; ikincil ozellikler katilmaz.
+        Assert.Equal(78m, result);
     }
 
-    [Fact]
-    public void Calculate_HypertrophyContribution_MatchesSpecExample()
+    [Theory]
+    [InlineData(FitnessGoal.BuildMuscle, 65, 25, 10)]
+    [InlineData(FitnessGoal.GetStronger, 25, 65, 10)]
+    [InlineData(FitnessGoal.LoseWeight, 45, 25, 30)]
+    public void DefaultWeights_MatchTheAgreedTable(FitnessGoal goal, int hypertrophy, int strength, int cardio)
     {
-        var scores = new Dictionary<WorkoutAttributeType, int>(AllScores(0))
-        {
-            [WorkoutAttributeType.Hypertrophy] = 90,
-        };
-
-        var result = WorkoutGoalFitCalculator.Calculate(scores, WeightsFor(FitnessGoal.BuildMuscle));
-
-        // Yalnizca Hypertrophy katkisi: 90 x 50 / 100 = 45
-        Assert.Equal(45m, result);
+        var weights = WeightsFor(goal);
+        Assert.Equal((hypertrophy, strength, cardio), (weights.Hypertrophy, weights.Strength, weights.Cardio));
+        Assert.Equal(100, weights.Total);
     }
 
     [Theory]
     [InlineData(FitnessGoal.BuildMuscle)]
     [InlineData(FitnessGoal.GetStronger)]
     [InlineData(FitnessGoal.LoseWeight)]
-    [InlineData(FitnessGoal.ImproveFitness)]
-    [InlineData(FitnessGoal.MaintainWeight)]
-    [InlineData(FitnessGoal.ImproveEndurance)]
-    public void Calculate_ReturnsZero_WhenAllScoresAreZero(FitnessGoal goal)
+    public void Calculate_ReturnsZeroAndHundred_AtTheExtremes(FitnessGoal goal)
     {
         Assert.Equal(0m, WorkoutGoalFitCalculator.Calculate(AllScores(0), WeightsFor(goal)));
-    }
-
-    [Theory]
-    [InlineData(FitnessGoal.BuildMuscle)]
-    [InlineData(FitnessGoal.GetStronger)]
-    [InlineData(FitnessGoal.LoseWeight)]
-    [InlineData(FitnessGoal.ImproveFitness)]
-    [InlineData(FitnessGoal.MaintainWeight)]
-    [InlineData(FitnessGoal.ImproveEndurance)]
-    public void Calculate_ReturnsHundred_WhenAllScoresAreHundred(FitnessGoal goal)
-    {
         Assert.Equal(100m, WorkoutGoalFitCalculator.Calculate(AllScores(100), WeightsFor(goal)));
     }
 
     [Fact]
-    public void Calculate_NormalizesWeightsOverScoredAttributes_WhenSomeAttributesAreMissing()
+    public void Calculate_CountsMissingPrimaryScoresAsZero_SoPartialScoresCannotOverboost()
     {
-        // BuildMuscle: Hypertrophy 50, Strength 20 -> (80*50 + 50*20) / 70
-        var scores = new Dictionary<WorkoutAttributeType, int>
+        var onlyHypertrophy = new Dictionary<WorkoutAttributeType, int> { [WorkoutAttributeType.Hypertrophy] = 95 };
+        var fullyScored = new Dictionary<WorkoutAttributeType, int>
         {
-            [WorkoutAttributeType.Hypertrophy] = 80,
-            [WorkoutAttributeType.Strength] = 50,
+            [WorkoutAttributeType.Hypertrophy] = 85,
+            [WorkoutAttributeType.Strength] = 70,
+            [WorkoutAttributeType.Cardio] = 30,
         };
 
-        var result = WorkoutGoalFitCalculator.Calculate(scores, WeightsFor(FitnessGoal.BuildMuscle));
+        var partial = WorkoutGoalFitCalculator.Calculate(onlyHypertrophy, WeightsFor(FitnessGoal.BuildMuscle));
+        var full = WorkoutGoalFitCalculator.Calculate(fullyScored, WeightsFor(FitnessGoal.BuildMuscle));
 
-        Assert.Equal(5000m / 70m, result);
-        Assert.InRange(result!.Value, 0m, 100m);
-    }
-
-    [Fact]
-    public void Calculate_DoesNotTreatMissingAttributesAsZero()
-    {
-        var partial = new Dictionary<WorkoutAttributeType, int> { [WorkoutAttributeType.Hypertrophy] = 80 };
-        var withExplicitZeros = new Dictionary<WorkoutAttributeType, int>(AllScores(0)) { [WorkoutAttributeType.Hypertrophy] = 80 };
-
-        var partialResult = WorkoutGoalFitCalculator.Calculate(partial, WeightsFor(FitnessGoal.BuildMuscle));
-        var zeroFilledResult = WorkoutGoalFitCalculator.Calculate(withExplicitZeros, WeightsFor(FitnessGoal.BuildMuscle));
-
-        Assert.Equal(80m, partialResult);
-        Assert.Equal(40m, zeroFilledResult);
+        Assert.Equal(61.75m, partial); // 95*65/100, normalize edilmez
+        Assert.Equal(75.75m, full);    // 85*65 + 70*25 + 30*10 = 7575
+        Assert.True(full > partial);
+        Assert.False(WorkoutGoalFitCalculator.HasAllPrimaryScores(onlyHypertrophy));
+        Assert.True(WorkoutGoalFitCalculator.HasAllPrimaryScores(fullyScored));
     }
 
     [Fact]
@@ -110,11 +86,14 @@ public class WorkoutGoalFitCalculatorTests
     }
 
     [Fact]
-    public void Calculate_ReturnsNull_WhenScoredAttributesHaveZeroWeightForGoal()
+    public void Calculate_ReturnsNull_WhenOnlySecondaryAttributesAreScored()
     {
-        var weights = new GoalAttributeWeights { Hypertrophy = 100 };
-        var scores = new Dictionary<WorkoutAttributeType, int> { [WorkoutAttributeType.Cardio] = 90 };
+        var scores = new Dictionary<WorkoutAttributeType, int>
+        {
+            [WorkoutAttributeType.Endurance] = 90,
+            [WorkoutAttributeType.Mobility] = 90,
+        };
 
-        Assert.Null(WorkoutGoalFitCalculator.Calculate(scores, weights));
+        Assert.Null(WorkoutGoalFitCalculator.Calculate(scores, WeightsFor(FitnessGoal.LoseWeight)));
     }
 }

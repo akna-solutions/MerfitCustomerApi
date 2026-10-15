@@ -1,11 +1,13 @@
+using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Customer.Progress;
 using MerfitCustomerApi.Business.Interfaces.Services;
-using MerfitCustomerApi.Business.Services.Personalization;
+using MerfitCustomerApi.Business.Services.BodyComposition;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace MerfitCustomerApi.Business.Services.Progress;
 
@@ -21,19 +23,19 @@ public class ProgressService : IProgressService
         "Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara",
     };
 
-    /// <summary>Profil kilosunun (beslenme hedefi girdisi) guncellenmesi icin gereken en az fark.</summary>
-    private const decimal NutritionRecalculationThresholdKg = 1m;
-
     private const int MaxBackfillDays = 365;
 
     private readonly IUnitOfWork _unitOfWork;
 
     private readonly IMerfitScoreService _scoreService;
 
-    public ProgressService(IUnitOfWork unitOfWork, IMerfitScoreService scoreService)
+    private readonly BodyCompositionOptions _bodyCompositionOptions;
+
+    public ProgressService(IUnitOfWork unitOfWork, IMerfitScoreService scoreService, IOptions<BodyCompositionOptions>? bodyCompositionOptions = null)
     {
         _unitOfWork = unitOfWork;
         _scoreService = scoreService;
+        _bodyCompositionOptions = bodyCompositionOptions?.Value ?? new BodyCompositionOptions();
     }
 
     public async Task<CustomerProgressResponse> GetProgressAsync(long userId, string range, CancellationToken cancellationToken = default)
@@ -48,13 +50,19 @@ public class ProgressService : IProgressService
         var activeGoal = await _unitOfWork.Repository<UserGoal>()
             .FirstOrDefaultAsync(g => g.UserId == userId && g.IsActive, cancellationToken);
 
-        var measurements = await _unitOfWork.Repository<BodyMeasurement>()
+        var allMeasurements = await _unitOfWork.Repository<BodyMeasurement>()
             .GetQueryable()
             .Where(m => m.UserId == userId)
             .OrderBy(m => m.RecordedAt)
+            .ThenBy(m => m.Id)
             .ToListAsync(cancellationToken);
 
-        measurements = measurements.Where(m => m.WeightKg is not null).ToList();
+        // Ayni gun hem gunluk kilo hem tam vucut olcumu kaydi olabilir: kilo serisinde gun basina en son kayit.
+        var measurements = allMeasurements
+            .Where(m => m.WeightKg is not null)
+            .GroupBy(m => m.RecordedAt.Date)
+            .Select(g => g.Last())
+            .ToList();
         var latestMeasurement = measurements.LastOrDefault();
         var currentWeight = latestMeasurement?.WeightKg ?? profile.WeightKg ?? 0;
 
@@ -96,7 +104,6 @@ public class ProgressService : IProgressService
                 return completedSessions.Any(s => s.CompletedAt.HasValue && s.CompletedAt.Value.Date == day);
             })
             .ToList();
-        var workoutsThisWeek = weeklyWorkouts.Count(w => w);
 
         var rangeCutoff = range switch
         {
@@ -115,14 +122,45 @@ public class ProgressService : IProgressService
             })
             .ToList();
 
+        // Yag orani serisi: girilen/olculen deger, yoksa cevre olcumunden tahmin (isaretlenerek).
+        var bodyFatHistory = allMeasurements
+            .Where(m => m.RecordedAt >= rangeCutoff && (m.BodyFatPercentage ?? m.EstimatedBodyFatPercentage) is not null)
+            .Select(m => new CustomerBodyMetricPointDto
+            {
+                Date = FormatShortDate(m.RecordedAt),
+                IsoDate = m.RecordedAt.ToString("yyyy-MM-dd"),
+                Value = (m.BodyFatPercentage ?? m.EstimatedBodyFatPercentage)!.Value,
+                IsEstimated = m.BodyFatPercentage is null,
+            })
+            .ToList();
+        var waistHistory = allMeasurements
+            .Where(m => m.RecordedAt >= rangeCutoff && m.WaistCm is not null)
+            .Select(m => new CustomerBodyMetricPointDto
+            {
+                Date = FormatShortDate(m.RecordedAt),
+                IsoDate = m.RecordedAt.ToString("yyyy-MM-dd"),
+                Value = m.WaistCm!.Value,
+            })
+            .ToList();
+
         var bodyMetrics = new List<CustomerBodyMetricDto>();
         if (latestMeasurement?.WeightKg is not null)
         {
             bodyMetrics.Add(new CustomerBodyMetricDto { Id = "weight", Label = "Kilo", Value = $"{latestMeasurement.WeightKg:0.0} kg" });
         }
-        if (latestMeasurement?.BodyFatPercentage is not null)
+
+        var bodyFat = BodyFatAssessor.Assess(profile, allMeasurements, now, _bodyCompositionOptions);
+        if (bodyFat.Reading is not null)
         {
-            bodyMetrics.Add(new CustomerBodyMetricDto { Id = "body-fat", Label = "Vücut Yağı", Value = $"%{latestMeasurement.BodyFatPercentage:0.0}" });
+            bodyMetrics.Add(bodyFat.Reading.Source == BodyFatSource.Estimated
+                ? new CustomerBodyMetricDto { Id = "body-fat", Label = "Vücut Yağı (tahmini)", Value = $"~%{bodyFat.Reading.Percentage:0.0}" }
+                : new CustomerBodyMetricDto { Id = "body-fat", Label = "Vücut Yağı", Value = $"%{bodyFat.Reading.Percentage:0.0}" });
+        }
+
+        var latestWaist = allMeasurements.LastOrDefault(m => m.WaistCm is not null);
+        if (latestWaist is not null)
+        {
+            bodyMetrics.Add(new CustomerBodyMetricDto { Id = "waist", Label = "Bel", Value = $"{latestWaist.WaistCm:0.#} cm" });
         }
 
         var recentSessions = completedSessions
@@ -148,21 +186,20 @@ public class ProgressService : IProgressService
 
         var score = await BuildScoreSummaryAsync(userId, cancellationToken);
 
-        var goalType = activeGoal?.GoalType ?? profile.Goal ?? FitnessGoal.MaintainWeight;
-        var isWorkoutGoal = IsWorkoutGoal(goalType);
+        var goalType = FitnessGoals.Normalize(activeGoal?.GoalType ?? profile.Goal);
 
         return new CustomerProgressResponse
         {
             HasCompletedFirstWorkout = completedSessions.Count > 0,
             GoalType = MapGoalType(goalType),
             GoalLabel = MapGoalLabel(goalType),
-            // Kilo hedeflerinde (verme/kas/guc/koruma) baslangictan hedefe kat edilen yol.
-            GoalPercent = isWorkoutGoal || currentWeight <= 0
+            // Uc ana hedefin hepsinde baslangictan hedef kiloya kat edilen yol.
+            GoalPercent = currentWeight <= 0
                 ? null
                 : WeightTracking.CalculateProgressPercent(startingWeight, currentWeight, targetWeight),
             WeightDirection = WeightTracking.Direction(startingWeight, targetWeight),
-            WorkoutsCompleted = isWorkoutGoal ? workoutsThisWeek : null,
-            WorkoutsGoal = isWorkoutGoal ? (profile.TrainingDaysPerWeek ?? 3) : null,
+            WorkoutsCompleted = null,
+            WorkoutsGoal = null,
             CurrentWeight = currentWeight,
             StartingWeight = startingWeight,
             TargetWeight = targetWeight,
@@ -174,6 +211,8 @@ public class ProgressService : IProgressService
             TrainingMinutes = trainingMinutesThisMonth,
             WeeklyWorkouts = weeklyWorkouts,
             WeightHistory = weightHistory,
+            BodyFatHistory = bodyFatHistory,
+            WaistHistory = waistHistory,
             BodyMetrics = bodyMetrics,
             RecentActivity = recentActivity,
             Score = score,
@@ -233,20 +272,7 @@ public class ProgressService : IProgressService
 
         if (!hasNewerMeasurement)
         {
-            if (activeGoal is not null)
-            {
-                activeGoal.CurrentWeightKg = weight;
-                activeGoal.UpdatedAt = DateTime.UtcNow;
-            }
-
-            // Profil kilosu beslenme hedeflerinin girdisidir. Her gunluk oynamada plani yeniden
-            // uretmemek icin yalnizca en az 1 kg fark olusunca guncellenir ve beslenme plani yenilenir.
-            if (profile.WeightKg is null || Math.Abs(profile.WeightKg.Value - weight) >= NutritionRecalculationThresholdKg)
-            {
-                profile.WeightKg = weight;
-                profile.UpdatedAt = DateTime.UtcNow;
-                await PlanRegenerationQueue.EnqueueAsync(_unitOfWork, userId, nutritionOnly: true, cancellationToken);
-            }
+            await WeightTracking.ApplyNewestWeightAsync(_unitOfWork, profile, activeGoal, weight, cancellationToken);
         }
 
         if (activeGoal is not null)
@@ -281,31 +307,15 @@ public class ProgressService : IProgressService
         return Math.Round(currentWeight - baseline.WeightKg!.Value, 1);
     }
 
-    /// <summary>Kilo yerine haftalik antrenman sayisiyla izlenen hedefler.</summary>
-    private static bool IsWorkoutGoal(FitnessGoal goal) =>
-        goal is FitnessGoal.ImproveFitness or FitnessGoal.ImproveEndurance;
-
-    private static string MapGoalType(FitnessGoal goal) => goal switch
+    /// <summary>Eski hedefler ana hedeflere eslenir; yanit yalnizca uc ana hedef kodunu icerir.</summary>
+    private static string MapGoalType(FitnessGoal goal) => FitnessGoals.Normalize(goal) switch
     {
         FitnessGoal.LoseWeight => "lose_weight",
-        FitnessGoal.BuildMuscle => "build_muscle",
         FitnessGoal.GetStronger => "get_stronger",
-        FitnessGoal.ImproveFitness => "improve_fitness",
-        FitnessGoal.MaintainWeight => "maintain_weight",
-        FitnessGoal.ImproveEndurance => "improve_endurance",
-        _ => "maintain_weight",
+        _ => "build_muscle",
     };
 
-    private static string MapGoalLabel(FitnessGoal goal) => goal switch
-    {
-        FitnessGoal.LoseWeight => "Kilo vermek",
-        FitnessGoal.BuildMuscle => "Kas yapmak",
-        FitnessGoal.GetStronger => "Daha güçlü olmak",
-        FitnessGoal.ImproveFitness => "Fitness seviyesini artırmak",
-        FitnessGoal.MaintainWeight => "Kilomu korumak",
-        FitnessGoal.ImproveEndurance => "Dayanıklılığı artırmak",
-        _ => "Kilomu korumak",
-    };
+    private static string MapGoalLabel(FitnessGoal goal) => FitnessGoals.Label(goal);
 
     private static string FormatShortDate(DateTime date) => $"{TurkishMonthAbbreviations[date.Month - 1]} {date.Day:00}";
 
