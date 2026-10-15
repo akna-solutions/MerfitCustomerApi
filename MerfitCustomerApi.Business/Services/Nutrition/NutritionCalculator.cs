@@ -1,5 +1,6 @@
 using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.BodyComposition;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using Microsoft.Extensions.Options;
@@ -16,6 +17,12 @@ namespace MerfitCustomerApi.Business.Services.Nutrition;
 /// 3. TDEE = BMR x aktivite carpani.
 /// 4. Hedef duzeltmesi = TDEE x hedef yuzdesi, mutlak degeri hedefe ozel ust sinirla kirpilir. Hedef kilo
 ///    mevcut kiloyla celisiyorsa (kilo vermek isteyip hedef kilo daha yuksekse vb.) duzeltme uygulanmaz.
+///    Hedef once uc ana hedeften birine eslenir (FitnessGoals.Normalize). Vucut kompozisyonu kurallari:
+///    - Yag orani yas/cinsiyete gore yuksek araliktaysa kalori fazlasi uygulanmaz (bakim kalorisi).
+///    - SurplusRequiresKnownBodyFat'taki hedeflerde (varsayilan Guclenme) kalori fazlasi yalnizca yag orani
+///      biliniyor ve yuksek degilse uygulanir; her kullaniciya otomatik fazla verilmez.
+///    - Yag Kaybi'nda yag orani dusuk araliktaysa kalori acigi uygulanmaz ve hedefi yeniden degerlendirme
+///      notu eklenir; daha agresif acik onerilmez.
 /// 5. Kalori = max(TDEE + duzeltme, BMR, MinimumDailyCalories).
 /// 6. Protein = hedefe gore g/kg x referans kilo (yuksek VKI'de ProteinReferenceMaxBmi'deki kilo), kalorinin
 ///    en fazla MaxProteinCaloriePercentage'i.
@@ -32,7 +39,7 @@ public class NutritionCalculator : INutritionCalculator
         _options = options.Value;
     }
 
-    public NutritionCalculationResult Calculate(UserProfile profile)
+    public NutritionCalculationResult Calculate(UserProfile profile, BodyFatAssessment? bodyFat = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
 
@@ -45,10 +52,10 @@ public class NutritionCalculator : INutritionCalculator
             ?? _options.DefaultActivityMultiplier;
         var targetWeightKg = IsPlausibleWeight(profile.TargetWeightKg) ? profile.TargetWeightKg : null;
 
-        return Compute(profile.Gender, weightKg, heightCm, age, activityMultiplier, profile.Goal, targetWeightKg);
+        return Compute(profile.Gender, weightKg, heightCm, age, activityMultiplier, profile.Goal, targetWeightKg, bodyFat);
     }
 
-    public NutritionTargetEvaluation Evaluate(UserProfile profile)
+    public NutritionTargetEvaluation Evaluate(UserProfile profile, BodyFatAssessment? bodyFat = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
 
@@ -116,7 +123,8 @@ public class NutritionCalculator : INutritionCalculator
                 age!.Value,
                 activityMultiplier!.Value,
                 profile.Goal,
-                profile.TargetWeightKg),
+                profile.TargetWeightKg,
+                bodyFat),
         };
     }
 
@@ -126,15 +134,18 @@ public class NutritionCalculator : INutritionCalculator
         decimal heightCm,
         int age,
         decimal activityMultiplier,
-        FitnessGoal? goal,
-        decimal? targetWeightKg)
+        FitnessGoal? rawGoal,
+        decimal? targetWeightKg,
+        BodyFatAssessment? bodyFat)
     {
         var notes = new List<string>();
+        FitnessGoal? goal = rawGoal.HasValue ? FitnessGoals.Normalize(rawGoal.Value) : null;
 
         var bmr = CalculateBmr(gender, weightKg, heightCm, age);
         var tdee = bmr * activityMultiplier;
 
         var adjustment = ResolveGoalAdjustment(goal, tdee);
+        adjustment = ApplyBodyCompositionRules(goal, adjustment, bodyFat, notes);
         if (adjustment < 0 && targetWeightKg.HasValue && targetWeightKg.Value >= weightKg)
         {
             notes.Add("Hedef kilonuz mevcut kilonuzdan dusuk olmadigi icin kalori acigi uygulanmadi.");
@@ -259,6 +270,38 @@ public class NutritionCalculator : INutritionCalculator
         }
 
         return fromLevel ?? fromTraining;
+    }
+
+    /// <summary>
+    /// Vucut kompozisyonuna gore kalori fazlasi/acigi kararini sinirlar. Yalnizca bilinen (Unknown olmayan)
+    /// degerlendirme dusuk/yuksek sonuc verebilir; eksik veriyle kural uydurulmaz. Fazla ya da acik hicbir
+    /// zaman buyutulmez, yalnizca kaldirilir.
+    /// </summary>
+    private decimal ApplyBodyCompositionRules(FitnessGoal? goal, decimal adjustment, BodyFatAssessment? bodyFat, List<string> notes)
+    {
+        if (adjustment > 0)
+        {
+            if (bodyFat?.IsHigh == true)
+            {
+                notes.Add("Vucut yag oranin yuksek aralikta gorundugu icin kalori fazlasi uygulanmadi; bakim kalorisi ve yeterli protein hedeflendi.");
+                return 0m;
+            }
+
+            var bodyFatKnown = bodyFat is not null && bodyFat.Category != BodyFatCategory.Unknown;
+            if (goal.HasValue && _options.SurplusRequiresKnownBodyFat.Contains(goal.Value) && !bodyFatKnown)
+            {
+                notes.Add("Vucut yag oranin bilinmedigi icin kalori fazlasi uygulanmadi; olcumlerini girersen hedeflerin buna gore guncellenir.");
+                return 0m;
+            }
+        }
+
+        if (adjustment < 0 && goal == FitnessGoal.LoseWeight && bodyFat?.IsLow == true)
+        {
+            notes.Add("Olcumlerine gore vucut yag oranin dusuk aralikta gorundugu icin kalori acigi uygulanmadi. Hedefini yeniden degerlendirmeni oneririz; olcum tahmini bir deger olabilir.");
+            return 0m;
+        }
+
+        return adjustment;
     }
 
     private decimal ResolveGoalAdjustment(FitnessGoal? goal, decimal tdee)

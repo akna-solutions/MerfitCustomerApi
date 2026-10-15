@@ -56,4 +56,11 @@ public class UserGoal : BaseEntity
     /// Hedefin tamamlanma tarihi.
     /// </summary>
     public DateTime? CompletedAt { get; set; }
+
+    /// <summary>
+    /// Yag Kaybi hedefi secilirken olcumlere gore yag orani dusuk aralikta gorundugu icin gosterilen
+    /// uyarinin kullanici tarafindan acikca onaylandigi zaman. Uyari gosterilmediyse veya hedef baska
+    /// bir hedefse null. Istemcinin gonderdigi onay olmadan doldurulmaz.
+    /// </summary>
+    public DateTime? LowBodyFatWarningAcknowledgedAt { get; set; }
 }

@@ -1,6 +1,7 @@
 ﻿using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Customer.Profile;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.BodyComposition;
 using MerfitCustomerApi.Business.Services.Nutrition;
 using MerfitCustomerApi.Business.Services.Personalization;
 using MerfitCustomerApi.Business.Services.Progress;
@@ -10,6 +11,7 @@ using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace MerfitCustomerApi.Business.Services.Profile;
 
@@ -21,10 +23,12 @@ namespace MerfitCustomerApi.Business.Services.Profile;
 public class ProfileService : IProfileService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly BodyCompositionOptions _bodyCompositionOptions;
 
-    public ProfileService(IUnitOfWork unitOfWork)
+    public ProfileService(IUnitOfWork unitOfWork, IOptions<BodyCompositionOptions>? bodyCompositionOptions = null)
     {
         _unitOfWork = unitOfWork;
+        _bodyCompositionOptions = bodyCompositionOptions?.Value ?? new BodyCompositionOptions();
     }
 
     public async Task<CustomerProfileResponse> GetProfileAsync(long userId, CancellationToken cancellationToken = default)
@@ -52,6 +56,7 @@ public class ProfileService : IProfileService
 
         var planInputsBefore = PlanInputs.From(profile);
         var nutritionInputsBefore = NutritionInputs.From(profile);
+        var previousGoal = profile.Goal.HasValue ? FitnessGoals.Normalize(profile.Goal.Value) : (FitnessGoal?)null;
 
         await ApplyIdentityChangesAsync(user, profile, request, cancellationToken);
         ApplyBodyAndGoalChanges(profile, request);
@@ -67,12 +72,35 @@ public class ProfileService : IProfileService
 
         var planInputsAfter = PlanInputs.From(profile);
         var nutritionInputsAfter = NutritionInputs.From(profile);
-        var goalChanged = planInputsAfter.Goal != planInputsBefore.Goal && profile.Goal.HasValue;
+        var goalChanged = profile.Goal.HasValue && profile.Goal != previousGoal;
+
+        // Zorunlu kural: Yag Kaybi secilirken olcumlere gore yag orani dusuk araliktaysa hedef ancak kullanicinin
+        // acik onayiyla kaydedilir. Onay yoksa hicbir degisiklik kaydedilmeden 409 doner (bkz. LowBodyFatGoalGuard).
+        var lowBodyFatConfirmed = false;
+        if (goalChanged)
+        {
+            var bodyFat = await AssessBodyFatAsync(profile, cancellationToken);
+            lowBodyFatConfirmed = LowBodyFatGoalGuard.EnsureConfirmed(profile.Goal!.Value, bodyFat, request.ConfirmLowBodyFatWarning);
+        }
+
         if (planInputsAfter != planInputsBefore)
         {
             if (goalChanged)
             {
-                await StartNewActiveGoalAsync(profile, profile.Goal!.Value, request.TargetWeight, cancellationToken);
+                var activeGoal = await StartNewActiveGoalAsync(profile, profile.Goal!.Value, request.TargetWeight, cancellationToken);
+                activeGoal.LowBodyFatWarningAcknowledgedAt = lowBodyFatConfirmed ? DateTime.UtcNow : null;
+                if (previousGoal.HasValue)
+                {
+                    await _unitOfWork.Repository<GoalHistory>().AddAsync(new GoalHistory
+                    {
+                        UserId = userId,
+                        OldGoal = previousGoal.Value,
+                        NewGoal = profile.Goal!.Value,
+                        ChangedAt = DateTime.UtcNow,
+                        Reason = lowBodyFatConfirmed ? "Kullanıcı düşük yağ oranı uyarısını onaylayarak hedefi değiştirdi." : null,
+                        CreatedAt = DateTime.UtcNow,
+                    }, cancellationToken);
+                }
             }
 
             await PlanRegenerationQueue.EnqueueAsync(_unitOfWork, userId, nutritionOnly: false, cancellationToken);
@@ -373,7 +401,17 @@ public class ProfileService : IProfileService
     /// Hedef degisti: aktif hedef bugunden yeniden baslar ve hedef kilo yeni hedefe gore otomatik
     /// hesaplanir (bkz. TargetWeightCalculator). Ayni istekte elle hedef kilo verildiyse o kullanilir.
     /// </summary>
-    private async Task StartNewActiveGoalAsync(UserProfile profile, FitnessGoal goalType, decimal? manualTargetWeight, CancellationToken cancellationToken)
+    /// <summary>Profil ve olcum gecmisine gore guncel yag orani degerlendirmesi.</summary>
+    private async Task<BodyFatAssessment> AssessBodyFatAsync(UserProfile profile, CancellationToken cancellationToken)
+    {
+        var measurements = await _unitOfWork.Repository<BodyMeasurement>()
+            .GetQueryable()
+            .Where(m => m.UserId == profile.UserId)
+            .ToListAsync(cancellationToken);
+        return BodyFatAssessor.Assess(profile, measurements, DateTime.UtcNow, _bodyCompositionOptions);
+    }
+
+    private async Task<UserGoal> StartNewActiveGoalAsync(UserProfile profile, FitnessGoal goalType, decimal? manualTargetWeight, CancellationToken cancellationToken)
     {
         var goal = await _unitOfWork.Repository<UserGoal>()
             .GetQueryable(asNoTracking: false)
@@ -390,6 +428,8 @@ public class ProfileService : IProfileService
             goal.TargetWeightKg = manualTargetWeight;
             profile.TargetWeightKg = manualTargetWeight;
         }
+
+        return goal;
     }
 
     private async Task UpdateActiveGoalCurrentWeightAsync(long userId, decimal weightKg, CancellationToken cancellationToken)
@@ -430,7 +470,7 @@ public class ProfileService : IProfileService
             await _unitOfWork.Repository<UserGoal>().AddAsync(new UserGoal
             {
                 UserId = userId,
-                GoalType = profile?.Goal ?? FitnessGoal.MaintainWeight,
+                GoalType = FitnessGoals.Normalize(profile?.Goal),
                 StartingWeightKg = profile?.WeightKg,
                 CurrentWeightKg = profile?.WeightKg,
                 TargetWeightKg = targetWeight,
@@ -755,29 +795,32 @@ public class ProfileService : IProfileService
         _ => "Belirtmek istemiyorum",
     };
 
+    /// <summary>
+    /// Hedef kodunu ana hedeflerden birine cevirir. Eski istemcilerin gonderdigi eski kodlar kabul edilir ve
+    /// <see cref="FitnessGoals.Normalize(FitnessGoal)"/> ile eslenir; boylece profile eski hedef yazilmaz.
+    /// </summary>
     private static bool TryMapGoalToDomain(string display, out FitnessGoal goal)
     {
         switch (display)
         {
-            case "LOSE_WEIGHT": goal = FitnessGoal.LoseWeight; return true;
-            case "BUILD_MUSCLE": goal = FitnessGoal.BuildMuscle; return true;
-            case "MAINTAIN_WEIGHT": goal = FitnessGoal.MaintainWeight; return true;
-            case "IMPROVE_ENDURANCE": goal = FitnessGoal.ImproveEndurance; return true;
-            case "GET_STRONGER": goal = FitnessGoal.GetStronger; return true;
-            case "GENERAL_FITNESS": goal = FitnessGoal.ImproveFitness; return true;
+            case "LOSE_WEIGHT": goal = FitnessGoal.LoseWeight; break;
+            case "BUILD_MUSCLE": goal = FitnessGoal.BuildMuscle; break;
+            case "MAINTAIN_WEIGHT": goal = FitnessGoal.MaintainWeight; break;
+            case "IMPROVE_ENDURANCE": goal = FitnessGoal.ImproveEndurance; break;
+            case "GET_STRONGER": goal = FitnessGoal.GetStronger; break;
+            case "GENERAL_FITNESS": goal = FitnessGoal.ImproveFitness; break;
             default: goal = default; return false;
         }
+
+        goal = FitnessGoals.Normalize(goal);
+        return true;
     }
 
-    private static string MapGoalToDisplay(FitnessGoal? goal) => goal switch
+    private static string MapGoalToDisplay(FitnessGoal? goal) => FitnessGoals.Normalize(goal) switch
     {
         FitnessGoal.LoseWeight => "LOSE_WEIGHT",
-        FitnessGoal.BuildMuscle => "BUILD_MUSCLE",
-        FitnessGoal.MaintainWeight => "MAINTAIN_WEIGHT",
-        FitnessGoal.ImproveEndurance => "IMPROVE_ENDURANCE",
         FitnessGoal.GetStronger => "GET_STRONGER",
-        FitnessGoal.ImproveFitness => "GENERAL_FITNESS",
-        _ => "GENERAL_FITNESS",
+        _ => "BUILD_MUSCLE",
     };
 
     private static bool TryMapExperienceToDomain(string display, out ExperienceLevel level)

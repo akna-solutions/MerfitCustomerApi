@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Services.Personalization;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Interfaces;
@@ -13,6 +14,8 @@ public static class WeightTracking
 {
     /// <summary>
     /// Gunde tek kilo kaydi tutulur: ayni gune ikinci giris oncekini gunceller. Boy biliniyorsa BMI de yazilir.
+    /// Yalnizca kilo iceren gunluk kayitlar guncellenir; cevre/yag orani iceren tam bir vucut olcumu kaydi
+    /// (POST /api/body-measurements) uzerine yazilmaz, o gun icin ayri bir kilo kaydi eklenir.
     /// </summary>
     public static async Task<BodyMeasurement> UpsertDailyWeightAsync(
         IUnitOfWork unitOfWork, long userId, DateOnly date, decimal weightKg, decimal? heightCm, CancellationToken cancellationToken)
@@ -23,6 +26,8 @@ public static class WeightTracking
 
         var measurement = await repository.GetQueryable(asNoTracking: false)
             .Where(m => m.UserId == userId && m.RecordedAt >= dayStart && m.RecordedAt < dayEnd)
+            .Where(m => m.BodyFatPercentage == null && m.EstimatedBodyFatPercentage == null && m.NeckCm == null
+                && m.ChestCm == null && m.WaistCm == null && m.HipCm == null && m.ArmCm == null && m.ThighCm == null)
             .OrderByDescending(m => m.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -48,6 +53,31 @@ public static class WeightTracking
         }
 
         return measurement;
+    }
+
+    /// <summary>Profil kilosunun (beslenme hedefi girdisi) guncellenmesi icin gereken en az fark.</summary>
+    public const decimal NutritionRecalculationThresholdKg = 1m;
+
+    /// <summary>
+    /// En yeni kilo kaydindan sonra cagrilir: aktif hedefin guncel kilosu yazilir. Profil kilosu beslenme
+    /// hedeflerinin girdisidir; her gunluk oynamada plani yeniden uretmemek icin yalnizca en az
+    /// <see cref="NutritionRecalculationThresholdKg"/> fark olusunca guncellenir ve beslenme plani yenilenir.
+    /// </summary>
+    public static async Task ApplyNewestWeightAsync(
+        IUnitOfWork unitOfWork, UserProfile profile, UserGoal? activeGoal, decimal weightKg, CancellationToken cancellationToken)
+    {
+        if (activeGoal is not null)
+        {
+            activeGoal.CurrentWeightKg = weightKg;
+            activeGoal.UpdatedAt = DateTime.UtcNow;
+        }
+
+        if (profile.WeightKg is null || Math.Abs(profile.WeightKg.Value - weightKg) >= NutritionRecalculationThresholdKg)
+        {
+            profile.WeightKg = weightKg;
+            profile.UpdatedAt = DateTime.UtcNow;
+            await PlanRegenerationQueue.EnqueueAsync(unitOfWork, profile.UserId, nutritionOnly: true, cancellationToken);
+        }
     }
 
     /// <summary>

@@ -53,6 +53,7 @@ public class NutritionPlanGeneratorTests
     {
         var unitOfWork = new Mock<IUnitOfWork>();
         unitOfWork.Setup(u => u.Repository<UserProfile>()).Returns(MockRepositoryFactory.Create(new List<UserProfile> { profile }).Object);
+        unitOfWork.Setup(u => u.Repository<BodyMeasurement>()).Returns(MockRepositoryFactory.Create(new List<BodyMeasurement>()).Object);
         unitOfWork.Setup(u => u.Repository<Food>()).Returns(MockRepositoryFactory.Create(foods ?? NutritionTestCatalog.Create()).Object);
 
         return new NutritionPlanGenerator(
@@ -274,6 +275,7 @@ public class NutritionPlanGeneratorTests
         var profile = LosingWeightMan();
         var unitOfWork = new Mock<IUnitOfWork>();
         unitOfWork.Setup(u => u.Repository<UserProfile>()).Returns(MockRepositoryFactory.Create(new List<UserProfile> { profile }).Object);
+        unitOfWork.Setup(u => u.Repository<BodyMeasurement>()).Returns(MockRepositoryFactory.Create(new List<BodyMeasurement>()).Object);
         unitOfWork.Setup(u => u.Repository<Food>()).Returns(MockRepositoryFactory.Create(NutritionTestCatalog.Create()).Object);
         var generator = new NutritionPlanGenerator(
             unitOfWork.Object,

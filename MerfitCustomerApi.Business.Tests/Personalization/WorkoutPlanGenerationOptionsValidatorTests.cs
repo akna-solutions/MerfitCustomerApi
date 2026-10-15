@@ -19,7 +19,7 @@ public class WorkoutPlanGenerationOptionsValidatorTests
         var options = new WorkoutPlanGenerationOptions();
 
         Assert.True(_validator.Validate(null, options).Succeeded);
-        foreach (var goal in Enum.GetValues<FitnessGoal>())
+        foreach (var goal in FitnessGoals.Primary)
         {
             Assert.Equal(100, options.AttributeWeightsByGoal[goal].Total);
         }
@@ -32,7 +32,7 @@ public class WorkoutPlanGenerationOptionsValidatorTests
         // Toplam yine 100 kalir; yalnizca negatif deger hatasi beklenir.
         options.AttributeWeightsByGoal[FitnessGoal.BuildMuscle] = new GoalAttributeWeights
         {
-            Hypertrophy = 60, Strength = 20, Cardio = -5, Endurance = 5, Mobility = 10, CoreStability = 10,
+            Hypertrophy = 80, Strength = 25, Cardio = -5,
         };
 
         var result = _validator.Validate(null, options);
@@ -45,7 +45,7 @@ public class WorkoutPlanGenerationOptionsValidatorTests
     public void Validate_Fails_WhenGoalWeightsDoNotSumToHundred()
     {
         var options = new WorkoutPlanGenerationOptions();
-        options.AttributeWeightsByGoal[FitnessGoal.LoseWeight].Cardio = 40;
+        options.AttributeWeightsByGoal[FitnessGoal.LoseWeight].Cardio = 35;
 
         var result = _validator.Validate(null, options);
 
@@ -54,15 +54,36 @@ public class WorkoutPlanGenerationOptionsValidatorTests
     }
 
     [Fact]
-    public void Validate_Fails_WhenAGoalIsMissing()
+    public void Validate_Fails_WhenAPrimaryGoalIsMissing()
     {
         var options = new WorkoutPlanGenerationOptions();
-        options.AttributeWeightsByGoal.Remove(FitnessGoal.ImproveEndurance);
+        options.AttributeWeightsByGoal.Remove(FitnessGoal.GetStronger);
 
         var result = _validator.Validate(null, options);
 
         Assert.True(result.Failed);
-        Assert.Contains(result.Failures!, f => f.Contains("ImproveEndurance"));
+        Assert.Contains(result.Failures!, f => f.Contains("GetStronger"));
+    }
+
+    [Fact]
+    public void Validate_IgnoresLegacyGoals_WhichAreNormalizedBeforeScoring()
+    {
+        var options = new WorkoutPlanGenerationOptions();
+        Assert.False(options.AttributeWeightsByGoal.ContainsKey(FitnessGoal.ImproveEndurance));
+
+        // Eski bir appsettings'ten kalan hatali eski anahtar uygulamayi durdurmaz.
+        options.AttributeWeightsByGoal[FitnessGoal.MaintainWeight] = new GoalAttributeWeights { Hypertrophy = 10 };
+
+        Assert.True(_validator.Validate(null, options).Succeeded);
+    }
+
+    [Fact]
+    public void Validate_Fails_WhenCardioSessionsOutOfRange()
+    {
+        var options = new WorkoutPlanGenerationOptions();
+        options.CardioSessionsPerWeekByGoal[FitnessGoal.LoseWeight] = 8;
+
+        Assert.True(_validator.Validate(null, options).Failed);
     }
 
     [Fact]
@@ -104,8 +125,11 @@ public class WorkoutPlanGenerationOptionsValidatorTests
         Assert.True(_validator.Validate(null, options).Succeeded);
 
         var buildMuscle = options.AttributeWeightsByGoal[FitnessGoal.BuildMuscle];
-        Assert.Equal((50, 20, 5, 5, 10, 10), (buildMuscle.Hypertrophy, buildMuscle.Strength, buildMuscle.Cardio, buildMuscle.Endurance, buildMuscle.Mobility, buildMuscle.CoreStability));
-        var improveEndurance = options.AttributeWeightsByGoal[FitnessGoal.ImproveEndurance];
-        Assert.Equal((10, 10, 25, 35, 10, 10), (improveEndurance.Hypertrophy, improveEndurance.Strength, improveEndurance.Cardio, improveEndurance.Endurance, improveEndurance.Mobility, improveEndurance.CoreStability));
+        Assert.Equal((65, 25, 10), (buildMuscle.Hypertrophy, buildMuscle.Strength, buildMuscle.Cardio));
+        var getStronger = options.AttributeWeightsByGoal[FitnessGoal.GetStronger];
+        Assert.Equal((25, 65, 10), (getStronger.Hypertrophy, getStronger.Strength, getStronger.Cardio));
+        var loseWeight = options.AttributeWeightsByGoal[FitnessGoal.LoseWeight];
+        Assert.Equal((45, 25, 30), (loseWeight.Hypertrophy, loseWeight.Strength, loseWeight.Cardio));
+        Assert.Equal(3, options.CardioSessionsPerWeekByGoal[FitnessGoal.LoseWeight]);
     }
 }

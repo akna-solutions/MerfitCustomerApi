@@ -1,4 +1,5 @@
-﻿using MerfitCustomerApi.Business.Common.Pagination;
+﻿using MerfitCustomerApi.Business.Common;
+using MerfitCustomerApi.Business.Common.Pagination;
 using MerfitCustomerApi.Business.Dtos.Customer.WorkoutSessions;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Notifications.Engine;
@@ -7,6 +8,7 @@ using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Exceptions;
 using MerfitCustomerApi.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace MerfitCustomerApi.Business.Services.WorkoutSessions;
 
@@ -29,12 +31,18 @@ public class WorkoutSessionService : IWorkoutSessionService
     private readonly IMerfitScoreService _scoreService;
 
     private readonly INotificationReminderCanceller? _reminderCanceller;
+    private readonly ProgressiveOverloadOptions _progressionOptions;
 
-    public WorkoutSessionService(IUnitOfWork unitOfWork, IMerfitScoreService scoreService, INotificationReminderCanceller? reminderCanceller = null)
+    public WorkoutSessionService(
+        IUnitOfWork unitOfWork,
+        IMerfitScoreService scoreService,
+        INotificationReminderCanceller? reminderCanceller = null,
+        IOptions<ProgressiveOverloadOptions>? progressionOptions = null)
     {
         _unitOfWork = unitOfWork;
         _scoreService = scoreService;
         _reminderCanceller = reminderCanceller;
+        _progressionOptions = progressionOptions?.Value ?? new ProgressiveOverloadOptions();
     }
 
     public async Task<CustomerWorkoutSessionDto> StartSessionAsync(long userId, StartWorkoutSessionRequest request, CancellationToken cancellationToken = default)
@@ -412,7 +420,7 @@ public class WorkoutSessionService : IWorkoutSessionService
     /// WorkoutExercise - veya kisisellestirilmis plan - WorkoutPlanExercise) bagimsiz olarak
     /// tasir; MapSessionExercise bu iki kaynagi ayirt etmek zorunda kalmaz.
     /// </summary>
-    private readonly record struct ExerciseTargetValues(int Sets, int? Reps, int? RestSeconds, int? DurationSeconds);
+    private readonly record struct ExerciseTargetValues(int Sets, int? Reps, int? RestSeconds, int? DurationSeconds, int? RepsMax = null);
 
     /// <summary>
     /// Bir oturumun hedef degerlerini, oturumun hangi kaynaktan baslatildigina gore
@@ -430,7 +438,7 @@ public class WorkoutSessionService : IWorkoutSessionService
 
             return planExercises
                 .GroupBy(pe => pe.ExerciseId)
-                .ToDictionary(g => g.Key, g => new ExerciseTargetValues(g.First().Sets, g.First().Reps, g.First().RestSeconds, g.First().DurationSeconds));
+                .ToDictionary(g => g.Key, g => new ExerciseTargetValues(g.First().Sets, g.First().Reps, g.First().RestSeconds, g.First().DurationSeconds, g.First().RepsMax));
         }
 
         var catalogExercises = await _unitOfWork.Repository<WorkoutExercise>()
@@ -443,7 +451,7 @@ public class WorkoutSessionService : IWorkoutSessionService
             .ToDictionary(g => g.Key, g => new ExerciseTargetValues(g.First().Sets, g.First().Reps, g.First().RestSeconds, g.First().DurationSeconds));
     }
 
-    private static CustomerWorkoutSessionExerciseDto MapSessionExercise(
+    private CustomerWorkoutSessionExerciseDto MapSessionExercise(
         WorkoutSessionExercise sessionExercise,
         Exercise? exercise,
         ExerciseTargetValues? target,
@@ -459,6 +467,7 @@ public class WorkoutSessionService : IWorkoutSessionService
             Order = sessionExercise.Order,
             TargetSets = target?.Sets ?? 0,
             TargetReps = target?.Reps,
+            TargetRepsMax = target?.RepsMax,
             RestSeconds = target?.RestSeconds,
             DurationSeconds = target?.DurationSeconds,
             VideoUrl = exercise?.VideoUrl,
@@ -467,6 +476,10 @@ public class WorkoutSessionService : IWorkoutSessionService
             PreviousBest = previousBest,
             RequiresWeight = RequiresWeight(exercise),
             LastPerformance = lastPerformance,
+            // Sureye dayali hedefte (tekrar yok) oneri uretilmez.
+            Progression = target is { Reps: > 0 }
+                ? ProgressiveOverloadAdvisor.Suggest(target.Value.Sets, target.Value.Reps, target.Value.RepsMax, lastPerformance?.Sets, _progressionOptions)
+                : null,
         };
     }
 

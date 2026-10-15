@@ -380,6 +380,10 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<string>("BodyFatEstimationMethod")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
                     b.Property<decimal?>("BodyFatPercentage")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
@@ -394,7 +398,15 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<long?>("CreatedUser")
                         .HasColumnType("bigint");
 
+                    b.Property<decimal?>("EstimatedBodyFatPercentage")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<decimal?>("HipCm")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("NeckCm")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
@@ -3150,6 +3162,9 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime?>("LowBodyFatWarningAcknowledgedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<decimal?>("ProgressPercent")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
@@ -3979,6 +3994,9 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<long?>("CardioWorkoutId")
+                        .HasColumnType("bigint");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -4004,6 +4022,8 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CardioWorkoutId");
 
                     b.HasIndex("WorkoutId");
 
@@ -4036,6 +4056,9 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer");
 
                     b.Property<int?>("Reps")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("RepsMax")
                         .HasColumnType("integer");
 
                     b.Property<int?>("RestSeconds")
@@ -4886,6 +4909,11 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.WorkoutPlanDay", b =>
                 {
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.Workout", null)
+                        .WithMany()
+                        .HasForeignKey("CardioWorkoutId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("MerfitCustomerApi.Domain.Entities.Workout", null)
                         .WithMany()
                         .HasForeignKey("WorkoutId")

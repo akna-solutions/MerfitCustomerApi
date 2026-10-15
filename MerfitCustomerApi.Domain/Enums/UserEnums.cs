@@ -24,32 +24,35 @@ public enum Gender
 }
 
 /// <summary>
-/// Kullanicinin fitness hedefini ifade eder.
+/// Kullanicinin fitness hedefini ifade eder. Kullaniciya yalnizca uc ana hedef sunulur: BuildMuscle
+/// (Kas Gelistirme), GetStronger (Guclenme) ve LoseWeight (Yag Kaybi). Diger uyeler eski kayitlar ve eski
+/// istemciler icin korunur (metin olarak saklandigindan silinmez/yeniden siralanmaz) ve okunurken
+/// Business.Common.FitnessGoals.Normalize ile ana hedeflerden birine eslenir.
 /// </summary>
 public enum FitnessGoal
 {
     /// <summary>
-    /// Kilo verme hedefi.
+    /// Yag kaybi (ana hedef).
     /// </summary>
     LoseWeight,
     /// <summary>
-    /// Kas kutlesi kazanma hedefi.
+    /// Kas gelistirme (ana hedef).
     /// </summary>
     BuildMuscle,
     /// <summary>
-    /// Mevcut kiloyu koruma hedefi.
+    /// Eski hedef: kiloyu koruma. Kas Gelistirme'ye eslenir.
     /// </summary>
     MaintainWeight,
     /// <summary>
-    /// Dayaniklilik gelistirme hedefi.
+    /// Eski hedef: dayaniklilik. Kas Gelistirme'ye eslenir.
     /// </summary>
     ImproveEndurance,
     /// <summary>
-    /// Guclenme hedefi.
+    /// Guclenme (ana hedef).
     /// </summary>
     GetStronger,
     /// <summary>
-    /// Genel fitness seviyesini gelistirme hedefi.
+    /// Eski hedef: genel fitness. Kas Gelistirme'ye eslenir.
     /// </summary>
     ImproveFitness
 }

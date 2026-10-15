@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Admin.Workouts;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Domain.Entities;
@@ -125,6 +126,19 @@ public class WorkoutAttributeScoreService : IWorkoutAttributeScoreService
             }
         }
 
+        // Kismi ana puan, hedef uyumunda eksik ozelligi 0 sayar ve antrenmani haksiz yere geri iter
+        // (veya eski normalizasyonda one cikarirdi). Bu yuzden puan giriliyorsa uc ana ozellik birlikte zorunludur.
+        if (result.Count > 0)
+        {
+            var missingPrimary = GoalAttributeWeights.PrimaryAttributes.Where(t => !result.ContainsKey(t)).ToList();
+            if (missingPrimary.Count > 0)
+            {
+                throw new AppValidationException(
+                    nameof(AdminSetWorkoutAttributeScoresRequest.Scores),
+                    $"Hipertrofi, Kuvvet ve Kardiyo puanlari birlikte girilmelidir (eksik: {string.Join(", ", missingPrimary)}).");
+            }
+        }
+
         return result;
     }
 
@@ -147,6 +161,11 @@ public class WorkoutAttributeScoreService : IWorkoutAttributeScoreService
                 .Where(t => !scoredTypes.Contains(t))
                 .Select(t => t.ToString())
                 .ToList(),
+            MissingPrimaryAttributeTypes = GoalAttributeWeights.PrimaryAttributes
+                .Where(t => !scoredTypes.Contains(t))
+                .Select(t => t.ToString())
+                .ToList(),
+            IsPrimaryComplete = GoalAttributeWeights.PrimaryAttributes.All(scoredTypes.Contains),
         };
     }
 }

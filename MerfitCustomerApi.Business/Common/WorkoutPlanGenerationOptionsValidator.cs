@@ -6,7 +6,9 @@ namespace MerfitCustomerApi.Business.Common;
 /// <summary>
 /// <see cref="WorkoutPlanGenerationOptions"/> icindeki hedef agirlik profillerini dogrular. Eksik
 /// veya hatali bir agirlik konfigurasyonu sessizce yanlis puanlama yapmak yerine uygulama
-/// baslangicinda (ValidateOnStart) acik bir hatayla durdurulur.
+/// baslangicinda (ValidateOnStart) acik bir hatayla durdurulur. Yalnizca kullaniciya sunulan uc hedef
+/// (<see cref="FitnessGoals.Primary"/>) zorunludur; eski hedefler plan uretiminden once bu uc hedeften
+/// birine donusturulur, eski anahtarlar konfigurasyonda kalsa bile kullanilmaz.
 /// </summary>
 public class WorkoutPlanGenerationOptionsValidator : IValidateOptions<WorkoutPlanGenerationOptions>
 {
@@ -25,7 +27,7 @@ public class WorkoutPlanGenerationOptionsValidator : IValidateOptions<WorkoutPla
             return ValidateOptionsResult.Fail(errors);
         }
 
-        foreach (var goal in Enum.GetValues<FitnessGoal>())
+        foreach (var goal in FitnessGoals.Primary)
         {
             if (!options.AttributeWeightsByGoal.TryGetValue(goal, out var weights) || weights is null)
             {
@@ -33,7 +35,7 @@ public class WorkoutPlanGenerationOptionsValidator : IValidateOptions<WorkoutPla
                 continue;
             }
 
-            foreach (var attributeType in Enum.GetValues<WorkoutAttributeType>())
+            foreach (var attributeType in GoalAttributeWeights.PrimaryAttributes)
             {
                 if (weights.GetWeight(attributeType) < 0)
                 {
@@ -45,6 +47,22 @@ public class WorkoutPlanGenerationOptionsValidator : IValidateOptions<WorkoutPla
             {
                 errors.Add($"{goal} hedefinin agirlik toplami {GoalAttributeWeights.RequiredTotal} olmalidir (mevcut: {weights.Total}).");
             }
+        }
+
+        if (options.CardioSessionsPerWeekByGoal is not null)
+        {
+            foreach (var (goal, sessions) in options.CardioSessionsPerWeekByGoal)
+            {
+                if (sessions < 0 || sessions > 7)
+                {
+                    errors.Add($"{goal} hedefinin haftalik kardiyo sayisi 0-7 arasinda olmalidir (mevcut: {sessions}).");
+                }
+            }
+        }
+
+        if (options.CardioFinisherMinMinutes < 0 || options.CardioFinisherMaxMinutes < options.CardioFinisherMinMinutes)
+        {
+            errors.Add($"{nameof(WorkoutPlanGenerationOptions.CardioFinisherMaxMinutes)}, {nameof(WorkoutPlanGenerationOptions.CardioFinisherMinMinutes)} degerinden kucuk olamaz.");
         }
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);

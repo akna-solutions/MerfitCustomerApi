@@ -29,8 +29,8 @@ public class WeightProgressTests
     [InlineData(FitnessGoal.BuildMuscle, 70, 180, ExperienceLevel.Advanced, 71)]    // +%1.5
     [InlineData(FitnessGoal.BuildMuscle, 55, 180, ExperienceLevel.Beginner, 60)]    // zayifsa en az BMI 18.5
     [InlineData(FitnessGoal.GetStronger, 80, 180, ExperienceLevel.Beginner, 82.5)]  // +%3
-    [InlineData(FitnessGoal.MaintainWeight, 80.3, 180, ExperienceLevel.Beginner, 80.5)]
-    [InlineData(FitnessGoal.ImproveEndurance, 77, 170, ExperienceLevel.Beginner, 77)]
+    [InlineData(FitnessGoal.MaintainWeight, 80.3, 180, ExperienceLevel.Beginner, 85)]      // eski hedef -> Kas Gelistirme
+    [InlineData(FitnessGoal.ImproveEndurance, 77, 170, ExperienceLevel.Beginner, 81.5)]  // eski hedef -> Kas Gelistirme
     public void TargetWeight_DependsOnGoalBodyAndExperience(FitnessGoal goal, double weight, double height, ExperienceLevel level, double expected)
     {
         Assert.Equal((decimal)expected, TargetWeightCalculator.Calculate(goal, (decimal)weight, (decimal)height, level));
@@ -232,6 +232,7 @@ public class WeightProgressTests
             var unitOfWork = new Mock<IUnitOfWork>();
             unitOfWork.Setup(u => u.Repository<UserProfile>()).Returns(MockRepositoryFactory.Create(Profiles).Object);
             unitOfWork.Setup(u => u.Repository<UserGoal>()).Returns(MockRepositoryFactory.Create(Goals).Object);
+            unitOfWork.Setup(u => u.Repository<GoalHistory>()).Returns(MockRepositoryFactory.Create(new List<GoalHistory>()).Object);
             unitOfWork.Setup(u => u.Repository<BodyMeasurement>()).Returns(MockRepositoryFactory.Create(Measurements).Object);
             unitOfWork.Setup(u => u.Repository<PersonalizationJob>()).Returns(MockRepositoryFactory.Create(Jobs).Object);
             unitOfWork.Setup(u => u.Repository<WorkoutSession>()).Returns(MockRepositoryFactory.Create(new List<WorkoutSession>()).Object);
@@ -255,6 +256,7 @@ public class WeightProgressTests
         unitOfWork.Setup(u => u.Repository<ApplicationUser>()).Returns(MockRepositoryFactory.Create(new List<ApplicationUser> { new() { Id = UserId, Email = "a@b.com" } }).Object);
         unitOfWork.Setup(u => u.Repository<UserProfile>()).Returns(MockRepositoryFactory.Create(new List<UserProfile> { profile }).Object);
         unitOfWork.Setup(u => u.Repository<UserGoal>()).Returns(MockRepositoryFactory.Create(goals).Object);
+        unitOfWork.Setup(u => u.Repository<GoalHistory>()).Returns(MockRepositoryFactory.Create(new List<GoalHistory>()).Object);
         unitOfWork.Setup(u => u.Repository<BodyMeasurement>()).Returns(MockRepositoryFactory.Create(measurements).Object);
         unitOfWork.Setup(u => u.Repository<UserPreference>()).Returns(MockRepositoryFactory.Create(new List<UserPreference>()).Object);
         unitOfWork.Setup(u => u.Repository<UserNotificationSetting>()).Returns(MockRepositoryFactory.Create(new List<UserNotificationSetting>()).Object);

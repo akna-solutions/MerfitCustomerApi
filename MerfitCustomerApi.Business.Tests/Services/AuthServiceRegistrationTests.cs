@@ -71,7 +71,7 @@ public class AuthServiceRegistrationTests
         tokenService.Setup(t => t.GenerateRefreshToken()).Returns("refresh-token");
 
         var nutritionCalculator = new Mock<INutritionCalculator>();
-        nutritionCalculator.Setup(n => n.Calculate(It.IsAny<UserProfile>()))
+        nutritionCalculator.Setup(n => n.Calculate(It.IsAny<UserProfile>(), It.IsAny<MerfitCustomerApi.Business.Services.BodyComposition.BodyFatAssessment?>()))
             .Returns(new NutritionCalculationResult
             {
                 DailyCalories = 2000,
@@ -144,7 +144,7 @@ public class AuthServiceRegistrationTests
     [Theory]
     [InlineData("lose_weight", 95, 71.5)]
     [InlineData("build_muscle", 70, 74)]
-    [InlineData("maintain_weight", 78, 78)]
+    [InlineData("maintain_weight", 78, 82.5)] // eski hedef kodu -> Kas Gelistirme
     public async Task RegisterAsync_SetsTargetWeightFromGoal_AndFirstWeightEntry(string goal, double weight, double expectedTarget)
     {
         var fx = CreateFixture();
@@ -157,6 +157,60 @@ public class AuthServiceRegistrationTests
         Assert.Equal((decimal)expectedTarget, Assert.Single(fx.Profiles).TargetWeightKg);
         Assert.Equal((decimal)expectedTarget, Assert.Single(fx.Goals).TargetWeightKg);
         Assert.Equal((decimal)weight, Assert.Single(fx.Measurements).WeightKg);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_LoseWeightWithLowBodyFat_RequiresConfirmation_AndCreatesNothing()
+    {
+        var fx = CreateFixture();
+        var request = MakeRequest();
+        request.Goal = "lose_weight";
+        request.Gender = "male";
+        request.Age = 25;
+        request.NeckCm = 40;
+        request.WaistCm = 74; // US Navy ~%4.6, erkek 18-39 icin dusuk (<8)
+
+        await Assert.ThrowsAsync<LowBodyFatConfirmationRequiredException>(() => fx.Service.RegisterAsync(request, ipAddress: null));
+
+        Assert.Empty(fx.Users);
+        Assert.Empty(fx.Profiles);
+        Assert.Empty(fx.Jobs);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_LoseWeightWithLowBodyFat_AndConfirmation_SavesMeasurementAndAcknowledgement()
+    {
+        var fx = CreateFixture();
+        var request = MakeRequest();
+        request.Goal = "lose_weight";
+        request.Gender = "male";
+        request.Age = 25;
+        request.NeckCm = 40;
+        request.WaistCm = 74;
+        request.ConfirmLowBodyFatWarning = true;
+
+        await fx.Service.RegisterAsync(request, ipAddress: null);
+
+        Assert.Equal(FitnessGoal.LoseWeight, Assert.Single(fx.Profiles).Goal);
+        Assert.NotNull(Assert.Single(fx.Goals).LowBodyFatWarningAcknowledgedAt);
+        var measurement = Assert.Single(fx.Measurements);
+        Assert.Equal(40m, measurement.NeckCm);
+        Assert.NotNull(measurement.EstimatedBodyFatPercentage);
+        Assert.Null(measurement.BodyFatPercentage);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_LoseWeightWithoutMeasurements_ShowsNoWarning()
+    {
+        var fx = CreateFixture();
+        var request = MakeRequest();
+        request.Goal = "lose_weight";
+        request.Gender = "male";
+        request.Age = 25;
+
+        await fx.Service.RegisterAsync(request, ipAddress: null);
+
+        Assert.Null(Assert.Single(fx.Goals).LowBodyFatWarningAcknowledgedAt);
     }
 
     [Fact]

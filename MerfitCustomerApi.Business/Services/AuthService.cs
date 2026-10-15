@@ -2,6 +2,7 @@
 using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Auth;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.BodyComposition;
 using MerfitCustomerApi.Business.Services.Progress;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
@@ -19,11 +20,10 @@ namespace MerfitCustomerApi.Business.Services.Auth;
 public class AuthService : IAuthService
 {
     /// <summary>
-    /// Kayit sirasinda UserProfile.Goal bos birakildiginde UserGoal.GoalType icin kullanilan
-    /// guvenli varsayilan hedef. UserGoal.GoalType (FitnessGoal, non-nullable) alanini,
-    /// mevcut kayit davranisini bozmadan doldurabilmek icin "notr" bir hedef secilmistir.
+    /// Kayit sirasinda UserProfile.Goal bos birakildiginde UserGoal.GoalType icin kullanilan varsayilan hedef:
+    /// uc ana hedeften kalori acigi uygulamayan Kas Gelistirme (bkz. FitnessGoals.Default).
     /// </summary>
-    private const FitnessGoal DefaultGoalType = FitnessGoal.MaintainWeight;
+    private const FitnessGoal DefaultGoalType = FitnessGoals.Default;
 
     /// <summary>ExternalLogin.Provider degeri.</summary>
     public const string GoogleProvider = "Google";
@@ -36,6 +36,7 @@ public class AuthService : IAuthService
     private readonly JwtSettings _jwtSettings;
     private readonly IAccountEmailService _accountEmailService;
     private readonly IGoogleIdTokenValidator _googleIdTokenValidator;
+    private readonly BodyCompositionOptions _bodyCompositionOptions;
 
     public AuthService(
         IUnitOfWork unitOfWork,
@@ -43,8 +44,10 @@ public class AuthService : IAuthService
         INutritionCalculator nutritionCalculator,
         IOptions<JwtSettings> jwtSettings,
         IAccountEmailService accountEmailService,
-        IGoogleIdTokenValidator googleIdTokenValidator)
+        IGoogleIdTokenValidator googleIdTokenValidator,
+        IOptions<BodyCompositionOptions>? bodyCompositionOptions = null)
     {
+        _bodyCompositionOptions = bodyCompositionOptions?.Value ?? new BodyCompositionOptions();
         _unitOfWork = unitOfWork;
         _tokenService = tokenService;
         _nutritionCalculator = nutritionCalculator;
@@ -120,6 +123,22 @@ public class AuthService : IAuthService
 
         var equipmentIds = (request.EquipmentIds ?? new List<long>()).Distinct().ToList();
 
+        // Onboarding'de girilen opsiyonel vucut olcumleri. Yag Kaybi secildiyse ve bu olcumlere gore yag orani
+        // dusuk araliktaysa kayit, kullanici uyariyi acikca onaylamadan tamamlanmaz (profildeki kuralla ayni).
+        var goal = ParseFitnessGoal(request.Goal);
+        var gender = ParseGender(request.Gender);
+        DateTime? dateOfBirth = request.Age.HasValue ? DateTime.UtcNow.Date.AddYears(-request.Age.Value) : null;
+        var onboardingMeasurement = BuildOnboardingMeasurement(request, gender, heightCm, weightKg);
+        var bodyFat = BodyFatAssessor.Assess(
+            gender,
+            dateOfBirth,
+            heightCm,
+            onboardingMeasurement is null ? Array.Empty<BodyMeasurement>() : new[] { onboardingMeasurement },
+            DateTime.UtcNow,
+            _bodyCompositionOptions);
+        var lowBodyFatConfirmed = goal.HasValue
+            && LowBodyFatGoalGuard.EnsureConfirmed(goal.Value, bodyFat, request.ConfirmLowBodyFatWarning);
+
         await _unitOfWork.BeginTransactionAsync();
         var user = new ApplicationUser
         {
@@ -145,13 +164,11 @@ public class AuthService : IAuthService
             FirstName = firstName,
             LastName = lastName,
             Username = normalizedUsername,
-            DateOfBirth = request.Age.HasValue
-                ? DateTime.UtcNow.Date.AddYears(-request.Age.Value)
-                : null,
-            Gender = ParseGender(request.Gender),
+            DateOfBirth = dateOfBirth,
+            Gender = gender,
             HeightCm = heightCm,
             WeightKg = weightKg,
-            Goal = ParseFitnessGoal(request.Goal),
+            Goal = goal,
             ExperienceLevel = ParseExperienceLevel(request.TrainingExperience),
             ActivityLevel = ParseActivityLevel(request.ActivityLevel),
             TrainingLocation = ParseTrainingLocation(request.TrainingLocation),
@@ -197,19 +214,26 @@ public class AuthService : IAuthService
             CurrentWeightKg = profile.WeightKg,
             TargetWeightKg = profile.TargetWeightKg,
             IsActive = true,
+            LowBodyFatWarningAcknowledgedAt = lowBodyFatConfirmed ? DateTime.UtcNow : null,
             CreatedAt = DateTime.UtcNow,
         };
 
         await _unitOfWork.Repository<UserGoal>().AddAsync(userGoal);
 
-        if (profile.WeightKg is not null)
+        if (onboardingMeasurement is not null)
+        {
+            // Onboarding'de cevre/yag orani girildiyse kilo dahil tam bir olcum kaydi olarak saklanir.
+            onboardingMeasurement.UserId = user.Id;
+            await _unitOfWork.Repository<BodyMeasurement>().AddAsync(onboardingMeasurement);
+        }
+        else if (profile.WeightKg is not null)
         {
             // Kayittaki kilo, kilo gecmisinin (ilerleme grafigi) ilk noktasidir.
             await WeightTracking.UpsertDailyWeightAsync(
                 _unitOfWork, user.Id, DateOnly.FromDateTime(DateTime.UtcNow), profile.WeightKg.Value, profile.HeightCm, CancellationToken.None);
         }
 
-        var nutritionCalculation = _nutritionCalculator.Calculate(profile);
+        var nutritionCalculation = _nutritionCalculator.Calculate(profile, bodyFat);
         var nutritionGoal = new NutritionGoal
         {
             UserId = user.Id,
@@ -581,12 +605,16 @@ public class AuthService : IAuthService
         };
     }
 
+    /// <summary>
+    /// Onboarding hedef kodunu ana hedeflerden birine cevirir; eski kodlar (improve_fitness, maintain_weight,
+    /// improve_endurance) <see cref="FitnessGoals.Normalize(FitnessGoal)"/> ile eslenir.
+    /// </summary>
     private static FitnessGoal? ParseFitnessGoal(string? goalStr)
     {
         if (string.IsNullOrWhiteSpace(goalStr))
             return null;
 
-        return goalStr.ToLowerInvariant() switch
+        FitnessGoal? goal = goalStr.ToLowerInvariant() switch
         {
             "lose_weight" => FitnessGoal.LoseWeight,
             "build_muscle" => FitnessGoal.BuildMuscle,
@@ -595,6 +623,43 @@ public class AuthService : IAuthService
             "maintain_weight" => FitnessGoal.MaintainWeight,
             "improve_endurance" => FitnessGoal.ImproveEndurance,
             _ => null,
+        };
+
+        return goal.HasValue ? FitnessGoals.Normalize(goal.Value) : null;
+    }
+
+    /// <summary>
+    /// Onboarding'de yag orani veya cevre olcumu girildiyse kayit icin olcum satirini hazirlar (UserId sonradan
+    /// atanir). Hicbiri girilmediyse null; o durumda yalnizca gunluk kilo kaydi olusturulur.
+    /// </summary>
+    private static BodyMeasurement? BuildOnboardingMeasurement(AccountProfileRequest request, Gender? gender, decimal? heightCm, decimal? weightKg)
+    {
+        if (request.BodyFatPercentage is null && request.NeckCm is null && request.WaistCm is null && request.HipCm is null)
+        {
+            return null;
+        }
+
+        if (request.NeckCm is not null && request.WaistCm is not null && request.WaistCm <= request.NeckCm)
+        {
+            throw new AppValidationException(nameof(request.WaistCm), "Bel çevresi boyun çevresinden büyük olmalıdır.");
+        }
+
+        var estimate = BodyFatEstimator.EstimateUsNavy(gender, heightCm, request.NeckCm, request.WaistCm, request.HipCm);
+        var now = DateTime.UtcNow;
+        return new BodyMeasurement
+        {
+            RecordedAt = now,
+            WeightKg = weightKg,
+            BodyFatPercentage = request.BodyFatPercentage,
+            EstimatedBodyFatPercentage = estimate,
+            BodyFatEstimationMethod = estimate is null ? null : BodyFatEstimator.UsNavyMethod,
+            NeckCm = request.NeckCm,
+            WaistCm = request.WaistCm,
+            HipCm = request.HipCm,
+            BMI = weightKg is not null && heightCm is > 0
+                ? Math.Round(weightKg.Value / (heightCm.Value / 100m * (heightCm.Value / 100m)), 1)
+                : null,
+            CreatedAt = now,
         };
     }
 

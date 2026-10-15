@@ -34,7 +34,7 @@ public class GoogleAuthPostgresTests
         google.Setup(g => g.ValidateAsync("tok", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new GoogleIdentity(subject, email, EmailVerified: true, "Mert", "Akpınar"));
         var calculator = new Mock<INutritionCalculator>();
-        calculator.Setup(c => c.Calculate(It.IsAny<Domain.Entities.UserProfile>())).Returns(new NutritionCalculationResult { DailyCalories = 2000 });
+        calculator.Setup(c => c.Calculate(It.IsAny<Domain.Entities.UserProfile>(), It.IsAny<MerfitCustomerApi.Business.Services.BodyComposition.BodyFatAssessment?>())).Returns(new NutritionCalculationResult { DailyCalories = 2000 });
         var tokens = new TokenService(Options.Create(new JwtSettings { Key = new string('k', 64), Issuer = "t", Audience = "t" }));
 
         async Task<string> RegisterAsync(int i)
@@ -72,7 +72,7 @@ public class GoogleAuthPostgresTests
         // UnitOfWork.CommitTransactionAsync hata aninda NullReferenceException firlatip unique ihlalini gizliyordu.
         var username = $"u{Guid.NewGuid():N}"[..20];
         var calculator = new Mock<INutritionCalculator>();
-        calculator.Setup(c => c.Calculate(It.IsAny<Domain.Entities.UserProfile>())).Returns(new NutritionCalculationResult { DailyCalories = 2000 });
+        calculator.Setup(c => c.Calculate(It.IsAny<Domain.Entities.UserProfile>(), It.IsAny<MerfitCustomerApi.Business.Services.BodyComposition.BodyFatAssessment?>())).Returns(new NutritionCalculationResult { DailyCalories = 2000 });
         var tokens = new TokenService(Options.Create(new JwtSettings { Key = new string('k', 64), Issuer = "t", Audience = "t" }));
 
         async Task<string> RegisterAsync(int i)

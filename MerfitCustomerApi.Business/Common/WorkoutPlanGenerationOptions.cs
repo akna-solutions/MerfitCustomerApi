@@ -56,19 +56,57 @@ public class WorkoutPlanGenerationOptions
     public int GoalFitMaxScore { get; set; } = 40;
 
     /// <summary>
-    /// FitnessGoal basina antrenman ozellik agirliklari (yuzde, toplam 100). Kullanicinin hedefi
-    /// (aktif UserGoal -> UserProfile.Goal -> MaintainWeight) bu tablodan bir agirlik profili secer.
+    /// Uc ana hedef icin Hipertrofi/Kuvvet/Kardiyo agirliklari (yuzde, toplam 100). Kullanicinin hedefi
+    /// (aktif UserGoal -> UserProfile.Goal -> Kas Gelistirme) once <see cref="FitnessGoals.Normalize(FitnessGoal)"/>
+    /// ile uc hedeften birine donusturulur, sonra bu tablodan bir agirlik profili secilir.
     /// Degerler urunun ilk surumu icin baslangic degerleridir; bilimsel olarak dogrulanmis degildir.
     /// </summary>
     public Dictionary<FitnessGoal, GoalAttributeWeights> AttributeWeightsByGoal { get; set; } = new()
     {
-        [FitnessGoal.BuildMuscle] = new() { Hypertrophy = 50, Strength = 20, Cardio = 5, Endurance = 5, Mobility = 10, CoreStability = 10 },
-        [FitnessGoal.GetStronger] = new() { Hypertrophy = 15, Strength = 50, Cardio = 5, Endurance = 5, Mobility = 10, CoreStability = 15 },
-        [FitnessGoal.LoseWeight] = new() { Hypertrophy = 10, Strength = 10, Cardio = 35, Endurance = 25, Mobility = 10, CoreStability = 10 },
-        [FitnessGoal.ImproveFitness] = new() { Hypertrophy = 15, Strength = 15, Cardio = 25, Endurance = 20, Mobility = 10, CoreStability = 15 },
-        [FitnessGoal.MaintainWeight] = new() { Hypertrophy = 15, Strength = 15, Cardio = 25, Endurance = 20, Mobility = 10, CoreStability = 15 },
-        [FitnessGoal.ImproveEndurance] = new() { Hypertrophy = 10, Strength = 10, Cardio = 25, Endurance = 35, Mobility = 10, CoreStability = 10 },
+        [FitnessGoal.BuildMuscle] = new() { Hypertrophy = 65, Strength = 25, Cardio = 10 },
+        [FitnessGoal.GetStronger] = new() { Hypertrophy = 25, Strength = 65, Cardio = 10 },
+        [FitnessGoal.LoseWeight] = new() { Hypertrophy = 45, Strength = 25, Cardio = 30 },
     };
+
+    // --- Kardiyo ve toparlanma ---
+
+    /// <summary>
+    /// Kardiyo puani hem Hipertrofi hem Kuvvet puanindan yuksek olan antrenmanlar "kardiyo agirlikli"
+    /// sayilir ve ana (direnc) antrenman gunlerine atanmaz; yalnizca antrenman sonu kardiyo olarak
+    /// kullanilir. Hedef ne olursa olsun program yalnizca kardiyodan olusmaz. Katalogda hic direnc
+    /// antrenmani bulunamazsa (veri sorunu) program uretilememesi yerine tum uygun antrenmanlar kullanilir.
+    /// </summary>
+    public bool ExcludeCardioDominantFromMainDays { get; set; } = true;
+
+    /// <summary>
+    /// Hedefe gore haftada kac antrenman gunune antrenman sonu kardiyo (WorkoutPlanDay.CardioWorkoutId)
+    /// eklenecegi. Kardiyo bir hedef degil, programin bir bilesenidir. Gun sayisindan fazlaysa gun
+    /// sayisiyla sinirlanir.
+    /// </summary>
+    public Dictionary<FitnessGoal, int> CardioSessionsPerWeekByGoal { get; set; } = new()
+    {
+        [FitnessGoal.BuildMuscle] = 1,
+        [FitnessGoal.GetStronger] = 1,
+        [FitnessGoal.LoseWeight] = 3,
+    };
+
+    /// <summary>
+    /// Ana antrenmanin Kardiyo puani bu degere esit veya ustundeyse (karma antrenman) o gun zaten bir
+    /// kardiyo bileseni sayilir ve ayrica antrenman sonu kardiyo eklenmez.
+    /// </summary>
+    public int MixedWorkoutCardioScoreThreshold { get; set; } = 60;
+
+    /// <summary>Antrenman sonu kardiyo icin en kisa sure (dakika); kalan sure bundan azsa eklenmez.</summary>
+    public int CardioFinisherMinMinutes { get; set; } = 10;
+
+    /// <summary>Antrenman sonu kardiyo icin en uzun sure (dakika).</summary>
+    public int CardioFinisherMaxMinutes { get; set; } = 30;
+
+    /// <summary>
+    /// Ayni ana kas grubu takvimde ardisik iki gunde (orn. Pazartesi-Sali) calisiyorsa
+    /// <see cref="ConsecutiveMuscleGroupPenaltyScore"/>'a ek olarak dusulen puan (toparlanma).
+    /// </summary>
+    public int AdjacentDayMuscleGroupPenaltyScore { get; set; } = 20;
 
     // --- Set/tekrar kurallari (hedef x deneyim seviyesine gore) ---
 
@@ -87,32 +125,22 @@ public class WorkoutPlanGenerationOptions
         ["LoseWeight:Beginner"] = 3,
         ["LoseWeight:Intermediate"] = 3,
         ["LoseWeight:Advanced"] = 4,
-        ["ImproveEndurance:Beginner"] = 2,
-        ["ImproveEndurance:Intermediate"] = 3,
-        ["ImproveEndurance:Advanced"] = 3,
-        ["ImproveFitness:Beginner"] = 3,
-        ["ImproveFitness:Intermediate"] = 3,
-        ["ImproveFitness:Advanced"] = 4,
-        ["MaintainWeight:Beginner"] = 3,
-        ["MaintainWeight:Intermediate"] = 3,
-        ["MaintainWeight:Advanced"] = 4,
     };
 
     /// <summary>Eslesme bulunamadiginda kullanilacak varsayilan set sayisi.</summary>
     public int DefaultSets { get; set; } = 3;
 
     /// <summary>
-    /// (FitnessGoal, ExperienceLevel) kombinasyonuna gore hedef tekrar araligi (Min/Max).
+    /// Hedefe gore hedef tekrar araligi (Min/Max). Plan egzersizi Reps = Min, RepsMax = Max olarak
+    /// kaydedilir; cift progresyon (double progression) bu araligi kullanir. Yag kaybinda da kas
+    /// korunmasi icin direnc antrenmani orta tekrar araliginda kalir.
     /// Eslesme bulunamazsa <see cref="DefaultRepsRange"/> kullanilir.
     /// </summary>
     public Dictionary<string, (int Min, int Max)> RepsRangeByGoal { get; set; } = new()
     {
         ["BuildMuscle"] = (8, 12),
         ["GetStronger"] = (3, 6),
-        ["LoseWeight"] = (12, 15),
-        ["ImproveEndurance"] = (15, 20),
-        ["ImproveFitness"] = (10, 15),
-        ["MaintainWeight"] = (10, 12),
+        ["LoseWeight"] = (10, 15),
     };
 
     /// <summary>Eslesme bulunamadiginda kullanilacak varsayilan tekrar araligi.</summary>
@@ -123,10 +151,7 @@ public class WorkoutPlanGenerationOptions
     {
         [FitnessGoal.GetStronger] = 120,
         [FitnessGoal.BuildMuscle] = 90,
-        [FitnessGoal.LoseWeight] = 45,
-        [FitnessGoal.ImproveEndurance] = 30,
-        [FitnessGoal.ImproveFitness] = 60,
-        [FitnessGoal.MaintainWeight] = 60,
+        [FitnessGoal.LoseWeight] = 60,
     };
 
     /// <summary>Eslesme bulunamadiginda kullanilacak varsayilan dinlenme suresi (saniye).</summary>

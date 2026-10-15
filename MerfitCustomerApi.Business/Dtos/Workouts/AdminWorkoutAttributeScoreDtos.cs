@@ -21,6 +21,15 @@ public class AdminWorkoutAttributeScoresDto
     public long WorkoutId { get; set; }
     public List<AdminWorkoutAttributeScoreItemDto> Scores { get; set; } = new();
     public List<string> MissingAttributeTypes { get; set; } = new();
+
+    /// <summary>
+    /// Plan uretiminde kullanilan ana ozelliklerden (Hypertrophy, Strength, Cardio) puanlanmamis olanlar.
+    /// Eksik ana puan 0 sayilir; admin ekrani bunlari uyari olarak gosterir.
+    /// </summary>
+    public List<string> MissingPrimaryAttributeTypes { get; set; } = new();
+
+    /// <summary>Uc ana ozelligin tamami puanlanmis mi.</summary>
+    public bool IsPrimaryComplete { get; set; }
 }
 
 /// <summary>Tek bir ozellik puani girdisi.</summary>
@@ -36,7 +45,8 @@ public class AdminWorkoutAttributeScoreInput
 
 /// <summary>
 /// Antrenmanin ozellik puanlarini tamamen degistirir (replace-all): listede olmayan mevcut puanlar
-/// silinir, olanlar eklenir/guncellenir. Bos liste tum puanlari kaldirir.
+/// silinir, olanlar eklenir/guncellenir. Bos liste tum puanlari kaldirir. Liste bos degilse uc ana
+/// ozellik (Hypertrophy, Strength, Cardio) birlikte gonderilmelidir; ikincil ozellikler istege baglidir.
 /// </summary>
 public class AdminSetWorkoutAttributeScoresRequest
 {
