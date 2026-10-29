@@ -100,6 +100,26 @@ public class StoreCatalogAndCartPostgresTests
     }
 
     [PostgresFact]
+    public async Task ParentCategory_CountsBrandsAndListIncludeChildCategoryProducts()
+    {
+        var data = new StoreTestData();
+        var parent = await data.CategoryAsync();
+        var child = await data.CategoryAsync(parentId: parent);
+        var own = await data.ProductAsync(parent, 10m, 1);
+        var nested = await data.ProductAsync(child, 20m, 1);
+
+        var categories = await Run(uow => StoreTestData.Catalog(uow).GetCategoriesAsync());
+        Assert.Equal(2, categories.Single(c => c.Id == parent).ProductCount);
+        Assert.Equal(1, categories.Single(c => c.Id == child).ProductCount);
+
+        var list = await Run(uow => StoreTestData.Catalog(uow).GetProductsAsync(new StoreProductQuery { CategoryId = parent }));
+        Assert.Equal(new[] { own.Id, nested.Id }.OrderBy(x => x), list.Items.Select(i => i.Id).OrderBy(x => x));
+
+        var brands = await Run(uow => StoreTestData.Catalog(uow).GetBrandsAsync(parent));
+        Assert.Equal(new[] { data.Brand }, brands);
+    }
+
+    [PostgresFact]
     public async Task Cart_AddMergesSameProductAndVariant_UpdateAndRemoveWork_AndTotalsComeFromServer()
     {
         var data = new StoreTestData();

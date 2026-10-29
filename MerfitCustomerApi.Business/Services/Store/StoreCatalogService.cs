@@ -31,13 +31,15 @@ public class StoreCatalogService : IStoreCatalogService
     public async Task<List<StoreCategoryDto>> GetCategoriesAsync(CancellationToken cancellationToken = default)
     {
         var products = VisibleProducts();
+        var allCategories = _unitOfWork.Repository<StoreCategory>().GetQueryable();
         var rows = await _unitOfWork.Repository<StoreCategory>().GetQueryable()
             .Where(c => c.IsActive)
             .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
             .Select(c => new
             {
                 Category = c,
-                Count = products.Count(p => p.CategoryId == c.Id),
+                // Ust kategori sayisi alt kategorilerdeki urunleri de kapsar (urun listesi filtresiyle ayni kural).
+                Count = products.Count(p => p.CategoryId == c.Id || allCategories.Where(x => x.ParentCategoryId == c.Id).Select(x => x.Id).Contains(p.CategoryId)),
             })
             .ToListAsync(cancellationToken);
 
@@ -103,7 +105,12 @@ public class StoreCatalogService : IStoreCatalogService
     public async Task<List<string>> GetBrandsAsync(long? categoryId, CancellationToken cancellationToken = default)
     {
         var query = VisibleProducts();
-        if (categoryId.HasValue) query = query.Where(p => p.CategoryId == categoryId.Value);
+        if (categoryId.HasValue)
+        {
+            var id = categoryId.Value;
+            var children = _unitOfWork.Repository<StoreCategory>().GetQueryable().Where(c => c.ParentCategoryId == id).Select(c => c.Id);
+            query = query.Where(p => p.CategoryId == id || children.Contains(p.CategoryId));
+        }
         return await query.Select(p => p.Brand).Distinct().OrderBy(b => b).Take(200).ToListAsync(cancellationToken);
     }
 

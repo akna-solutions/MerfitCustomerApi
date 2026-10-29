@@ -53,10 +53,10 @@ internal sealed class StoreTestData
         return user.Id;
     }
 
-    public async Task<long> CategoryAsync(bool isActive = true)
+    public async Task<long> CategoryAsync(bool isActive = true, long? parentId = null)
     {
         await using var db = CreateContext();
-        var category = new StoreCategory { Name = $"Kategori {Tag}", Slug = $"kategori-{Tag}-{Guid.NewGuid():N}", IsActive = isActive, CreatedAt = DateTime.UtcNow };
+        var category = new StoreCategory { Name = $"Kategori {Tag}", Slug = $"kategori-{Tag}-{Guid.NewGuid():N}", IsActive = isActive, ParentCategoryId = parentId, CreatedAt = DateTime.UtcNow };
         db.StoreCategories.Add(category);
         await db.SaveChangesAsync();
         return category.Id;
