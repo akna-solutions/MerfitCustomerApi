@@ -398,6 +398,42 @@ public class AppDbContext : DbContext
     /// </summary>
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
+    /// <summary>MB Shop kategorileri.</summary>
+    public DbSet<StoreCategory> StoreCategories => Set<StoreCategory>();
+
+    /// <summary>MB Shop urunleri.</summary>
+    public DbSet<Product> Products => Set<Product>();
+
+    /// <summary>Urun gorselleri.</summary>
+    public DbSet<ProductImage> ProductImages => Set<ProductImage>();
+
+    /// <summary>MB Shop kampanyalari.</summary>
+    public DbSet<StoreCampaign> StoreCampaigns => Set<StoreCampaign>();
+
+    /// <summary>Kampanya-urun iliskileri.</summary>
+    public DbSet<StoreCampaignProduct> StoreCampaignProducts => Set<StoreCampaignProduct>();
+
+    /// <summary>Kullanici sepetleri.</summary>
+    public DbSet<Cart> Carts => Set<Cart>();
+
+    /// <summary>Sepet kalemleri.</summary>
+    public DbSet<CartItem> CartItems => Set<CartItem>();
+
+    /// <summary>Teslimat adresleri.</summary>
+    public DbSet<UserAddress> UserAddresses => Set<UserAddress>();
+
+    /// <summary>Favori urunler.</summary>
+    public DbSet<FavoriteProduct> FavoriteProducts => Set<FavoriteProduct>();
+
+    /// <summary>MB Shop siparisleri.</summary>
+    public DbSet<StoreOrder> StoreOrders => Set<StoreOrder>();
+
+    /// <summary>Siparis kalemleri.</summary>
+    public DbSet<StoreOrderItem> StoreOrderItems => Set<StoreOrderItem>();
+
+    /// <summary>Siparis durum gecmisi.</summary>
+    public DbSet<StoreOrderStatusHistory> StoreOrderStatusHistories => Set<StoreOrderStatusHistory>();
+
     /// <summary>
     /// Model olustururken MerfitCustomerApi.Infrastructure.Configurations namespace'inde tanimli
     /// tum IEntityTypeConfiguration siniflarini bu assembly uzerinden otomatik olarak uygular.

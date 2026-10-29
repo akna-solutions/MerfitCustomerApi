@@ -15,6 +15,7 @@ using MerfitCustomerApi.Business.Services.Foods;
 using MerfitCustomerApi.Business.Services.Leaderboard;
 using MerfitCustomerApi.Business.Services.MiniGames;
 using MerfitCustomerApi.Business.Services.Scoring;
+using MerfitCustomerApi.Business.Services.Store;
 using MerfitCustomerApi.Business.Services.Nutrition;
 using MerfitCustomerApi.Business.Services.NutritionAssistant;
 using MerfitCustomerApi.Business.Services.Personalization;
@@ -184,17 +185,33 @@ builder.Services.AddScoped<IAccountEmailService, AccountEmailService>();
 builder.Services.Configure<GoogleAuthOptions>(builder.Configuration.GetSection(GoogleAuthOptions.SectionName));
 builder.Services.AddSingleton<IGoogleIdTokenValidator, GoogleIdTokenValidator>();
 
+// MB Shop (e-ticaret): katalog, kalici sepet, favoriler, adresler ve siparisler. Urun/siparis yonetimi admin
+// panelindedir (MerfitApi). Kargo kurali ve odeme yontemleri "Store" bolumunden; banka bilgisi ortam degiskeni ile
+// (Store__BankTransfer__Iban, Store__BankTransfer__AccountName). Kartla odeme icin IStorePaymentProvider kaydi YOKTUR:
+// bir saglayici entegre edilene kadar "card" yontemi kapali gorunur.
+builder.Services.Configure<StoreOptions>(builder.Configuration.GetSection(StoreOptions.SectionName));
+var storeOptions = builder.Configuration.GetSection(StoreOptions.SectionName).Get<StoreOptions>() ?? new StoreOptions();
+builder.Services.AddScoped<IStoreCatalogService, StoreCatalogService>();
+builder.Services.AddScoped<IStoreCartService, StoreCartService>();
+builder.Services.AddScoped<IStoreFavoriteService, StoreFavoriteService>();
+builder.Services.AddScoped<IStoreAddressService, StoreAddressService>();
+builder.Services.AddScoped<IStoreOrderService, StoreOrderService>();
+builder.Services.AddScoped<IStorePaymentResultService, StorePaymentResultService>();
+
 // Sohbet ve fotograf analizi uclari icin kullanici ve IP basina dakikalik hiz siniri; e-posta dogrulama /
-// sifre sifirlama uclari icin IP basina pencere siniri. Diger uclar etkilenmez.
+// sifre sifirlama uclari icin IP basina pencere siniri; MB Shop yazma uclari icin kullanici basina sinir.
+// Diger uclar etkilenmez.
 builder.Services.AddRateLimiter(options =>
 {
     options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
         NutritionAssistantRateLimits.Create(nutritionAssistantOptions),
         AccountEmailRateLimits.Create(accountEmailOptions),
-        FoodAnalysisRateLimits.Create(foodAnalysisOptions));
+        FoodAnalysisRateLimits.Create(foodAnalysisOptions),
+        StoreRateLimits.Create(storeOptions));
     options.OnRejected = (context, cancellationToken) =>
         AccountEmailRateLimits.IsLimitedPath(context.HttpContext) ? AccountEmailRateLimits.OnRejectedAsync(context, cancellationToken)
         : FoodAnalysisRateLimits.IsLimitedPath(context.HttpContext) ? FoodAnalysisRateLimits.OnRejectedAsync(context, cancellationToken)
+        : StoreRateLimits.IsLimitedPath(context.HttpContext) ? StoreRateLimits.OnRejectedAsync(context, cancellationToken)
         : NutritionAssistantRateLimits.OnRejectedAsync(context, cancellationToken);
 });
 builder.Services.AddScoped<NutritionAssistantContextBuilder>();
