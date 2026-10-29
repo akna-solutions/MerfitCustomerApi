@@ -76,7 +76,7 @@ public class ExceptionHandlingMiddleware
 
             ConflictException conflictException => (
                 HttpStatusCode.Conflict,
-                ApiResponse.Fail(conflictException.Message)),
+                ApiResponse.Fail(conflictException.Message, conflictException.Code is null ? null : new[] { conflictException.Code })),
 
             TooManyRequestsException tooManyRequestsException => (
                 HttpStatusCode.TooManyRequests,
