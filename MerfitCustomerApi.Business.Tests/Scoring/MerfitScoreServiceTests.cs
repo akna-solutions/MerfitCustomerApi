@@ -235,4 +235,58 @@ public class MerfitScoreServiceTests
         Assert.Single(_history);
         Assert.Equal(2, _breakdowns.Count);
     }
+
+    [Theory]
+    [InlineData("workout_count")]
+    [InlineData("WORKOUTS")]
+    [InlineData(" Workouts_Completed ")]
+    public async Task TryRefresh_AcceptsLegacyConditionNames(string conditionType)
+    {
+        // Eski admin ekraninin kaydettigi kosul adlari daha once "desteklenmeyen" diye atlaniyordu; rozet hic kazanilmiyordu.
+        AddCompletedWorkout(UserA, DateTime.UtcNow.AddDays(-1));
+        _achievements.Add(new Achievement { Id = 7, Code = "FIRST_WORKOUT", IsActive = true, Points = 10, ConditionType = conditionType, ConditionValue = "1" });
+
+        await CreateService().TryRefreshUserAsync(UserA);
+
+        var earned = Assert.Single(_userAchievements);
+        Assert.Equal(7, earned.AchievementId);
+        Assert.Null(earned.SeenAt);
+    }
+
+    [Fact]
+    public async Task TryRefresh_UniqueViolationFromConcurrentRequest_IsSwallowed()
+    {
+        AddCompletedWorkout(UserA, DateTime.UtcNow.AddDays(-1));
+        _achievements.Add(new Achievement { Id = 1, Code = "FIRST", IsActive = true, Points = 50, ConditionType = "workouts_completed", ConditionValue = "1" });
+        var saves = 0;
+        _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => ++saves == 1
+                ? throw new Microsoft.EntityFrameworkCore.DbUpdateException("dup", new FakePostgresException("23505"))
+                : 1);
+
+        await CreateService().TryRefreshUserAsync(UserA);
+
+        // Ilk kayit tekil indekse takildi; puan ozeti yine de yazildi ve hata kullanicinin islemini bozmadi.
+        _unitOfWork.Verify(u => u.ClearTracking(), Times.Once);
+        Assert.Single(_scores);
+    }
+
+    [Theory]
+    [InlineData("workout_count", MerfitScoreService.WorkoutsCompletedCondition)]
+    [InlineData("streak", MerfitScoreService.StreakDaysCondition)]
+    [InlineData("pr_count", MerfitScoreService.PersonalRecordsCondition)]
+    [InlineData("meal_log_days", MerfitScoreService.MealLogDaysCondition)]
+    [InlineData("early_workout_count", "early_workout_count")]
+    [InlineData(null, "")]
+    public void NormalizeConditionType_MapsLegacyAliases(string? input, string expected)
+    {
+        Assert.Equal(expected, MerfitScoreService.NormalizeConditionType(input));
+    }
+
+    /// <summary>DbExceptionClassifier'in reflection ile okudugu SqlState alanini taklit eder.</summary>
+    private sealed class FakePostgresException(string sqlState) : Exception("postgres")
+    {
+        public string SqlState { get; } = sqlState;
+        public string? ConstraintName => "IX_UserAchievement_UserId_AchievementId";
+    }
 }

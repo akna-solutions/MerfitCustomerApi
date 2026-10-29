@@ -2,8 +2,11 @@
 using MerfitCustomerApi.Business.Services.Notifications.Engine;
 using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.Achievements;
 using MerfitCustomerApi.Business.Services.Auth;
 using MerfitCustomerApi.Business.Services.BodyComposition;
+using MerfitCustomerApi.Business.Services.Calendar;
+using MerfitCustomerApi.Business.Services.Campaigns;
 using MerfitCustomerApi.Business.Services.Dashboard;
 using MerfitCustomerApi.Business.Services.Email;
 using MerfitCustomerApi.Business.Services.Equipment;
@@ -197,6 +200,11 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddScoped<NutritionAssistantContextBuilder>();
 builder.Services.AddScoped<INutritionAssistantService, NutritionAssistantService>();
 builder.Services.AddScoped<IProgressService, ProgressService>();
+// Ilerleme takvimi / ana sayfa haftalik aktivite, kilo hatirlatmasi, basarilar ve kampanyalar.
+builder.Services.AddScoped<IActivityCalendarService, ActivityCalendarService>();
+builder.Services.AddScoped<IWeightReminderService, WeightReminderService>();
+builder.Services.AddScoped<IAchievementService, AchievementService>();
+builder.Services.AddScoped<ICampaignService, CampaignService>();
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 // MB FIT puan motoru: kullanicinin aksiyonlarindan puan, siralama ve basari hesaplar.
 builder.Services.Configure<MerfitScoringOptions>(builder.Configuration.GetSection(MerfitScoringOptions.SectionName));

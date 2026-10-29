@@ -53,5 +53,23 @@ public class AppContentConfiguration : IEntityTypeConfiguration<AppContent>
         builder.Property(x => x.LinkUrl)
             .IsRequired(false)
             .HasMaxLength(500);
+
+        // Detay metni (kampanya detay ekrani).
+        builder.Property(x => x.Body)
+            .IsRequired(false)
+            .HasMaxLength(8000);
+
+        // Gosterim sirasi; mevcut kayitlar 0 ile baslar.
+        builder.Property(x => x.SortOrder)
+            .IsRequired(true)
+            .HasDefaultValue(0);
+
+        // Istege bagli kategori/etiket.
+        builder.Property(x => x.Category)
+            .IsRequired(false)
+            .HasMaxLength(100);
+
+        // Mobil kampanya listesi: tur + aktiflik ile filtrelenip siraya gore okunur.
+        builder.HasIndex(x => new { x.Type, x.IsActive, x.SortOrder });
     }
 }

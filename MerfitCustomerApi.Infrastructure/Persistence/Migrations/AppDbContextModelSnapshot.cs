@@ -181,6 +181,14 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("Body")
+                        .HasMaxLength(8000)
+                        .HasColumnType("character varying(8000)");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -210,6 +218,11 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<DateTime?>("StartAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -229,6 +242,8 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Type", "IsActive", "SortOrder");
 
                     b.ToTable("AppContent", "content");
                 });
@@ -2957,6 +2972,9 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("EarnedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("SeenAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -2970,7 +2988,8 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("AchievementId");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "AchievementId")
+                        .IsUnique();
 
                     b.ToTable("UserAchievement", "gamification");
                 });
@@ -3333,6 +3352,9 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.Property<long>("UserId")
                         .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("WeightReminderSnoozedUntil")
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 

@@ -25,4 +25,9 @@ public class UserAchievement : BaseEntity
     /// Basarinin kazanildigi tarih.
     /// </summary>
     public DateTime EarnedAt { get; set; }
+
+    /// <summary>
+    /// Kullanicinin kazanim kutlamasini (konfeti) gordugu an; null ise henuz gosterilmedi.
+    /// </summary>
+    public DateTime? SeenAt { get; set; }
 }

@@ -160,6 +160,7 @@ public class MyPlanService : IMyPlanService
                     RepsMax = pe.RepsMax,
                     RestSeconds = pe.RestSeconds,
                     DurationSeconds = pe.DurationSeconds,
+                    ImageUrl = exercises.GetValueOrDefault(pe.ExerciseId)?.ImageUrl,
                 }).ToList(),
             };
         }).ToList();

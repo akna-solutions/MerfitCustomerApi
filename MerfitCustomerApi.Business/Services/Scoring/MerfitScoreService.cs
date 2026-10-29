@@ -44,6 +44,31 @@ public class MerfitScoreService : IMerfitScoreService
     public const string WaterLogDaysCondition = "water_log_days";
     public const string TotalPointsCondition = "total_points";
 
+    /// <summary>
+    /// Admin panelinin eski surumlerinde (ve ornek verilerde) kullanilan kosul adlari. Bu adlarla kaydedilmis
+    /// basarilar daha once hic kazanilamiyordu (desteklenmeyen kosul diye atlaniyordu); artik ayni metrige eslenir.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> ConditionAliases = new Dictionary<string, string>
+    {
+        ["workout_count"] = WorkoutsCompletedCondition,
+        ["workouts"] = WorkoutsCompletedCondition,
+        ["completed_workouts"] = WorkoutsCompletedCondition,
+        ["streak"] = StreakDaysCondition,
+        ["streak_count"] = StreakDaysCondition,
+        ["pr_count"] = PersonalRecordsCondition,
+        ["personal_record_count"] = PersonalRecordsCondition,
+        ["meal_log_count"] = MealLogDaysCondition,
+        ["water_log_count"] = WaterLogDaysCondition,
+        ["points"] = TotalPointsCondition,
+    };
+
+    /// <summary>Kosul turunu kucuk harfe cevirir ve eski adlari desteklenen adlara esler.</summary>
+    public static string NormalizeConditionType(string? conditionType)
+    {
+        var normalized = (conditionType ?? string.Empty).Trim().ToLowerInvariant();
+        return ConditionAliases.TryGetValue(normalized, out var canonical) ? canonical : normalized;
+    }
+
     private readonly IUnitOfWork _unitOfWork;
     private readonly MerfitScoringOptions _options;
     private readonly ILogger<MerfitScoreService> _logger;
@@ -222,7 +247,7 @@ public class MerfitScoreService : IMerfitScoreService
 
         foreach (var achievement in candidates)
         {
-            var conditionType = achievement.ConditionType.Trim().ToLowerInvariant();
+            var conditionType = NormalizeConditionType(achievement.ConditionType);
             if (!int.TryParse(achievement.ConditionValue.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var threshold))
             {
                 continue;
@@ -255,9 +280,20 @@ public class MerfitScoreService : IMerfitScoreService
             awarded++;
         }
 
-        if (awarded > 0)
+        if (awarded == 0)
+        {
+            return;
+        }
+
+        try
         {
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (DbExceptionClassifier.IsUniqueViolation(ex, out _))
+        {
+            // Ayni anda calisan baska bir istek (orn. antrenman bitirme + liderlik ekrani) ayni basariyi zaten
+            // yazdi; tekil indeks mukerrer kazanimi engelledi. Kazanim kaybolmaz, yalnizca bu kopya atilir.
+            _unitOfWork.ClearTracking();
         }
     }
 

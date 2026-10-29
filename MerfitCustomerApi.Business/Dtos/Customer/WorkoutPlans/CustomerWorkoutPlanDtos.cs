@@ -63,6 +63,9 @@ public class CustomerWorkoutPlanExerciseDto
 
     public int? RestSeconds { get; set; }
     public int? DurationSeconds { get; set; }
+
+    /// <summary>Egzersizin katalog gorseli (Exercise.ImageUrl); yoksa null. Ana sayfa karti bunu gosterir.</summary>
+    public string? ImageUrl { get; set; }
 }
 
 /// <summary>
