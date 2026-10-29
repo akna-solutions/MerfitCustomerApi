@@ -130,3 +130,38 @@ public class CustomerScoreSummaryDto
     /// <summary>Tum zamanlar siralamasindaki yeri; hic puani yoksa null.</summary>
     public int? Rank { get; set; }
 }
+
+/// <summary>
+/// GET /api/progress/weight-reminder - uygulama acilisinda kilo guncelleme hatirlatmasinin gosterilip
+/// gosterilmeyecegi. Karar sunucuda verilir; boylece cihaz degistiginde veya uygulama yeniden kuruldugunda
+/// da ayni aralik korunur.
+/// </summary>
+public class CustomerWeightReminderResponse
+{
+    /// <summary>Hatirlatma simdi gosterilmeli mi.</summary>
+    public bool ShouldPrompt { get; set; }
+
+    /// <summary>Hatirlatma araligi (gun).</summary>
+    public int IntervalDays { get; set; }
+
+    /// <summary>En son kilo girilen gun ("yyyy-MM-dd"); hic giris yoksa null.</summary>
+    public string? LastLoggedDate { get; set; }
+
+    /// <summary>Son kilo kaydi (kg); hic kayit yoksa profildeki kilo, o da yoksa null.</summary>
+    public decimal? LastWeightKg { get; set; }
+
+    /// <summary>Hatirlatmanin ertelendigi son an (UTC); ertelenmediyse null.</summary>
+    public DateTime? SnoozedUntil { get; set; }
+
+    /// <summary>"metric" | "imperial" - modalda gosterilecek birim.</summary>
+    public string UnitSystem { get; set; } = "metric";
+}
+
+/// <summary>POST /api/progress/weight-reminder/snooze govdesi.</summary>
+public class SnoozeWeightReminderRequest
+{
+    /// <summary>"later": 1 gun sonra tekrar sor. "dismiss": bir sonraki araliga (2 gun) kadar sorma.</summary>
+    [System.ComponentModel.DataAnnotations.Required]
+    [System.ComponentModel.DataAnnotations.RegularExpression("^(later|dismiss)$", ErrorMessage = "Gecersiz islem.")]
+    public string Action { get; set; } = "later";
+}

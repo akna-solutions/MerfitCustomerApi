@@ -37,4 +37,9 @@ public class UserPreference : BaseEntity
     /// Bos ise bildirimlerde Notifications:DefaultTimeZone kullanilir.
     /// </summary>
     public string? TimeZone { get; set; }
+
+    /// <summary>
+    /// Kilo guncelleme hatirlatmasinin ertelendigi/kapatildigi son an (UTC); bu ana kadar hatirlatma gosterilmez.
+    /// </summary>
+    public DateTime? WeightReminderSnoozedUntil { get; set; }
 }

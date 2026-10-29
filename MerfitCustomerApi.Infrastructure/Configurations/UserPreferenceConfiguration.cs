@@ -47,6 +47,10 @@ public class UserPreferenceConfiguration : IEntityTypeConfiguration<UserPreferen
             .IsRequired(false)
             .HasMaxLength(100);
 
+        // Kilo hatirlatmasinin ertelendigi son an (UTC).
+        builder.Property(x => x.WeightReminderSnoozedUntil)
+            .IsRequired(false);
+
         // Iliskiler (foreign key) yapilandirmasi.
         // Tercihin ait oldugu kullanicinin kimligi.
         builder.HasOne<ApplicationUser>()

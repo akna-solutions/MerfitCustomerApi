@@ -1,4 +1,5 @@
 using MerfitCustomerApi.Api.Extensions;
+using MerfitCustomerApi.Business.Dtos.Customer.Calendar;
 using MerfitCustomerApi.Business.Dtos.Customer.Progress;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -13,10 +14,17 @@ namespace MerfitCustomerApi.Api.Controllers;
 public class ProgressController : ControllerBase
 {
     private readonly IProgressService _progressService;
+    private readonly IActivityCalendarService _calendarService;
+    private readonly IWeightReminderService _weightReminderService;
 
-    public ProgressController(IProgressService progressService)
+    public ProgressController(
+        IProgressService progressService,
+        IActivityCalendarService calendarService,
+        IWeightReminderService weightReminderService)
     {
         _progressService = progressService;
+        _calendarService = calendarService;
+        _weightReminderService = weightReminderService;
     }
 
     /// <summary>Sorgu: /api/progress?range=3months ("week" | "month" | "3months" | "year", varsayilan "3months").</summary>
@@ -39,5 +47,37 @@ public class ProgressController : ControllerBase
         var userId = User.GetUserId()!.Value;
         var result = await _progressService.LogWeightAsync(userId, request, cancellationToken);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Gunluk ozetler (antrenman, beslenme, harcanan kalori). Sorgu: /api/progress/calendar?from=2026-10-01&amp;to=2026-10-31
+    /// (yerel tarihler, ikisi de dahil, en fazla 62 gun).
+    /// </summary>
+    [HttpGet("calendar")]
+    public async Task<ActionResult<CustomerActivityCalendarResponse>> GetCalendar(
+        [FromQuery] DateOnly from,
+        [FromQuery] DateOnly to,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        return Ok(await _calendarService.GetCalendarAsync(userId, from, to, cancellationToken));
+    }
+
+    /// <summary>Kilo guncelleme hatirlatmasinin simdi gosterilip gosterilmeyecegi (yaklasik iki gunde bir).</summary>
+    [HttpGet("weight-reminder")]
+    public async Task<ActionResult<CustomerWeightReminderResponse>> GetWeightReminder(CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        return Ok(await _weightReminderService.GetAsync(userId, cancellationToken));
+    }
+
+    /// <summary>Govde: { "action": "later" } (1 gun ertele) veya { "action": "dismiss" } (bir sonraki araliga kadar kapat).</summary>
+    [HttpPost("weight-reminder/snooze")]
+    public async Task<ActionResult<CustomerWeightReminderResponse>> SnoozeWeightReminder(
+        [FromBody] SnoozeWeightReminderRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        return Ok(await _weightReminderService.SnoozeAsync(userId, request, cancellationToken));
     }
 }

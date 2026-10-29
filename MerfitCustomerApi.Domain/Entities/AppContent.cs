@@ -55,4 +55,19 @@ public class AppContent : BaseEntity
     /// Icerigin yayindan kaldirilma tarihi.
     /// </summary>
     public DateTime? EndAt { get; set; }
+
+    /// <summary>
+    /// Icerigin detay metni (kampanya detay ekraninda gosterilen uzun aciklama); bos olabilir.
+    /// </summary>
+    public string? Body { get; set; }
+
+    /// <summary>
+    /// Ayni turdeki iceriklerin gosterim sirasi (kucuk deger once gelir).
+    /// </summary>
+    public int SortOrder { get; set; }
+
+    /// <summary>
+    /// Istege bagli kategori/etiket (orn. "Beslenme", "Plus"); kartta kucuk etiket olarak gosterilir.
+    /// </summary>
+    public string? Category { get; set; }
 }

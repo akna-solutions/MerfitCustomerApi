@@ -24,6 +24,10 @@ public class UserAchievementConfiguration : IEntityTypeConfiguration<UserAchieve
         // Birincil anahtari tanimlar.
         builder.HasKey(x => x.Id);
 
+        // Ayni basari bir kullaniciya yalnizca bir kez yazilir (eszamanli isteklerde mukerrer kazanimi engeller).
+        builder.HasIndex(x => new { x.UserId, x.AchievementId })
+            .IsUnique();
+
         // Iliskiler (foreign key) yapilandirmasi.
         // Basariyi kazanan kullanicinin kimligi.
         builder.HasOne<ApplicationUser>()
