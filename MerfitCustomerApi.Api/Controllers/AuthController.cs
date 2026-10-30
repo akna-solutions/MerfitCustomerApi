@@ -50,7 +50,31 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Google ile giris. Mobil uygulamanin Google Sign-In'den aldigi ID token sunucuda dogrulanir. Google hesabi bir
+    /// Access token suresi doldugunda refresh token ile yeni bir token cifti alir. Kullanilan refresh token gecersiz
+    /// olur (rotasyon); yeni refresh token Jwt:RefreshTokenExpirationDays gun gecerlidir. Boylece uygulamayi kullanan
+    /// kullanicinin oturumu acik kalir, bu kadar gun ust uste hic girmeyenin oturumu kapanir. Gecersiz token: 401.
+    /// </summary>
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AuthResponse>> Refresh([FromBody] RefreshTokenRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _authService.RefreshAsync(request, ClientIp, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Cikis: cihazdaki refresh token'i sunucuda iptal eder. Token zaten gecersizse de 204 doner.
+    /// </summary>
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Logout([FromBody] RefreshTokenRequest request, CancellationToken cancellationToken)
+    {
+        await _authService.LogoutAsync(request, ClientIp, cancellationToken);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Google ile giris.Mobil uygulamanin Google Sign-In'den aldigi ID token sunucuda dogrulanir. Google hesabi bir
     /// MB FIT hesabina bagliysa veya ayni (Google tarafindan dogrulanmis) e-postayla kayitli bir hesap varsa token
     /// cifti doner (auth). Hesap yoksa registrationRequired=true ve onboarding'i on dolduracak profil bilgileri doner.
     /// Gecersiz token: 401; Google yapilandirilmamis: 503.
