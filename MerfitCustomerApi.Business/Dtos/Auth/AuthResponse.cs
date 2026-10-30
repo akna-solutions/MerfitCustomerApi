@@ -52,4 +52,11 @@ public class AuthResponse
     /// "Hazirsin" ekranini gosterir; giris yanitlarinda false.
     /// </summary>
     public bool IsNewUser { get; set; }
+
+    /// <summary>
+    /// Fitness profili (boy, kilo, hedef...) dolu mu. Yalnizca alisveris icin kayit olan kullanicida false'tur;
+    /// uygulama bu kullaniciyi giriste MB Shop'a yonlendirir ve MB Fit ekranlarinda once profili tamamlatir
+    /// (POST /api/profile/fitness).
+    /// </summary>
+    public bool FitnessProfileCompleted { get; set; }
 }

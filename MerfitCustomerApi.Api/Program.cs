@@ -236,6 +236,7 @@ builder.Services.AddSingleton<IValidateOptions<MiniGameRewardOptions>, MiniGameR
 builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IMiniGameService, MiniGameService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
+builder.Services.AddScoped<IFitnessProfileService, FitnessProfileService>();
 builder.Services.AddScoped<IEquipmentService, EquipmentService>();
 
 // Antrenman ozellik puanlarinin (WorkoutAttributeScore) admin yonetimi.

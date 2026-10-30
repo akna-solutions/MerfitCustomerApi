@@ -19,12 +19,6 @@ namespace MerfitCustomerApi.Business.Services.Auth;
 /// </summary>
 public class AuthService : IAuthService
 {
-    /// <summary>
-    /// Kayit sirasinda UserProfile.Goal bos birakildiginde UserGoal.GoalType icin kullanilan varsayilan hedef:
-    /// uc ana hedeften kalori acigi uygulamayan Kas Gelistirme (bkz. FitnessGoals.Default).
-    /// </summary>
-    private const FitnessGoal DefaultGoalType = FitnessGoals.Default;
-
     /// <summary>ExternalLogin.Provider degeri.</summary>
     public const string GoogleProvider = "Google";
 
@@ -62,8 +56,6 @@ public class AuthService : IAuthService
         {
             throw new AppValidationException(nameof(request.ConfirmPassword), "Parolalar eslesmiyor.");
         }
-
-        ValidateProfileFields(request);
 
         var email = request.Email.Trim();
         var normalizedEmail = email.ToUpperInvariant();
@@ -111,33 +103,13 @@ public class AuthService : IAuthService
             throw new ConflictException("Bu kullanici adi zaten kullaniliyor.");
         }
 
-        var heightCm = ResolveHeightCm(request);
-        var weightKg = ResolveWeightKg(request);
-        var unitSystem = request.HeightUnit.Equals("ft_in", StringComparison.OrdinalIgnoreCase)
-            || request.WeightUnit.Equals("lb", StringComparison.OrdinalIgnoreCase)
-            ? UnitSystem.Imperial
-            : UnitSystem.Metric;
-
         var firstName = request.FirstName.Trim();
         var lastName = request.LastName.Trim();
 
-        var equipmentIds = (request.EquipmentIds ?? new List<long>()).Distinct().ToList();
-
-        // Onboarding'de girilen opsiyonel vucut olcumleri. Yag Kaybi secildiyse ve bu olcumlere gore yag orani
-        // dusuk araliktaysa kayit, kullanici uyariyi acikca onaylamadan tamamlanmaz (profildeki kuralla ayni).
-        var goal = ParseFitnessGoal(request.Goal);
-        var gender = ParseGender(request.Gender);
-        DateTime? dateOfBirth = request.Age.HasValue ? DateTime.UtcNow.Date.AddYears(-request.Age.Value) : null;
-        var onboardingMeasurement = BuildOnboardingMeasurement(request, gender, heightCm, weightKg);
-        var bodyFat = BodyFatAssessor.Assess(
-            gender,
-            dateOfBirth,
-            heightCm,
-            onboardingMeasurement is null ? Array.Empty<BodyMeasurement>() : new[] { onboardingMeasurement },
-            DateTime.UtcNow,
-            _bodyCompositionOptions);
-        var lowBodyFatConfirmed = goal.HasValue
-            && LowBodyFatGoalGuard.EnsureConfirmed(goal.Value, bodyFat, request.ConfirmLowBodyFatWarning);
+        // Yalnizca alisveris icin kayitta fitness alanlari sorulmaz/yok sayilir; aksi halde dogrulama ve dusuk yag
+        // orani onayi veritabanina yazmadan once yapilir.
+        var shoppingOnly = request.ShoppingOnly == true;
+        var fitness = shoppingOnly ? null : FitnessOnboarding.Prepare(request, _bodyCompositionOptions);
 
         await _unitOfWork.BeginTransactionAsync();
         var user = new ApplicationUser
@@ -164,18 +136,10 @@ public class AuthService : IAuthService
             FirstName = firstName,
             LastName = lastName,
             Username = normalizedUsername,
-            DateOfBirth = dateOfBirth,
-            Gender = gender,
-            HeightCm = heightCm,
-            WeightKg = weightKg,
-            Goal = goal,
-            ExperienceLevel = ParseExperienceLevel(request.TrainingExperience),
-            ActivityLevel = ParseActivityLevel(request.ActivityLevel),
-            TrainingLocation = ParseTrainingLocation(request.TrainingLocation),
-            TrainingDaysPerWeek = request.TrainingDays,
-            UnitSystem = unitSystem,
+            UnitSystem = UnitSystem.Metric,
             CreatedAt = DateTime.UtcNow,
         };
+        fitness?.ApplyTo(profile);
 
         await _unitOfWork.Repository<UserProfile>().AddAsync(profile);
 
@@ -184,78 +148,27 @@ public class AuthService : IAuthService
             await _unitOfWork.Repository<ExternalLogin>().AddAsync(NewGoogleLogin(user.Id, externalLogin));
         }
 
-        if (equipmentIds.Count > 0)
+        // --- Kisisellestirme altyapisi (FAZ 1) ---
+        // Kayit tamamlandiginda, kisiye ozel antrenman/beslenme programi uretebilmek icin gereken temel kayitlari
+        // (UserGoal, NutritionGoal, PersonalizationJob) olustur; plani arka plan islemcisi uretir. Yalnizca
+        // alisveris icin kayitta bunlar olusturulmaz: kullanici MB Fit'i actiginda profilini tamamlar
+        // (POST /api/profile/fitness) ve ayni kayitlar o zaman olusur.
+        PersonalizationJob? personalizationJob = null;
+        if (fitness is not null)
         {
-            var userEquipments = equipmentIds.Select(equipmentId => new UserEquipment
+            await fitness.PersistAsync(_unitOfWork, _nutritionCalculator, profile, CancellationToken.None);
+
+            personalizationJob = new PersonalizationJob
             {
                 UserId = user.Id,
-                EquipmentId = equipmentId,
+                Status = PersonalizationJobStatus.Pending,
+                AttemptCount = 0,
                 CreatedAt = DateTime.UtcNow,
-            });
+            };
 
-            await _unitOfWork.Repository<UserEquipment>().AddRangeAsync(userEquipments);
+            await _unitOfWork.Repository<PersonalizationJob>().AddAsync(personalizationJob);
         }
 
-        // --- Kisisellestirme altyapisi (FAZ 1) ---
-        // Kayit tamamlandiginda, ileride kisiye ozel antrenman/beslenme programi uretebilmek icin
-        // gereken temel kayitlari (UserGoal, NutritionGoal, PersonalizationJob) olustur. Bu asamada
-        // gercek bir plan uretilmez; sadece veri altyapisi hazirlanir (bkz. IPersonalizationService
-        // ihtiyaci ileride ikinci fazda arka plan islemcisiyle birlikte eklenecektir).
-        // Hedef kilo kayitta sorulmaz; hedefe, boya ve kiloya gore otomatik hesaplanir
-        // (bkz. TargetWeightCalculator). Kullanici sonradan profilden degistirebilir.
-        profile.TargetWeightKg ??= TargetWeightCalculator.Calculate(
-            profile.Goal ?? DefaultGoalType, profile.WeightKg, profile.HeightCm, profile.ExperienceLevel);
-
-        var userGoal = new UserGoal
-        {
-            UserId = user.Id,
-            GoalType = profile.Goal ?? DefaultGoalType,
-            StartingWeightKg = profile.WeightKg,
-            CurrentWeightKg = profile.WeightKg,
-            TargetWeightKg = profile.TargetWeightKg,
-            IsActive = true,
-            LowBodyFatWarningAcknowledgedAt = lowBodyFatConfirmed ? DateTime.UtcNow : null,
-            CreatedAt = DateTime.UtcNow,
-        };
-
-        await _unitOfWork.Repository<UserGoal>().AddAsync(userGoal);
-
-        if (onboardingMeasurement is not null)
-        {
-            // Onboarding'de cevre/yag orani girildiyse kilo dahil tam bir olcum kaydi olarak saklanir.
-            onboardingMeasurement.UserId = user.Id;
-            await _unitOfWork.Repository<BodyMeasurement>().AddAsync(onboardingMeasurement);
-        }
-        else if (profile.WeightKg is not null)
-        {
-            // Kayittaki kilo, kilo gecmisinin (ilerleme grafigi) ilk noktasidir.
-            await WeightTracking.UpsertDailyWeightAsync(
-                _unitOfWork, user.Id, DateOnly.FromDateTime(DateTime.UtcNow), profile.WeightKg.Value, profile.HeightCm, CancellationToken.None);
-        }
-
-        var nutritionCalculation = _nutritionCalculator.Calculate(profile, bodyFat);
-        var nutritionGoal = new NutritionGoal
-        {
-            UserId = user.Id,
-            DailyCalories = nutritionCalculation.DailyCalories,
-            ProteinTarget = nutritionCalculation.ProteinTarget,
-            CarbsTarget = nutritionCalculation.CarbsTarget,
-            FatTarget = nutritionCalculation.FatTarget,
-            WaterTargetMl = nutritionCalculation.WaterTargetMl,
-            CreatedAt = DateTime.UtcNow,
-        };
-
-        await _unitOfWork.Repository<NutritionGoal>().AddAsync(nutritionGoal);
-
-        var personalizationJob = new PersonalizationJob
-        {
-            UserId = user.Id,
-            Status = PersonalizationJobStatus.Pending,
-            AttemptCount = 0,
-            CreatedAt = DateTime.UtcNow,
-        };
-
-        await _unitOfWork.Repository<PersonalizationJob>().AddAsync(personalizationJob);
         // --- Kisisellestirme altyapisi sonu ---
 
         var (accessToken, refreshTokenValue, expiresAt) = await AddSessionTokensAsync(user, ipAddress);
@@ -289,9 +202,10 @@ public class AuthService : IAuthService
             AccessToken = accessToken,
             RefreshToken = refreshTokenValue,
             AccessTokenExpiresAt = expiresAt,
-            PersonalizationStatus = personalizationJob.Status.ToString(),
+            PersonalizationStatus = personalizationJob?.Status.ToString(),
             EmailConfirmed = user.EmailConfirmed,
             IsNewUser = true,
+            FitnessProfileCompleted = fitness is not null,
         };
 
         return (user, response);
@@ -332,8 +246,6 @@ public class AuthService : IAuthService
         {
             return await SignInAsync(existing, ipAddress);
         }
-
-        ValidateProfileFields(request);
 
         var (user, response) = await CreateAccountAsync(
             request, identity.Email, UnusablePasswordHash(), emailConfirmed: identity.EmailVerified, externalLogin: identity, ipAddress);
@@ -513,6 +425,7 @@ public class AuthService : IAuthService
             RefreshToken = refreshTokenValue,
             AccessTokenExpiresAt = expiresAt,
             EmailConfirmed = user.EmailConfirmed,
+            FitnessProfileCompleted = FitnessOnboarding.IsCompleted(profile),
         };
     }
 
@@ -555,155 +468,5 @@ public class AuthService : IAuthService
             .FirstOrDefaultAsync(p => p.Username == normalizedUsername);
 
         return profile is null ? null : await userRepo.GetByIdAsync(profile.UserId);
-    }
-
-    private static void ValidateProfileFields(AccountProfileRequest request)
-    {
-        if (request.HeightUnit.Equals("cm", StringComparison.OrdinalIgnoreCase) && request.HeightCm is null)
-        {
-            throw new AppValidationException(nameof(request.HeightCm), "Boy (cm) alani zorunludur.");
-        }
-
-        if (request.HeightUnit.Equals("ft_in", StringComparison.OrdinalIgnoreCase) && request.HeightFeet is null)
-        {
-            throw new AppValidationException(nameof(request.HeightFeet), "Boy (ft/in) alani zorunludur.");
-        }
-    }
-
-    private static decimal? ResolveHeightCm(AccountProfileRequest request)
-    {
-        if (request.HeightUnit.Equals("ft_in", StringComparison.OrdinalIgnoreCase))
-        {
-            if (request.HeightFeet is null) return null;
-            var totalInches = (request.HeightFeet.Value * 12) + (request.HeightInches ?? 0);
-            return Math.Round(totalInches * 2.54m, 2);
-        }
-
-        return request.HeightCm;
-    }
-
-    private static decimal? ResolveWeightKg(AccountProfileRequest request)
-    {
-        if (request.Weight is null) return null;
-
-        return request.WeightUnit.Equals("lb", StringComparison.OrdinalIgnoreCase)
-            ? Math.Round(request.Weight.Value * 0.453592m, 2)
-            : request.Weight;
-    }
-
-    private static Gender? ParseGender(string? genderStr)
-    {
-        if (string.IsNullOrWhiteSpace(genderStr))
-            return null;
-
-        return genderStr.ToLowerInvariant() switch
-        {
-            "male" => Gender.Male,
-            "female" => Gender.Female,
-            "other" => Gender.Other,
-            _ => null,
-        };
-    }
-
-    /// <summary>
-    /// Onboarding hedef kodunu ana hedeflerden birine cevirir; eski kodlar (improve_fitness, maintain_weight,
-    /// improve_endurance) <see cref="FitnessGoals.Normalize(FitnessGoal)"/> ile eslenir.
-    /// </summary>
-    private static FitnessGoal? ParseFitnessGoal(string? goalStr)
-    {
-        if (string.IsNullOrWhiteSpace(goalStr))
-            return null;
-
-        FitnessGoal? goal = goalStr.ToLowerInvariant() switch
-        {
-            "lose_weight" => FitnessGoal.LoseWeight,
-            "build_muscle" => FitnessGoal.BuildMuscle,
-            "get_stronger" => FitnessGoal.GetStronger,
-            "improve_fitness" => FitnessGoal.ImproveFitness,
-            "maintain_weight" => FitnessGoal.MaintainWeight,
-            "improve_endurance" => FitnessGoal.ImproveEndurance,
-            _ => null,
-        };
-
-        return goal.HasValue ? FitnessGoals.Normalize(goal.Value) : null;
-    }
-
-    /// <summary>
-    /// Onboarding'de yag orani veya cevre olcumu girildiyse kayit icin olcum satirini hazirlar (UserId sonradan
-    /// atanir). Hicbiri girilmediyse null; o durumda yalnizca gunluk kilo kaydi olusturulur.
-    /// </summary>
-    private static BodyMeasurement? BuildOnboardingMeasurement(AccountProfileRequest request, Gender? gender, decimal? heightCm, decimal? weightKg)
-    {
-        if (request.BodyFatPercentage is null && request.NeckCm is null && request.WaistCm is null && request.HipCm is null)
-        {
-            return null;
-        }
-
-        if (request.NeckCm is not null && request.WaistCm is not null && request.WaistCm <= request.NeckCm)
-        {
-            throw new AppValidationException(nameof(request.WaistCm), "Bel çevresi boyun çevresinden büyük olmalıdır.");
-        }
-
-        var estimate = BodyFatEstimator.EstimateUsNavy(gender, heightCm, request.NeckCm, request.WaistCm, request.HipCm);
-        var now = DateTime.UtcNow;
-        return new BodyMeasurement
-        {
-            RecordedAt = now,
-            WeightKg = weightKg,
-            BodyFatPercentage = request.BodyFatPercentage,
-            EstimatedBodyFatPercentage = estimate,
-            BodyFatEstimationMethod = estimate is null ? null : BodyFatEstimator.UsNavyMethod,
-            NeckCm = request.NeckCm,
-            WaistCm = request.WaistCm,
-            HipCm = request.HipCm,
-            BMI = weightKg is not null && heightCm is > 0
-                ? Math.Round(weightKg.Value / (heightCm.Value / 100m * (heightCm.Value / 100m)), 1)
-                : null,
-            CreatedAt = now,
-        };
-    }
-
-    private static ExperienceLevel? ParseExperienceLevel(string? levelStr)
-    {
-        if (string.IsNullOrWhiteSpace(levelStr))
-            return null;
-
-        return levelStr.ToLowerInvariant() switch
-        {
-            "beginner" => ExperienceLevel.Beginner,
-            "intermediate" => ExperienceLevel.Intermediate,
-            "advanced" => ExperienceLevel.Advanced,
-            _ => null,
-        };
-    }
-
-    private static ActivityLevel? ParseActivityLevel(string? activityStr)
-    {
-        if (string.IsNullOrWhiteSpace(activityStr))
-            return null;
-
-        return activityStr.ToLowerInvariant() switch
-        {
-            "sedentary" => ActivityLevel.Sedentary,
-            "light" => ActivityLevel.LightlyActive,
-            "moderate" => ActivityLevel.ModeratelyActive,
-            "active" => ActivityLevel.VeryActive,
-            "athlete" => ActivityLevel.ExtraActive,
-            _ => null,
-        };
-    }
-
-    private static TrainingLocation? ParseTrainingLocation(string? locationStr)
-    {
-        if (string.IsNullOrWhiteSpace(locationStr))
-            return null;
-
-        return locationStr.ToLowerInvariant() switch
-        {
-            "gym" => TrainingLocation.Gym,
-            "home" => TrainingLocation.Home,
-            "outdoor" => TrainingLocation.Outdoor,
-            _ => null,
-        };
     }
 }
