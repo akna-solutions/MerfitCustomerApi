@@ -447,6 +447,99 @@ public class AuthService : IAuthService
         };
     }
 
+    // ---- Oturum yenileme / cikis ----
+
+    private const string SessionExpiredMessage = "Oturumunun süresi doldu. Lütfen tekrar giriş yap.";
+
+    public async Task<AuthResponse> RefreshAsync(RefreshTokenRequest request, string? ipAddress, CancellationToken cancellationToken = default)
+    {
+        var tokenValue = request.RefreshToken?.Trim();
+        if (string.IsNullOrEmpty(tokenValue))
+        {
+            throw new UnauthorizedException(SessionExpiredMessage);
+        }
+
+        var refreshTokenRepo = _unitOfWork.Repository<UserRefreshToken>();
+        var current = await refreshTokenRepo
+            .GetQueryable(asNoTracking: false)
+            .FirstOrDefaultAsync(t => t.Token == tokenValue, cancellationToken);
+
+        var now = DateTime.UtcNow;
+        if (current is null || current.IsRevoked || current.ExpiresAt <= now)
+        {
+            throw new UnauthorizedException(SessionExpiredMessage);
+        }
+
+        if (current.IsUsed)
+        {
+            // Yenileme yaniti agda kaybolup uygulama ayni token'la tekrar denediyse kisa bir sure daha kabul edilir;
+            // daha sonra eski token ile gelen istek reddedilir.
+            var rotatedAt = current.UpdatedAt ?? current.CreatedAt;
+            if (now - rotatedAt > TimeSpan.FromSeconds(_jwtSettings.RefreshTokenReuseGraceSeconds))
+            {
+                throw new UnauthorizedException(SessionExpiredMessage);
+            }
+        }
+
+        var user = await _unitOfWork.Repository<ApplicationUser>().FirstOrDefaultAsync(u => u.Id == current.UserId);
+        if (user is null || !user.IsActive)
+        {
+            throw new UnauthorizedException(SessionExpiredMessage);
+        }
+
+        var profile = await _unitOfWork.Repository<UserProfile>().FirstOrDefaultAsync(p => p.UserId == user.Id);
+        var (accessToken, refreshTokenValue, expiresAt) = await AddSessionTokensAsync(user, ipAddress);
+
+        if (!current.IsUsed)
+        {
+            current.IsUsed = true;
+            current.ReplacementToken = refreshTokenValue;
+            current.UpdatedAt = now;
+            refreshTokenRepo.Update(current);
+        }
+
+        await _unitOfWork.SaveChangesAsync();
+
+        return new AuthResponse
+        {
+            UserId = user.Id,
+            Email = user.Email,
+            Name = profile is not null ? $"{profile.FirstName} {profile.LastName}".Trim() : string.Empty,
+            Username = profile?.Username ?? string.Empty,
+            AccessToken = accessToken,
+            RefreshToken = refreshTokenValue,
+            AccessTokenExpiresAt = expiresAt,
+            EmailConfirmed = user.EmailConfirmed,
+            FitnessProfileCompleted = FitnessOnboarding.IsCompleted(profile),
+        };
+    }
+
+    public async Task LogoutAsync(RefreshTokenRequest request, string? ipAddress, CancellationToken cancellationToken = default)
+    {
+        var tokenValue = request.RefreshToken?.Trim();
+        if (string.IsNullOrEmpty(tokenValue))
+        {
+            return;
+        }
+
+        var refreshTokenRepo = _unitOfWork.Repository<UserRefreshToken>();
+        var current = await refreshTokenRepo
+            .GetQueryable(asNoTracking: false)
+            .FirstOrDefaultAsync(t => t.Token == tokenValue && !t.IsRevoked, cancellationToken);
+        if (current is null)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        current.IsRevoked = true;
+        current.RevokedAt = now;
+        current.RevokedByIp = ipAddress;
+        current.UpdatedAt = now;
+        refreshTokenRepo.Update(current);
+        await _unitOfWork.SaveChangesAsync();
+    }
+
     /// <summary>Access token uretir ve yeni refresh token'i (kaydetmeden) ekler.</summary>
     private async Task<(string AccessToken, string RefreshToken, DateTime ExpiresAt)> AddSessionTokensAsync(ApplicationUser user, string? ipAddress)
     {

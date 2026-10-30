@@ -39,4 +39,16 @@ public interface IAuthService
     /// arada olusmus veya baglanabilir bir hesap varsa yeni hesap acmadan onunla giris yapar (IsNewUser=false).
     /// </summary>
     Task<AuthResponse> GoogleRegisterAsync(GoogleRegisterRequest request, string? ipAddress, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Refresh token ile oturumu yeniler: token'i kullanildi isaretler ve yeni bir access/refresh token cifti doner
+    /// (token rotasyonu). Yeni refresh token JwtSettings.RefreshTokenExpirationDays gun gecerlidir (kayan sure).
+    /// </summary>
+    /// <exception cref="Domain.Exceptions.UnauthorizedException">Token bulunamazsa, suresi dolmus/iptal edilmisse, daha once kullanilmissa veya hesap pasifse.</exception>
+    Task<AuthResponse> RefreshAsync(RefreshTokenRequest request, string? ipAddress, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cikis: verilen refresh token'i iptal eder. Token bulunamazsa veya zaten gecersizse sessizce gecer.
+    /// </summary>
+    Task LogoutAsync(RefreshTokenRequest request, string? ipAddress, CancellationToken cancellationToken = default);
 }
