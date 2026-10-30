@@ -18,6 +18,12 @@ public class CustomerProfileResponse
     /// <summary>E-posta adresi dogrulandi mi (ApplicationUser.EmailConfirmed). E-posta degisince false olur.</summary>
     public bool EmailConfirmed { get; set; }
 
+    /// <summary>
+    /// Fitness profili (boy, kilo, hedef...) dolu mu. Yalnizca alisveris icin kayit olan kullanicida false'tur;
+    /// uygulama MB Fit ekranlarindan once profili tamamlatir (POST /api/profile/fitness).
+    /// </summary>
+    public bool FitnessProfileCompleted { get; set; }
+
     /// <summary>"yyyy-MM-dd".</summary>
     public string DateOfBirth { get; set; } = string.Empty;
 

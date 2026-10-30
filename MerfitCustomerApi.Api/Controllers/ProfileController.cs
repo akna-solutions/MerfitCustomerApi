@@ -1,4 +1,5 @@
-using MerfitCustomerApi.Api.Extensions;
+﻿using MerfitCustomerApi.Api.Extensions;
+using MerfitCustomerApi.Business.Dtos.Auth;
 using MerfitCustomerApi.Business.Dtos.Customer.Profile;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -17,10 +18,12 @@ namespace MerfitCustomerApi.Api.Controllers;
 public class ProfileController : ControllerBase
 {
     private readonly IProfileService _profileService;
+    private readonly IFitnessProfileService _fitnessProfileService;
 
-    public ProfileController(IProfileService profileService)
+    public ProfileController(IProfileService profileService, IFitnessProfileService fitnessProfileService)
     {
         _profileService = profileService;
+        _fitnessProfileService = fitnessProfileService;
     }
 
     [HttpGet]
@@ -39,6 +42,22 @@ public class ProfileController : ControllerBase
     {
         var userId = User.GetUserId()!.Value;
         var result = await _profileService.UpdateProfileAsync(userId, request, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Yalnizca alisveris icin kayit olmus kullanicinin fitness profilini (onboarding'in boy/kilo/hedef/antrenman
+    /// adimlari) tamamlar ve guncel profili dondurur. Profil zaten tamamsa 409; boy veya kilo eksikse 400. Yag Kaybi
+    /// hedefinde dusuk yag orani onayi gerekiyorsa kayittaki gibi 409 LOW_BODY_FAT_CONFIRMATION_REQUIRED.
+    /// </summary>
+    [HttpPost("fitness")]
+    public async Task<ActionResult<CustomerProfileResponse>> CompleteFitnessProfile(
+        [FromBody] FitnessProfileRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        await _fitnessProfileService.CompleteAsync(userId, request, cancellationToken);
+        var result = await _profileService.GetProfileAsync(userId, cancellationToken);
         return Ok(result);
     }
 

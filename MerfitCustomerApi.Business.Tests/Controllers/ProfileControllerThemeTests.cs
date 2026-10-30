@@ -15,7 +15,7 @@ public class ProfileControllerThemeTests
 {
     private static ProfileController CreateController(Mock<IProfileService> profileService, long authenticatedUserId)
     {
-        var controller = new ProfileController(profileService.Object);
+        var controller = new ProfileController(profileService.Object, Mock.Of<IFitnessProfileService>());
         var identity = new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, authenticatedUserId.ToString()) }, "TestAuth");
 
         controller.ControllerContext = new ControllerContext

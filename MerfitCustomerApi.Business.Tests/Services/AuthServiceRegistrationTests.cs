@@ -29,6 +29,8 @@ public class AuthServiceRegistrationTests
         public required List<PersonalizationJob> Jobs { get; init; }
         public required List<UserGoal> Goals { get; init; }
         public required List<BodyMeasurement> Measurements { get; init; }
+        public required List<NutritionGoal> NutritionGoals { get; init; }
+        public required List<UserEquipment> Equipment { get; init; }
     }
 
     private static readonly Mock<IAccountEmailService> AccountEmails = CreateAccountEmails();
@@ -91,6 +93,8 @@ public class AuthServiceRegistrationTests
             Jobs = jobs,
             Goals = goals,
             Measurements = measurements,
+            NutritionGoals = nutritionGoals,
+            Equipment = equipment,
         };
     }
 
@@ -276,5 +280,89 @@ public class AuthServiceRegistrationTests
             () => fx.Service.RegisterAsync(MakeRequest(email: "mert@example.com", username: "farkliuser"), ipAddress: null));
 
         Assert.Empty(fx.Profiles);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WithoutHeight_StillRequiresHeight_ForFitnessRegistration()
+    {
+        var fx = CreateFixture();
+        var request = MakeRequest();
+        request.HeightCm = null;
+
+        var ex = await Assert.ThrowsAsync<AppValidationException>(() => fx.Service.RegisterAsync(request, ipAddress: null));
+
+        Assert.Contains(nameof(RegisterRequest.HeightCm), ex.Errors.Keys);
+        Assert.Empty(fx.Users);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_FitnessRegistration_ReportsCompletedFitnessProfile()
+    {
+        var fx = CreateFixture();
+
+        var result = await fx.Service.RegisterAsync(MakeRequest(), ipAddress: null);
+
+        Assert.True(result.FitnessProfileCompleted);
+        Assert.Equal("Pending", result.PersonalizationStatus);
+        Assert.Single(fx.NutritionGoals);
+    }
+
+    /// <summary>
+    /// Yalnizca alisveris icin kayit: boy/kilo/hedef sorulmaz (gonderilse de yok sayilir) ve kisisellestirme
+    /// kayitlari (hedef, beslenme hedefi, ekipman, olcum, plan isi) olusturulmaz.
+    /// </summary>
+    [Fact]
+    public async Task RegisterAsync_ShoppingOnly_CreatesAccountWithoutFitnessData()
+    {
+        var fx = CreateFixture();
+        var request = new RegisterRequest
+        {
+            FirstName = "Ayşe",
+            LastName = "Yılmaz",
+            Username = "ayse",
+            Email = "ayse@example.com",
+            Password = "password1",
+            ConfirmPassword = "password1",
+            ShoppingOnly = true,
+            // Eski/hatali istemci fitness alanlari gonderse de yazilmaz.
+            Goal = "lose_weight",
+            Weight = 60,
+            EquipmentIds = new List<long> { 1, 2 },
+        };
+
+        var result = await fx.Service.RegisterAsync(request, ipAddress: null);
+
+        var profile = Assert.Single(fx.Profiles);
+        Assert.Equal("Ayşe", profile.FirstName);
+        Assert.Equal("ayse", profile.Username);
+        Assert.Null(profile.HeightCm);
+        Assert.Null(profile.WeightKg);
+        Assert.Null(profile.Goal);
+        Assert.Equal(UnitSystem.Metric, profile.UnitSystem);
+        Assert.Empty(fx.Goals);
+        Assert.Empty(fx.NutritionGoals);
+        Assert.Empty(fx.Jobs);
+        Assert.Empty(fx.Measurements);
+        Assert.Empty(fx.Equipment);
+
+        Assert.False(result.FitnessProfileCompleted);
+        Assert.Null(result.PersonalizationStatus);
+        Assert.True(result.IsNewUser);
+        Assert.False(string.IsNullOrEmpty(result.AccessToken));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task LoginAsync_ReportsWhetherFitnessProfileIsCompleted(bool shoppingOnly, bool expectedCompleted)
+    {
+        var fx = CreateFixture();
+        var request = MakeRequest();
+        request.ShoppingOnly = shoppingOnly;
+        await fx.Service.RegisterAsync(request, ipAddress: null);
+
+        var login = await fx.Service.LoginAsync(new LoginRequest { EmailOrUsername = "mert", Password = "password1" }, null);
+
+        Assert.Equal(expectedCompleted, login.FitnessProfileCompleted);
     }
 }

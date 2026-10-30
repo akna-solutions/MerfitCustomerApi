@@ -1,6 +1,7 @@
 ﻿using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Customer.Profile;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.Auth;
 using MerfitCustomerApi.Business.Services.BodyComposition;
 using MerfitCustomerApi.Business.Services.Nutrition;
 using MerfitCustomerApi.Business.Services.Personalization;
@@ -661,6 +662,7 @@ public class ProfileService : IProfileService
             Username = profile.Username,
             Email = user.Email,
             EmailConfirmed = user.EmailConfirmed,
+            FitnessProfileCompleted = FitnessOnboarding.IsCompleted(profile),
             DateOfBirth = profile.DateOfBirth?.ToString("yyyy-MM-dd") ?? string.Empty,
             Gender = MapGenderToDisplay(profile.Gender),
             Age = age,
