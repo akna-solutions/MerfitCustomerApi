@@ -254,4 +254,37 @@ public class ProfileServiceUsernameTests
         Assert.Equal("Mehmet", result.FirstName);
         Assert.Equal("Yılmaz", result.LastName);
     }
+
+    // ---- Icerik moderasyonu ----
+
+    [Fact]
+    public async Task UpdateProfileAsync_RejectsInappropriateNewUsername_WithoutChangingProfile()
+    {
+        var fx = CreateFixture();
+        fx.Users.Add(MakeUser(1, "mert@example.com"));
+        fx.Profiles.Add(MakeProfile(1, "Mert", "Akpınar", "mert"));
+
+        var ex = await Assert.ThrowsAsync<AppValidationException>(() =>
+            fx.Service.UpdateProfileAsync(1, new UpdateProfileRequest { FirstName = "Mehmet", Username = "mbfit_official" }));
+
+        Assert.True(ex.Errors.ContainsKey(nameof(UpdateProfileRequest.Username)));
+        var profile = Assert.Single(fx.Profiles);
+        Assert.Equal("Mert", profile.FirstName);
+        Assert.Equal("mert", profile.Username);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_DoesNotRecheckUnchangedLegacyValues()
+    {
+        // Kurallar eklenmeden once kaydedilmis bir kullanici adi, uygulama profili tum alanlarla gonderdiginde
+        // kullanicinin baska alanlari guncellemesini engellememeli; yalnizca degisen alanlar kontrol edilir.
+        var fx = CreateFixture();
+        fx.Users.Add(MakeUser(1, "mert@example.com"));
+        fx.Profiles.Add(MakeProfile(1, "Mert", "Akpınar", "admin"));
+
+        var result = await fx.Service.UpdateProfileAsync(1, new UpdateProfileRequest { FirstName = "Mehmet", LastName = "Akpınar", Username = "Admin" });
+
+        Assert.Equal("Mehmet", result.FirstName);
+        Assert.Equal("admin", result.Username);
+    }
 }

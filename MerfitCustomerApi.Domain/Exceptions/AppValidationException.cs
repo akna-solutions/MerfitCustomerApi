@@ -20,4 +20,11 @@ public class AppValidationException : Exception
     {
         Errors = new Dictionary<string, string[]> { [field] = new[] { message } };
     }
+
+    /// <summary>Birden fazla alanin hatasini tek yanitta dondurmek icin; mesaj ilk hatadir.</summary>
+    public AppValidationException(IDictionary<string, string[]> errors)
+        : base(errors.SelectMany(e => e.Value).FirstOrDefault() ?? "Dogrulama hatasi.")
+    {
+        Errors = errors;
+    }
 }

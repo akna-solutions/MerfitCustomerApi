@@ -3,6 +3,7 @@ using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Dtos.Auth;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.BodyComposition;
+using MerfitCustomerApi.Business.Services.ContentModeration;
 using MerfitCustomerApi.Business.Services.Progress;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
@@ -31,6 +32,7 @@ public class AuthService : IAuthService
     private readonly IAccountEmailService _accountEmailService;
     private readonly IGoogleIdTokenValidator _googleIdTokenValidator;
     private readonly BodyCompositionOptions _bodyCompositionOptions;
+    private readonly IContentModerationService _contentModeration;
 
     public AuthService(
         IUnitOfWork unitOfWork,
@@ -39,9 +41,11 @@ public class AuthService : IAuthService
         IOptions<JwtSettings> jwtSettings,
         IAccountEmailService accountEmailService,
         IGoogleIdTokenValidator googleIdTokenValidator,
-        IOptions<BodyCompositionOptions>? bodyCompositionOptions = null)
+        IOptions<BodyCompositionOptions>? bodyCompositionOptions = null,
+        IContentModerationService? contentModeration = null)
     {
         _bodyCompositionOptions = bodyCompositionOptions?.Value ?? new BodyCompositionOptions();
+        _contentModeration = contentModeration ?? new ContentModerationService();
         _unitOfWork = unitOfWork;
         _tokenService = tokenService;
         _nutritionCalculator = nutritionCalculator;
@@ -86,6 +90,13 @@ public class AuthService : IAuthService
         GoogleIdentity? externalLogin,
         string? ipAddress)
     {
+        // Ad, soyad ve kullanici adi herkese acik alanlardir (profil, liderlik tablosu): uygunsuz icerik varsa hicbir
+        // kayit olusturulmadan 400 doner. Hem e-posta/sifre hem Google kaydi buradan gecer.
+        _contentModeration.EnsureAllowed(
+            (nameof(request.FirstName), request.FirstName, ContentModerationType.FirstName),
+            (nameof(request.LastName), request.LastName, ContentModerationType.LastName),
+            (nameof(request.Username), request.Username, ContentModerationType.Username));
+
         var normalizedEmail = email.ToUpperInvariant();
         var userRepo = _unitOfWork.Repository<ApplicationUser>();
 
@@ -371,6 +382,13 @@ public class AuthService : IAuthService
         if (!UsernamePattern.IsMatch(normalizedUsername))
         {
             response.Message = "Kullanıcı adı yalnızca harf, rakam ve alt çizgi (_) içerebilir.";
+            return response;
+        }
+
+        var moderation = _contentModeration.Check(normalizedUsername, ContentModerationType.Username);
+        if (!moderation.IsAllowed)
+        {
+            response.Message = moderation.RejectionReason;
             return response;
         }
 
