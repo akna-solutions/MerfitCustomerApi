@@ -7,6 +7,7 @@ using MerfitCustomerApi.Business.Services.Auth;
 using MerfitCustomerApi.Business.Services.BodyComposition;
 using MerfitCustomerApi.Business.Services.Calendar;
 using MerfitCustomerApi.Business.Services.Campaigns;
+using MerfitCustomerApi.Business.Services.ContentModeration;
 using MerfitCustomerApi.Business.Services.Dashboard;
 using MerfitCustomerApi.Business.Services.Email;
 using MerfitCustomerApi.Business.Services.Equipment;
@@ -92,6 +93,10 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+// Icerik moderasyonu: ad/soyad/kullanici adi icin sozluk tabanli (yapay zekasiz, harici servissiz) kontrol.
+// Durumsuz; sozluk indeksi bir kez kurulur.
+builder.Services.AddSingleton<IContentModerationService, ContentModerationService>();
 
 // Kisisellestirme altyapisi (FAZ 1): deterministik beslenme hedefi hesaplayicisi.
 // Hem AuthService (register sirasinda ilk NutritionGoal) hem de NutritionService

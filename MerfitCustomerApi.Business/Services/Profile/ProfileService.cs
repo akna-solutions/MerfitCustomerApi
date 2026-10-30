@@ -3,6 +3,7 @@ using MerfitCustomerApi.Business.Dtos.Customer.Profile;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Auth;
 using MerfitCustomerApi.Business.Services.BodyComposition;
+using MerfitCustomerApi.Business.Services.ContentModeration;
 using MerfitCustomerApi.Business.Services.Nutrition;
 using MerfitCustomerApi.Business.Services.Personalization;
 using MerfitCustomerApi.Business.Services.Progress;
@@ -25,11 +26,16 @@ public class ProfileService : IProfileService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly BodyCompositionOptions _bodyCompositionOptions;
+    private readonly IContentModerationService _contentModeration;
 
-    public ProfileService(IUnitOfWork unitOfWork, IOptions<BodyCompositionOptions>? bodyCompositionOptions = null)
+    public ProfileService(
+        IUnitOfWork unitOfWork,
+        IOptions<BodyCompositionOptions>? bodyCompositionOptions = null,
+        IContentModerationService? contentModeration = null)
     {
         _unitOfWork = unitOfWork;
         _bodyCompositionOptions = bodyCompositionOptions?.Value ?? new BodyCompositionOptions();
+        _contentModeration = contentModeration ?? new ContentModerationService();
     }
 
     public async Task<CustomerProfileResponse> GetProfileAsync(long userId, CancellationToken cancellationToken = default)
@@ -54,6 +60,8 @@ public class ProfileService : IProfileService
         {
             throw new NotFoundException(nameof(UserProfile), userId);
         }
+
+        EnsureIdentityChangesAllowed(profile, request);
 
         var planInputsBefore = PlanInputs.From(profile);
         var nutritionInputsBefore = NutritionInputs.From(profile);
@@ -171,6 +179,23 @@ public class ProfileService : IProfileService
         }
 
         return await BuildResponseAsync(user, profile, cancellationToken);
+    }
+
+    /// <summary>
+    /// Herkese acik kimlik alanlarini (ad, soyad, kullanici adi) hicbir degisiklik uygulanmadan once moderasyondan
+    /// gecirir. Yalnizca gercekten degisen alanlar kontrol edilir: mobil uygulama profili tum alanlarla gonderdiginde,
+    /// kurallar eklenmeden once kaydedilmis bir deger kullanicinin baska ayarlari kaydetmesini engellemez.
+    /// </summary>
+    private void EnsureIdentityChangesAllowed(UserProfile profile, UpdateProfileRequest request)
+    {
+        // Kullanici adi kucuk harfle saklandigi icin buyuk/kucuk harf farki degisiklik sayilmaz (bkz. ApplyIdentityChangesAsync).
+        static string? Changed(string? requested, string? current, StringComparison comparison = StringComparison.Ordinal) =>
+            requested is not null && !string.Equals(requested.Trim(), current, comparison) ? requested : null;
+
+        _contentModeration.EnsureAllowed(
+            (nameof(request.FirstName), Changed(request.FirstName, profile.FirstName), ContentModerationType.FirstName),
+            (nameof(request.LastName), Changed(request.LastName, profile.LastName), ContentModerationType.LastName),
+            (nameof(request.Username), Changed(request.Username, profile.Username, StringComparison.OrdinalIgnoreCase), ContentModerationType.Username));
     }
 
     private async Task ApplyIdentityChangesAsync(ApplicationUser user, UserProfile profile, UpdateProfileRequest request, CancellationToken cancellationToken)
