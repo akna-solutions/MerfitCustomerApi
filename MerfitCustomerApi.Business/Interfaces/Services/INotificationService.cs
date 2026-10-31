@@ -14,6 +14,11 @@ public interface INotificationService
 
     Task MarkAllAsReadAsync(long userId, string? category, CancellationToken cancellationToken = default);
 
+    /// <summary>app: "mbfit" | "mbshop" (bos ise kategoriye gore, varsayilan MB Fit).</summary>
+    Task<CustomerNotificationUnreadCountResponse> GetUnreadCountAsync(long userId, string? app, string? category, CancellationToken cancellationToken = default);
+
+    Task MarkAllAsReadAsync(long userId, string? app, string? category, CancellationToken cancellationToken = default);
+
     Task<List<CustomerNotificationTypeSettingDto>> GetSettingsAsync(long userId, CancellationToken cancellationToken = default);
 
     Task<List<CustomerNotificationTypeSettingDto>> UpdateSettingsAsync(long userId, UpdateNotificationTypeSettingsRequest request, CancellationToken cancellationToken = default);

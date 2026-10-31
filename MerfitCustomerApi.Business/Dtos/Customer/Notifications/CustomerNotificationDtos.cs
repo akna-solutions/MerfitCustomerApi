@@ -11,8 +11,11 @@ public class CustomerNotificationDto
     /// <summary>NotificationType adi (orn. "WorkoutReminder", "NutritionReminder").</summary>
     public string Type { get; set; } = string.Empty;
 
-    /// <summary>"workout" | "nutrition" | "general".</summary>
+    /// <summary>"workout" | "nutrition" | "general" | "shop".</summary>
     public string Category { get; set; } = string.Empty;
+
+    /// <summary>"mbfit" | "mbshop": bildirimin gosterildigi gelen kutusu.</summary>
+    public string App { get; set; } = "mbfit";
 
     public string Title { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
@@ -27,7 +30,10 @@ public class CustomerNotificationDto
 /// <summary>GET /api/notifications sorgusu.</summary>
 public class CustomerNotificationListRequest : PagedRequest
 {
-    /// <summary>Yalnizca bu kategorideki bildirimler: "workout" | "nutrition" | "general". Bos ise hepsi.</summary>
+    /// <summary>"mbfit" (varsayilan) | "mbshop". MB Fit ve MB Shop gelen kutulari ayridir.</summary>
+    public string? App { get; set; }
+
+    /// <summary>Yalnizca bu kategorideki bildirimler: "workout" | "nutrition" | "general" | "shop". Bos ise uygulamanin tumu.</summary>
     public string? Category { get; set; }
 }
 
@@ -45,8 +51,11 @@ public class CustomerNotificationTypeSettingDto
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
 
-    /// <summary>"workout" | "nutrition" | "general".</summary>
+    /// <summary>"workout" | "nutrition" | "general" | "shop".</summary>
     public string Category { get; set; } = string.Empty;
+
+    /// <summary>"mbfit" | "mbshop": mobil ayarlar ekraninda hangi bolumde gosterilecegi.</summary>
+    public string App { get; set; } = "mbfit";
 
     public bool IsEnabled { get; set; }
 

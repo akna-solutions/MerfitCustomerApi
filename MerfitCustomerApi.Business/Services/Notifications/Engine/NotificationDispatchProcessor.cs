@@ -1,4 +1,4 @@
-using MerfitCustomerApi.Business.Common;
+﻿using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
@@ -71,7 +71,8 @@ public class NotificationDispatchProcessor : INotificationDispatchProcessor
         public required Dictionary<long, NotificationRule> Rules { get; init; }
         public required Dictionary<long, NotificationCampaignStatus> Campaigns { get; init; }
         public required HashSet<(long DispatchId, long DeviceId)> AlreadyAccepted { get; init; }
-        public required Dictionary<long, List<DateTime>> SentPushTimes { get; init; }
+        /// <summary>Gunluk limit icin kullanici ve uygulama (MB Fit / MB Shop) bazinda kabul edilmis push zamanlari.</summary>
+        public required Dictionary<(long UserId, NotificationApp App), List<DateTime>> SentPushTimes { get; init; }
         public required HashSet<long> RuleConditionStillHolds { get; init; }
         public required HashSet<NotificationType> LimitExemptTypes { get; init; }
     }
@@ -183,7 +184,7 @@ public class NotificationDispatchProcessor : INotificationDispatchProcessor
                 && d.Status == NotificationDispatchStatus.Sent
                 && d.ProcessedAtUtc >= since
                 && !exemptList.Contains(d.Type))
-            .Select(d => new { d.UserId, ProcessedAtUtc = d.ProcessedAtUtc!.Value })
+            .Select(d => new { d.UserId, d.Type, ProcessedAtUtc = d.ProcessedAtUtc!.Value })
             .ToListAsync(cancellationToken);
 
         var context = new Context
@@ -194,7 +195,7 @@ public class NotificationDispatchProcessor : INotificationDispatchProcessor
             Rules = rules.ToDictionary(r => r.Id),
             Campaigns = campaigns.ToDictionary(c => c.Id, c => c.Status),
             AlreadyAccepted = accepted.Select(a => (a.NotificationDispatchId, a.UserDeviceId)).ToHashSet(),
-            SentPushTimes = sent.GroupBy(s => s.UserId).ToDictionary(g => g.Key, g => g.Select(x => x.ProcessedAtUtc).ToList()),
+            SentPushTimes = sent.GroupBy(s => (s.UserId, NotificationApps.Of(s.Type))).ToDictionary(g => g.Key, g => g.Select(x => x.ProcessedAtUtc).ToList()),
             RuleConditionStillHolds = new HashSet<long>(),
             LimitExemptTypes = exempt,
         };
@@ -367,20 +368,23 @@ public class NotificationDispatchProcessor : INotificationDispatchProcessor
         if (!anyAccepted && !context.LimitExemptTypes.Contains(dispatch.Type))
         {
             var dayStartUtc = NotificationClock.LocalDayBoundsUtc(DateOnly.FromDateTime(NotificationClock.ToLocal(nowUtc, zone)), zone).StartUtc;
-            var sentTimes = context.SentPushTimes.GetValueOrDefault(dispatch.UserId);
+            var app = NotificationApps.Of(dispatch.Type);
+            var key = (dispatch.UserId, app);
+            var sentTimes = context.SentPushTimes.GetValueOrDefault(key);
             var sentToday = sentTimes?.Count(t => t >= dayStartUtc) ?? 0;
-            if (sentToday >= _options.DailyPushLimit)
+            var limit = app == NotificationApp.MbShop ? _options.ShopDailyPushLimit : _options.DailyPushLimit;
+            if (sentToday >= limit)
             {
                 Finish(dispatch, NotificationDispatchStatus.InAppOnly, ReasonDailyLimit, nowUtc);
                 return null;
             }
 
             // Ayni turdaki sonraki kayitlar da bu gonderimi saysin.
-            if (!context.SentPushTimes.ContainsKey(dispatch.UserId))
+            if (!context.SentPushTimes.ContainsKey(key))
             {
-                context.SentPushTimes[dispatch.UserId] = new List<DateTime>();
+                context.SentPushTimes[key] = new List<DateTime>();
             }
-            context.SentPushTimes[dispatch.UserId].Add(nowUtc);
+            context.SentPushTimes[key].Add(nowUtc);
         }
 
         return new PushWork(dispatch, devices);
@@ -398,10 +402,13 @@ public class NotificationDispatchProcessor : INotificationDispatchProcessor
                 data["notificationId"] = item.Dispatch.NotificationId.Value.ToString();
             }
             data["type"] = item.Dispatch.Type.ToString();
+            var app = NotificationApps.Of(item.Dispatch.Type);
+            data["app"] = NotificationApps.Key(app);
+            var channelId = app == NotificationApp.MbShop ? _options.Expo.ShopAndroidChannelId : null;
 
             foreach (var device in item.Devices)
             {
-                messages.Add(new PushMessage(device.DeviceToken, item.Dispatch.Title, item.Dispatch.Body, data));
+                messages.Add(new PushMessage(device.DeviceToken, item.Dispatch.Title, item.Dispatch.Body, data, channelId));
                 targets.Add((item.Dispatch, device));
             }
         }

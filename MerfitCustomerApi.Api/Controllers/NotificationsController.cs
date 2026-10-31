@@ -22,7 +22,10 @@ public class NotificationsController : ControllerBase
         _deviceService = deviceService;
     }
 
-    /// <summary>Sorgu: /api/notifications?category=nutrition&amp;page=1&amp;pageSize=20 (en yeni once).</summary>
+    /// <summary>
+    /// Sorgu: /api/notifications?app=mbshop&amp;category=nutrition&amp;page=1&amp;pageSize=20 (en yeni once).
+    /// MB Fit (app=mbfit, varsayilan) ve MB Shop (app=mbshop) gelen kutulari ayridir.
+    /// </summary>
     [HttpGet]
     public async Task<ActionResult<PagedResult<CustomerNotificationDto>>> GetNotifications(
         [FromQuery] CustomerNotificationListRequest request,
@@ -35,10 +38,11 @@ public class NotificationsController : ControllerBase
     [HttpGet("unread-count")]
     public async Task<ActionResult<CustomerNotificationUnreadCountResponse>> GetUnreadCount(
         [FromQuery] string? category,
+        [FromQuery] string? app,
         CancellationToken cancellationToken)
     {
         var userId = User.GetUserId()!.Value;
-        return Ok(await _notificationService.GetUnreadCountAsync(userId, category, cancellationToken));
+        return Ok(await _notificationService.GetUnreadCountAsync(userId, app, category, cancellationToken));
     }
 
     [HttpPost("{id:long}/read")]
@@ -49,12 +53,12 @@ public class NotificationsController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>Sorgu: /api/notifications/read-all?category=nutrition (bos ise tum bildirimler).</summary>
+    /// <summary>Sorgu: /api/notifications/read-all?app=mbshop&amp;category=nutrition (bos ise uygulamanin tum bildirimleri).</summary>
     [HttpPost("read-all")]
-    public async Task<IActionResult> MarkAllAsRead([FromQuery] string? category, CancellationToken cancellationToken)
+    public async Task<IActionResult> MarkAllAsRead([FromQuery] string? category, [FromQuery] string? app, CancellationToken cancellationToken)
     {
         var userId = User.GetUserId()!.Value;
-        await _notificationService.MarkAllAsReadAsync(userId, category, cancellationToken);
+        await _notificationService.MarkAllAsReadAsync(userId, app, category, cancellationToken);
         return NoContent();
     }
 

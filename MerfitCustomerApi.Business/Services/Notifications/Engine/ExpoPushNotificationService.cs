@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -63,7 +63,7 @@ public partial class ExpoPushNotificationService : IPushNotificationService
             Body = m.Body,
             Data = m.Data,
             Sound = "default",
-            ChannelId = _options.AndroidChannelId,
+            ChannelId = m.ChannelId ?? _options.AndroidChannelId,
         }).ToList();
 
         HttpResponseMessage response;
