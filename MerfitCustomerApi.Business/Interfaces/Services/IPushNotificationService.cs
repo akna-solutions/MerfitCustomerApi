@@ -1,7 +1,8 @@
-namespace MerfitCustomerApi.Business.Interfaces.Services;
+﻿namespace MerfitCustomerApi.Business.Interfaces.Services;
 
 /// <summary>Saglayiciya gonderilecek tek bir push mesaji.</summary>
-public sealed record PushMessage(string To, string Title, string Body, IReadOnlyDictionary<string, string> Data);
+/// <param name="ChannelId">Android bildirim kanali; null ise varsayilan kanal (MB Fit). MB Shop bildirimleri ayri kanaldadir.</param>
+public sealed record PushMessage(string To, string Title, string Body, IReadOnlyDictionary<string, string> Data, string? ChannelId = null);
 
 public enum PushSendOutcome
 {

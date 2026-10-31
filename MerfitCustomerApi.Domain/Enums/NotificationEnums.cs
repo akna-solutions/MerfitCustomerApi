@@ -58,7 +58,60 @@ public enum NotificationType
     /// <summary>
     /// Admin panelinden gonderilen duyuru (kampanya).
     /// </summary>
-    Announcement
+    Announcement,
+    /// <summary>
+    /// MB Shop: siparis durumu ve odeme guncellemeleri (islem bildirimi).
+    /// </summary>
+    StoreOrderUpdate,
+    /// <summary>
+    /// MB Shop: magaza kampanyalari, indirimler ve yeni urunler (admin kampanyasi).
+    /// </summary>
+    StorePromotion
+}
+
+/// <summary>
+/// Bildirimin ait oldugu uygulama bolumu. Veritabaninda saklanmaz; NotificationType'tan turetilir
+/// (bkz. <see cref="NotificationApps"/>). MB Fit ve MB Shop bildirimleri mobilde ayri gelen kutularinda,
+/// ayri ayarlarda ve ayri Android bildirim kanallarinda gosterilir.
+/// </summary>
+public enum NotificationApp
+{
+    MbFit,
+    MbShop
+}
+
+/// <summary>NotificationType -&gt; NotificationApp eslemesi. MerfitApi'deki kopyasi ile ayni tutulmalidir.</summary>
+public static class NotificationApps
+{
+    public static readonly IReadOnlySet<NotificationType> ShopTypes = new HashSet<NotificationType>
+    {
+        NotificationType.StoreOrderUpdate,
+        NotificationType.StorePromotion,
+    };
+
+    public static NotificationApp Of(NotificationType type) =>
+        ShopTypes.Contains(type) ? NotificationApp.MbShop : NotificationApp.MbFit;
+
+    public static IReadOnlyList<NotificationType> TypesOf(NotificationApp app) =>
+        Enum.GetValues<NotificationType>().Where(t => Of(t) == app).ToList();
+
+    /// <summary>API'de kullanilan kisa ad: "mbfit" | "mbshop".</summary>
+    public static string Key(NotificationApp app) => app == NotificationApp.MbShop ? "mbshop" : "mbfit";
+
+    public static bool TryParse(string? value, out NotificationApp app)
+    {
+        app = NotificationApp.MbFit;
+        switch (value?.Trim().ToLowerInvariant())
+        {
+            case "mbfit" or "fit":
+                return true;
+            case "mbshop" or "shop" or "store":
+                app = NotificationApp.MbShop;
+                return true;
+            default:
+                return false;
+        }
+    }
 }
 
 /// <summary>Zamanlanmis bildirim kuralinin turu.</summary>
@@ -120,7 +173,9 @@ public enum NotificationDispatchSource
 {
     Rule,
     Campaign,
-    MonthlyReward
+    MonthlyReward,
+    /// <summary>MB Shop siparis/odeme durumu degisikligi (MerfitApi admin siparis islemi).</summary>
+    StoreOrder
 }
 
 /// <summary>Bir alicinin tek bir bildiriminin gonderim durumu.</summary>

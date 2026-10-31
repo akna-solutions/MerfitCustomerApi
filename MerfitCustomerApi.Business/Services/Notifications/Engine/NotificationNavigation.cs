@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace MerfitCustomerApi.Business.Services.Notifications.Engine;
@@ -15,6 +15,14 @@ public static class NotificationNavigation
     public static readonly IReadOnlySet<string> AllowedScreens = new HashSet<string>(StringComparer.Ordinal)
     {
         "dashboard", "nutrition", "workouts", "workoutPlan", "progress", "leaderboard", "notifications", "profile", "subscription",
+        // MB Shop ekranlari (storeOrder: orderId, storeProduct: productId parametresi alir).
+        "store", "storeOrders", "storeOrder", "storeProduct", "storeNotifications",
+    };
+
+    /// <summary>MB Shop'a ait ekranlar; MB Shop bildirimleri yalnizca bunlara, MB Fit bildirimleri yalnizca digerlerine yonlendirebilir.</summary>
+    public static readonly IReadOnlySet<string> ShopScreens = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "store", "storeOrders", "storeOrder", "storeProduct", "storeNotifications",
     };
 
     private const int MaxParams = 5;

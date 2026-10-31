@@ -1,4 +1,4 @@
-using MerfitCustomerApi.Business.Interfaces.Services;
+﻿using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Notifications.Engine;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
@@ -173,6 +173,52 @@ public class NotificationDispatchProcessorTests
         Assert.Equal(NotificationDispatchStatus.InAppOnly, announcement.Status);
         Assert.Equal(NotificationDispatchProcessor.ReasonDailyLimit, announcement.StatusReason);
         Assert.Equal(NotificationDispatchStatus.Sent, reward.Status);
+    }
+
+    [Fact]
+    public async Task DailyLimit_IsCountedPerApp_ShopPushDoesNotConsumeMbFitLimit()
+    {
+        var data = new NotificationTestData();
+        data.Options.DailyPushLimit = 1;
+        data.Options.ShopDailyPushLimit = 1;
+        data.AddUser(1);
+        var now = IstanbulToUtc(15);
+        // Bugun bir MB Shop kampanya push'u gitti: MB Fit limiti etkilenmez, MB Shop limiti doldu.
+        data.Db.Set<NotificationDispatch>().Add(new NotificationDispatch
+        {
+            Id = 50, UserId = 1, Type = NotificationType.StorePromotion, Status = NotificationDispatchStatus.Sent,
+            ProcessedAtUtc = IstanbulToUtc(9), DedupeKey = "old", NextAttemptAtUtc = IstanbulToUtc(9), ScheduledForUtc = IstanbulToUtc(9),
+        });
+        data.Db.Set<UserNotificationTypeSetting>().Add(new UserNotificationTypeSetting { UserId = 1, Type = NotificationType.StorePromotion, IsEnabled = true });
+        var announcement = data.AddDispatch(1, 1, now: now);
+        var promotion = data.AddDispatch(2, 1, NotificationType.StorePromotion, now: now);
+        var order = data.AddDispatch(3, 1, NotificationType.StoreOrderUpdate, NotificationDispatchSource.StoreOrder, now: now);
+
+        await data.Processor.ProcessDueAsync(now);
+
+        Assert.Equal(NotificationDispatchStatus.Sent, announcement.Status);
+        Assert.Equal(NotificationDispatchStatus.InAppOnly, promotion.Status);
+        Assert.Equal(NotificationDispatchProcessor.ReasonDailyLimit, promotion.StatusReason);
+        Assert.Equal(NotificationDispatchStatus.Sent, order.Status); // siparis durumu limitten muaf
+    }
+
+    [Fact]
+    public async Task ShopNotification_UsesShopAndroidChannel_AndCarriesAppKey()
+    {
+        var data = new NotificationTestData();
+        data.AddUser(1);
+        var now = IstanbulToUtc(12);
+        data.AddDispatch(1, 1, now: now);
+        data.AddDispatch(2, 1, NotificationType.StoreOrderUpdate, NotificationDispatchSource.StoreOrder, now: now);
+
+        await data.Processor.ProcessDueAsync(now);
+
+        var fit = data.Push.Sent.Where(m => m.Data["type"] == "Announcement").ToList();
+        var shop = data.Push.Sent.Where(m => m.Data["type"] == "StoreOrderUpdate").ToList();
+        Assert.NotEmpty(fit);
+        Assert.NotEmpty(shop);
+        Assert.All(fit, m => { Assert.Null(m.ChannelId); Assert.Equal("mbfit", m.Data["app"]); });
+        Assert.All(shop, m => { Assert.Equal("mbshop", m.ChannelId); Assert.Equal("mbshop", m.Data["app"]); });
     }
 
     [Fact]
