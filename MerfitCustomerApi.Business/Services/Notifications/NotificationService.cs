@@ -26,6 +26,8 @@ public class NotificationService : INotificationService, INotificationPreference
     public const string CategoryWorkout = "workout";
     public const string CategoryNutrition = "nutrition";
     public const string CategoryGeneral = "general";
+    /// <summary>MB Shop bildirimleri (siparis, kampanya). MB Fit kategorilerinden ayridir.</summary>
+    public const string CategoryShop = "shop";
 
     private sealed record TypeInfo(
         NotificationType Type,
@@ -60,6 +62,10 @@ public class NotificationService : INotificationService, INotificationPreference
         new TypeInfo(NotificationType.Marketing, "Kampanyalar ve Ürün Haberleri", "Yeni özellikler ve kampanyalar.", CategoryGeneral, false,
             GetLegacy: s => s.ProductUpdates, SetLegacy: (s, v) => s.ProductUpdates = v),
         new TypeInfo(NotificationType.System, "Sistem Bildirimleri", "Hesabın ve güvenliğinle ilgili önemli bilgiler.", CategoryGeneral, true, IsLocked: true),
+        // MB Shop - MB Fit bildirimlerinden ayri gelen kutusu ve ayarlar.
+        new TypeInfo(NotificationType.StoreOrderUpdate, "Sipariş Durumu", "Siparişin hazırlandığında, kargoya verildiğinde ve teslim edildiğinde haber verir.", CategoryShop, true),
+        // Ticari ileti oldugu icin varsayilan kapali (acik riza ile acilir), Marketing ile ayni.
+        new TypeInfo(NotificationType.StorePromotion, "MB Shop Kampanyaları", "İndirimler, yeni ürünler ve mağaza kampanyaları.", CategoryShop, false),
     };
 
     private static readonly Dictionary<NotificationType, TypeInfo> CatalogByType = Catalog.ToDictionary(t => t.Type);
@@ -196,7 +202,7 @@ public class NotificationService : INotificationService, INotificationPreference
 
     public async Task<PagedResult<CustomerNotificationDto>> GetNotificationsAsync(long userId, CustomerNotificationListRequest request, CancellationToken cancellationToken = default)
     {
-        var types = await GetVisibleTypesAsync(userId, request.Category, cancellationToken);
+        var types = await GetVisibleTypesAsync(userId, request.App, request.Category, cancellationToken);
         var now = DateTime.UtcNow;
 
         var query = _unitOfWork.Repository<Notification>()
@@ -213,6 +219,7 @@ public class NotificationService : INotificationService, INotificationPreference
             Id = n.Id,
             Type = n.Type.ToString(),
             Category = CategoryOf(n.Type),
+            App = NotificationApps.Key(NotificationApps.Of(n.Type)),
             Title = n.Title,
             Body = n.Body,
             ImageUrl = n.ImageUrl,
@@ -224,9 +231,12 @@ public class NotificationService : INotificationService, INotificationPreference
         return PagedResult<CustomerNotificationDto>.Create(items, page.Page, page.PageSize, page.TotalCount);
     }
 
-    public async Task<CustomerNotificationUnreadCountResponse> GetUnreadCountAsync(long userId, string? category, CancellationToken cancellationToken = default)
+    public async Task<CustomerNotificationUnreadCountResponse> GetUnreadCountAsync(long userId, string? category, CancellationToken cancellationToken = default) =>
+        await GetUnreadCountAsync(userId, null, category, cancellationToken);
+
+    public async Task<CustomerNotificationUnreadCountResponse> GetUnreadCountAsync(long userId, string? app, string? category, CancellationToken cancellationToken = default)
     {
-        var types = await GetVisibleTypesAsync(userId, category, cancellationToken);
+        var types = await GetVisibleTypesAsync(userId, app, category, cancellationToken);
         var now = DateTime.UtcNow;
 
         var count = await _unitOfWork.Repository<Notification>()
@@ -258,9 +268,12 @@ public class NotificationService : INotificationService, INotificationPreference
         }
     }
 
-    public async Task MarkAllAsReadAsync(long userId, string? category, CancellationToken cancellationToken = default)
+    public Task MarkAllAsReadAsync(long userId, string? category, CancellationToken cancellationToken = default) =>
+        MarkAllAsReadAsync(userId, null, category, cancellationToken);
+
+    public async Task MarkAllAsReadAsync(long userId, string? app, string? category, CancellationToken cancellationToken = default)
     {
-        var types = ResolveCategoryTypes(category);
+        var types = ResolveTypes(app, category);
         var unread = await _unitOfWork.Repository<Notification>()
             .GetQueryable(asNoTracking: false)
             .Where(n => n.UserId == userId && !n.IsRead && types.Contains(n.Type))
@@ -290,6 +303,7 @@ public class NotificationService : INotificationService, INotificationPreference
             Title = info.Title,
             Description = info.Description,
             Category = info.Category,
+            App = NotificationApps.Key(NotificationApps.Of(info.Type)),
             IsEnabled = enabled[info.Type],
             IsLocked = info.IsLocked,
         }).ToList();
@@ -408,27 +422,44 @@ public class NotificationService : INotificationService, INotificationPreference
             return rows.FirstOrDefault(r => r.Type == info.Type)?.IsEnabled ?? info.DefaultEnabled;
         });
 
-    /// <summary>Kategoriye uyan ve kullanicinin kapatmadigi turler.</summary>
-    private async Task<List<NotificationType>> GetVisibleTypesAsync(long userId, string? category, CancellationToken cancellationToken)
+    /// <summary>Uygulamaya ve kategoriye uyan, kullanicinin kapatmadigi turler.</summary>
+    private async Task<List<NotificationType>> GetVisibleTypesAsync(long userId, string? app, string? category, CancellationToken cancellationToken)
     {
         var enabled = await GetEnabledMapAsync(userId, cancellationToken);
-        return ResolveCategoryTypes(category).Where(t => enabled[t]).ToList();
+        return ResolveTypes(app, category).Where(t => enabled[t]).ToList();
     }
 
-    private static List<NotificationType> ResolveCategoryTypes(string? category)
+    /// <summary>
+    /// app verilmezse kategori "shop" degilse MB Fit kabul edilir: boylece eski istemcilerin MB Fit gelen
+    /// kutusu ve okunmamis sayaci MB Shop bildirimlerini icermez. Kategori verilmisse uygulamasiyla uyumlu olmalidir.
+    /// </summary>
+    private static List<NotificationType> ResolveTypes(string? app, string? category)
     {
-        if (string.IsNullOrWhiteSpace(category))
+        string? normalizedCategory = null;
+        if (!string.IsNullOrWhiteSpace(category))
         {
-            return Catalog.Select(t => t.Type).ToList();
+            normalizedCategory = category.Trim().ToLowerInvariant();
+            if (normalizedCategory is not (CategoryWorkout or CategoryNutrition or CategoryGeneral or CategoryShop))
+            {
+                throw new AppValidationException(nameof(category), "Kategori 'workout', 'nutrition', 'general' veya 'shop' olabilir.");
+            }
         }
 
-        var normalized = category.Trim().ToLowerInvariant();
-        if (normalized is not (CategoryWorkout or CategoryNutrition or CategoryGeneral))
+        NotificationApp resolvedApp;
+        if (string.IsNullOrWhiteSpace(app))
         {
-            throw new AppValidationException(nameof(category), "Kategori 'workout', 'nutrition' veya 'general' olabilir.");
+            resolvedApp = normalizedCategory == CategoryShop ? NotificationApp.MbShop : NotificationApp.MbFit;
+        }
+        else if (!NotificationApps.TryParse(app, out resolvedApp))
+        {
+            throw new AppValidationException(nameof(app), "Uygulama 'mbfit' veya 'mbshop' olabilir.");
         }
 
-        return Catalog.Where(t => t.Category == normalized).Select(t => t.Type).ToList();
+        return Catalog
+            .Where(t => NotificationApps.Of(t.Type) == resolvedApp)
+            .Where(t => normalizedCategory is null || t.Category == normalizedCategory)
+            .Select(t => t.Type)
+            .ToList();
     }
 
     private static string CategoryOf(NotificationType type) =>

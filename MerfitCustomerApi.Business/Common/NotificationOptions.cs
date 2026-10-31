@@ -1,4 +1,4 @@
-namespace MerfitCustomerApi.Business.Common;
+﻿namespace MerfitCustomerApi.Business.Common;
 
 /// <summary>
 /// appsettings.json "Notifications" bolumu: bildirim planlayici ve gondericisinin ayarlari.
@@ -46,11 +46,17 @@ public class NotificationOptions
     /// </summary>
     public TimeSpan RuleSendWindow { get; set; } = TimeSpan.FromHours(2);
 
-    /// <summary>Kullanici basina yerel gun icinde gonderilecek en fazla push sayisi (muaf turler haric).</summary>
+    /// <summary>Kullanici basina yerel gun icinde gonderilecek en fazla MB Fit push sayisi (muaf turler haric).</summary>
     public int DailyPushLimit { get; set; } = 4;
 
-    /// <summary>Gunluk limite takilmayan bildirim turleri.</summary>
-    public List<string> DailyLimitExemptTypes { get; set; } = new() { "System", "Reward" };
+    /// <summary>
+    /// MB Shop icin ayri gunluk push limiti (muaf turler haric). MB Shop kampanyalari MB Fit hatirlatmalarinin
+    /// limitini tuketmez, MB Fit bildirimleri de MB Shop'unkini.
+    /// </summary>
+    public int ShopDailyPushLimit { get; set; } = 2;
+
+    /// <summary>Gunluk limite takilmayan bildirim turleri. Siparis durumu bir islem bildirimidir, sinirlanmaz.</summary>
+    public List<string> DailyLimitExemptTypes { get; set; } = new() { "System", "Reward", "StoreOrderUpdate" };
 
     /// <summary>Planlamada tek seferde islenen kullanici sayisi.</summary>
     public int PlanningUserBatchSize { get; set; } = 500;
@@ -79,4 +85,7 @@ public class ExpoPushOptions
 
     /// <summary>Android bildirim kanali (mobil uygulama ayni kimlikle olusturur).</summary>
     public string AndroidChannelId { get; set; } = "default";
+
+    /// <summary>MB Shop bildirimlerinin Android kanali (mobil uygulama "MB Shop" adiyla olusturur).</summary>
+    public string ShopAndroidChannelId { get; set; } = "mbshop";
 }

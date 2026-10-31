@@ -175,6 +175,71 @@ public class NotificationServiceTests
     }
 
     [Fact]
+    public async Task MbFitAndMbShopInboxes_AreSeparate()
+    {
+        var fixture = CreateFixture();
+        var now = DateTime.UtcNow;
+        fixture.Notifications.Add(Make(1, NotificationType.WorkoutReminder, now));
+        fixture.Notifications.Add(Make(2, NotificationType.StoreOrderUpdate, now.AddMinutes(-1)));
+        fixture.Notifications.Add(Make(3, NotificationType.Announcement, now.AddMinutes(-2)));
+
+        var fit = await fixture.Service.GetNotificationsAsync(UserId, new CustomerNotificationListRequest());
+        var fitExplicit = await fixture.Service.GetNotificationsAsync(UserId, new CustomerNotificationListRequest { App = "mbfit" });
+        var shop = await fixture.Service.GetNotificationsAsync(UserId, new CustomerNotificationListRequest { App = "mbshop" });
+        var shopByCategory = await fixture.Service.GetNotificationsAsync(UserId, new CustomerNotificationListRequest { Category = "shop" });
+
+        Assert.Equal(new long[] { 1, 3 }, fit.Items.Select(i => i.Id));
+        Assert.Equal(new long[] { 1, 3 }, fitExplicit.Items.Select(i => i.Id));
+        Assert.All(fit.Items, i => Assert.Equal("mbfit", i.App));
+        Assert.Equal(new long[] { 2 }, shop.Items.Select(i => i.Id));
+        Assert.Equal("mbshop", shop.Items[0].App);
+        Assert.Equal("shop", shop.Items[0].Category);
+        Assert.Equal(new long[] { 2 }, shopByCategory.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task UnreadCount_AndMarkAllAsRead_AreScopedToApp()
+    {
+        var fixture = CreateFixture();
+        var now = DateTime.UtcNow;
+        fixture.Notifications.Add(Make(1, NotificationType.WorkoutReminder, now));
+        fixture.Notifications.Add(Make(2, NotificationType.StoreOrderUpdate, now));
+
+        Assert.Equal(1, (await fixture.Service.GetUnreadCountAsync(UserId, null, null)).Count);
+        Assert.Equal(1, (await fixture.Service.GetUnreadCountAsync(UserId, "mbshop", null)).Count);
+
+        await fixture.Service.MarkAllAsReadAsync(UserId, "mbshop", null);
+
+        Assert.True(fixture.Notifications.Single(n => n.Id == 2).IsRead);
+        Assert.False(fixture.Notifications.Single(n => n.Id == 1).IsRead);
+    }
+
+    [Fact]
+    public async Task ShopSettings_AreGroupedSeparately_AndPromotionIsOffByDefault()
+    {
+        var fixture = CreateFixture();
+
+        var result = await fixture.Service.GetSettingsAsync(UserId);
+
+        var shop = result.Where(r => r.App == "mbshop").ToList();
+        Assert.Equal(new[] { "StoreOrderUpdate", "StorePromotion" }, shop.Select(r => r.Type));
+        Assert.All(shop, r => Assert.Equal("shop", r.Category));
+        Assert.True(shop[0].IsEnabled);
+        Assert.False(shop[1].IsEnabled);
+        Assert.DoesNotContain(result.Where(r => r.App == "mbfit"), r => r.Category == "shop");
+    }
+
+    [Fact]
+    public async Task MismatchedAppOrUnknownApp_IsRejected()
+    {
+        var fixture = CreateFixture();
+
+        await Assert.ThrowsAsync<AppValidationException>(() => fixture.Service.GetNotificationsAsync(UserId, new CustomerNotificationListRequest { App = "nope" }));
+        var empty = await fixture.Service.GetNotificationsAsync(UserId, new CustomerNotificationListRequest { App = "mbshop", Category = "nutrition" });
+        Assert.Empty(empty.Items);
+    }
+
+    [Fact]
     public async Task MarkAsReadAsync_OtherUsersNotification_IsNotFound()
     {
         var fixture = CreateFixture();
