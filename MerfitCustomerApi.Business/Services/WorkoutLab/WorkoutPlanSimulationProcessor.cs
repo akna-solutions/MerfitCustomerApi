@@ -65,6 +65,10 @@ public class WorkoutPlanSimulationProcessor : IWorkoutPlanSimulationProcessor
             var checks = WorkoutPlanQualityChecker.Evaluate(result, profile, _labOptions);
 
             simulation.Status = WorkoutPlanSimulationStatus.Completed;
+            // Liste/filtre kolonlari algoritmanin gercekte kullandigi degerlerle guncellenir (bos alanlarda varsayilanlar).
+            simulation.Goal = result.Goal;
+            simulation.ExperienceLevel = result.Experience;
+            simulation.TrainingDaysPerWeek = result.TrainingDays;
             simulation.AlgorithmVersion = result.AlgorithmVersion;
             simulation.OptionsFingerprint = result.OptionsFingerprint;
             simulation.ResultJson = JsonSerializer.Serialize(result, WorkoutLabJson.Options);
