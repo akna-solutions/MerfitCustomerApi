@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Services.WorkoutLab;
 ﻿using MerfitCustomerApi.Business.Services.Notifications;
 using MerfitCustomerApi.Business.Services.Notifications.Engine;
 using MerfitCustomerApi.Business.Common;
@@ -260,6 +261,7 @@ builder.Services.AddOptions<WorkoutPlanGenerationOptions>()
 builder.Services.AddSingleton<IValidateOptions<WorkoutPlanGenerationOptions>, WorkoutPlanGenerationOptionsValidator>();
 builder.Services.Configure<NutritionPlanGenerationOptions>(builder.Configuration.GetSection(NutritionPlanGenerationOptions.SectionName));
 builder.Services.Configure<PersonalizationJobProcessingOptions>(builder.Configuration.GetSection(PersonalizationJobProcessingOptions.SectionName));
+builder.Services.Configure<WorkoutPlanLabOptions>(builder.Configuration.GetSection(WorkoutPlanLabOptions.SectionName));
 
 builder.Services.AddScoped<IWorkoutPlanGenerator, WorkoutPlanGenerator>();
 builder.Services.AddScoped<INutritionPlanGenerator, NutritionPlanGenerator>();
@@ -291,6 +293,11 @@ builder.Services.AddHostedService<NotificationBackgroundWorker>();
 // Composition Root'ta (API projesi) kayitlidir - bkz. PersonalizationBackgroundWorker XML docs
 // (Infrastructure projesi bilinçli olarak Business'a referans vermiyor).
 builder.Services.AddHostedService<PersonalizationBackgroundWorker>();
+
+// Antrenman Laboratuvari: admin panelinden acilan simulasyonlari gercek WorkoutPlanGenerator ile isler.
+// Yalnizca WorkoutPlanSimulation tablosuna yazar; kullanici verisine dokunmaz.
+builder.Services.AddScoped<IWorkoutPlanSimulationProcessor, WorkoutPlanSimulationProcessor>();
+builder.Services.AddHostedService<WorkoutPlanSimulationBackgroundWorker>();
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>() ?? new JwtSettings();
 

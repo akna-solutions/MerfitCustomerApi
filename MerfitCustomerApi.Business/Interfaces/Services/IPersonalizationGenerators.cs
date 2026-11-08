@@ -18,6 +18,13 @@ public interface IWorkoutPlanGenerator
     /// Kullanicinin kriterlerine uyan yeterli aday antrenman bulunamazsa firlatilir (orn. bos katalog).
     /// </exception>
     Task<WorkoutPlanGenerationResult> GenerateAsync(long userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ayni algoritmayi, veritabanindaki bir profil yerine verilen tercihlerle calistirir (Antrenman
+    /// Laboratuvari simulasyonu). Yalnizca katalogu okur; kullanici verisine dokunmaz, hicbir sey yazmaz.
+    /// </summary>
+    /// <exception cref="PersonalizationGenerationException">Uygun aday antrenman bulunamazsa.</exception>
+    Task<WorkoutPlanGenerationResult> GenerateAsync(WorkoutPlanGenerationInput input, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

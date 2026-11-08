@@ -4856,6 +4856,154 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.ToTable("WorkoutPlanExercise", "workout");
                 });
 
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.WorkoutPlanSimulation", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AlgorithmVersion")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("CreatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("EvaluatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("EvaluatedBy")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("EvaluationComment")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("EvaluationExerciseSuggestions")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("EvaluationMissingPoints")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("EvaluationProblemItemsJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ExperienceLevel")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("FailedCheckCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("Goal")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("IsPlus")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("OptionsFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("PassedCheckCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("ProfileJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("QualityChecksJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Rating")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ResultJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<long?>("SourceSimulationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("TrainingDaysPerWeek")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TrainingLocation")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("UpdatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("WarningCheckCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<int?>("WorkoutDurationMin")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AlgorithmVersion");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("SourceSimulationId");
+
+                    b.HasIndex("Status", "Id");
+
+                    b.ToTable("WorkoutPlanSimulation", "workout");
+                });
+
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.WorkoutSession", b =>
                 {
                     b.Property<long>("Id")
@@ -5832,6 +5980,14 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .HasForeignKey("WorkoutPlanDayId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.WorkoutPlanSimulation", b =>
+                {
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.WorkoutPlanSimulation", null)
+                        .WithMany()
+                        .HasForeignKey("SourceSimulationId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.WorkoutSession", b =>
