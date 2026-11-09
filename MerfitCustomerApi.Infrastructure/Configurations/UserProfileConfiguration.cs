@@ -98,7 +98,12 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
             .HasMaxLength(50);
 
         // Kullanicinin tercih ettigi olcum birimi sistemi.
-        // Kullanicinin sectigi antrenman gunleri ("Mon,Wed,Fri").
+        // Ekipmanli / ekipmansiz (ekipman tek tek secilmez).
+        builder.Property(x => x.HasEquipment)
+            .IsRequired()
+            .HasDefaultValue(false);
+
+        // Kullanicinin musait antrenman gunleri ("Mon,Wed,Fri"); bos = tum hafta.
         builder.Property(x => x.PreferredTrainingDays)
             .IsRequired(false)
             .HasMaxLength(64);

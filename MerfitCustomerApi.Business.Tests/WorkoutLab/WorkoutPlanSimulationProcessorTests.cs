@@ -94,7 +94,9 @@ public class WorkoutPlanSimulationProcessorTests
         Assert.Equal("GymAllEquipment", result!.EquipmentResolution);
         Assert.Equal(5, result.Equipment.Count);
         // Kuvvet hedefinde en yuksek Strength puanli barbell antrenmanlari secilir.
-        Assert.Equal(new long[] { 302, 301, 303 }.OrderBy(x => x), result.Days.Select(d => d.Workout.Id).OrderBy(x => x));
+        // Orta seviye hedefi 4 gun; uc barbell antrenmaninin hepsi programda.
+        Assert.Equal(4, result.Days.Count);
+        Assert.Subset(result.Days.Select(d => d.Workout.Id).ToHashSet(), new HashSet<long> { 301, 302, 303 });
         Assert.All(result.Days.SelectMany(d => d.Exercises), e => Assert.Equal((4, 3, 6, 120), (e.Sets, e.Reps!.Value, e.RepsMax!.Value, e.RestSeconds!.Value)));
         Assert.Equal(WorkoutPlanQualityCheckStatus.Passed, CheckOf(checks, "GoalAlignment").Status);
         Assert.Equal(WorkoutPlanQualityCheckStatus.Passed, CheckOf(checks, "EquipmentCompatibility").Status);
@@ -122,33 +124,42 @@ public class WorkoutPlanSimulationProcessorTests
         AssertNoUserDataTouched(catalog);
     }
 
-    // 4. Haftada 2 gun
+    // 4. Yalnizca 2 musait gun: hedef (3) karsilanamaz, program bu iki gunde olur (uyari).
     [Fact]
-    public async Task Scenario04_TwoDaysPerWeek_UsesTuesdayFridayPattern()
+    public async Task Scenario04_OnlyTwoAvailableDays_UsesThoseDaysWithWarning()
     {
         var catalog = new WorkoutLabTestCatalog().WithDefaultCatalog();
 
-        var (_, result, checks) = await catalog.RunAsync(Profile(noEquipment: true, days: 2));
+        var (_, result, checks) = await catalog.RunAsync(Profile(noEquipment: true, days: null, specificDays: new[] { "Tue", "Fri" }));
 
         Assert.Equal(new[] { "Tue", "Fri" }, result!.Days.Select(d => d.DayOfWeek));
-        Assert.Equal(WorkoutPlanQualityCheckStatus.Passed, CheckOf(checks, "TrainingDayCount").Status);
+        Assert.Equal(3, result.TargetTrainingDays);
+        Assert.Equal(WorkoutPlanQualityCheckStatus.Warning, CheckOf(checks, "TrainingDayCount").Status);
         Assert.Equal(WorkoutPlanQualityCheckStatus.Passed, CheckOf(checks, "ConsecutiveMuscleGroups").Status);
     }
 
-    // 5. Haftada 6 gun: ekipmansiz Beginner havuzu (3 antrenman) gun sayisindan az -> tekrar kacinilmaz (uyari).
+    // 5. Ileri + yag kaybi: algoritma 6 gun secer; ekipmansiz havuz kucukse tekrar kacinilmaz (uyari).
     [Fact]
-    public async Task Scenario05_SixDaysPerWeek_RepeatsOnlyWhenPoolIsTooSmall()
+    public async Task Scenario05_AdvancedLoseWeight_GetsSixDays()
     {
         var catalog = new WorkoutLabTestCatalog().WithDefaultCatalog();
 
-        var (_, result, checks) = await catalog.RunAsync(Profile(noEquipment: true, days: 6));
+        var (_, result, checks) = await catalog.RunAsync(Profile(FitnessGoal.LoseWeight, ExperienceLevel.Advanced, noEquipment: true, days: null));
 
-        Assert.Equal(new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" }, result!.Days.Select(d => d.DayOfWeek));
-        Assert.Equal(3, result.MainPoolCount);
-        Assert.Equal(3, result.Days.Select(d => d.Workout.Id).Distinct().Count());
-        var duplicates = CheckOf(checks, "DuplicateExercises");
-        Assert.Equal(WorkoutPlanQualityCheckStatus.Warning, duplicates.Status);
-        Assert.Contains("kaçınılmaz", duplicates.Details[0]);
+        Assert.Equal(6, result!.TargetTrainingDays);
+        Assert.Equal(new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" }, result.Days.Select(d => d.DayOfWeek));
+        Assert.Equal(WorkoutPlanQualityCheckStatus.Passed, CheckOf(checks, "TrainingDayCount").Status);
+    }
+
+    // 5b. Beginner, tum hafta musait: 3 gun, aralarinda dinlenme gunu olacak sekilde.
+    [Fact]
+    public async Task Scenario05b_BeginnerWholeWeek_GetsThreeSpacedDays()
+    {
+        var catalog = new WorkoutLabTestCatalog().WithDefaultCatalog();
+
+        var (_, result, checks) = await catalog.RunAsync(Profile(noEquipment: true, days: null));
+
+        Assert.Equal(new[] { "Mon", "Wed", "Fri" }, result!.Days.Select(d => d.DayOfWeek));
         Assert.Equal(WorkoutPlanQualityCheckStatus.Passed, CheckOf(checks, "TrainingDayCount").Status);
     }
 
@@ -325,6 +336,27 @@ public class WorkoutPlanSimulationProcessorTests
     }
 
     [Fact]
+    public async Task EquipmentFlag_TrueUsesWholeCatalog_FalseUsesNone_RegardlessOfLocation()
+    {
+        var catalog = new WorkoutLabTestCatalog().WithDefaultCatalog();
+
+        var equipped = Profile(location: TrainingLocation.Home);
+        equipped.HasEquipment = true;
+        var (_, withEquipment, _) = await catalog.RunAsync(equipped);
+
+        var bodyweight = Profile(location: TrainingLocation.Gym);
+        bodyweight.HasEquipment = false;
+        var (_, withoutEquipment, checks) = await catalog.RunAsync(bodyweight);
+
+        Assert.Equal("AllEquipment", withEquipment!.EquipmentResolution);
+        Assert.Equal(5, withEquipment.Equipment.Count);
+        Assert.Equal("None", withoutEquipment!.EquipmentResolution);
+        Assert.Empty(withoutEquipment.Equipment);
+        Assert.All(withoutEquipment.Days, d => Assert.Empty(d.Workout.RequiredEquipment));
+        Assert.Equal(WorkoutPlanQualityCheckStatus.Passed, CheckOf(checks, "EquipmentCompatibility").Status);
+    }
+
+    [Fact]
     public async Task DefaultsAreUsed_WhenOptionalFieldsAreEmpty()
     {
         var catalog = new WorkoutLabTestCatalog().WithDefaultCatalog();
@@ -334,7 +366,7 @@ public class WorkoutPlanSimulationProcessorTests
         Assert.Equal(45, result!.DurationPreferenceMin);
         Assert.True(result.UsedDefaultDuration);
         Assert.Equal(3, result.TrainingDays);
-        Assert.Contains(CheckOf(checks, "TrainingDayCount").Details, d => d.Contains("varsayılan"));
+        Assert.Contains(CheckOf(checks, "TrainingDayCount").Details, d => d.Contains("tüm hafta"));
     }
 
     [Fact]

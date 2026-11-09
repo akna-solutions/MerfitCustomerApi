@@ -88,13 +88,20 @@ public class UserProfile : BaseEntity
     public TrainingLocation? TrainingLocation { get; set; }
 
     /// <summary>
-    /// Kullanicinin haftada kac gun antrenman yaptigi.
+    /// Kullanicinin ekipmani var mi. Ekipman tek tek secilmez: true ise katalogdaki tum ekipmanlar,
+    /// false ise yalnizca vucut agirligi antrenmanlari kullanilir.
+    /// </summary>
+    public bool HasEquipment { get; set; }
+
+    /// <summary>
+    /// Haftalik antrenman gunu sayisi. Kullanici secmez; hedef, deneyim ve musait gunlere gore
+    /// algoritma belirler (TrainingDayPlanner) ve beslenme/ilerleme hesaplari icin burada tutulur.
     /// </summary>
     public int? TrainingDaysPerWeek { get; set; }
 
     /// <summary>
-    /// Kullanicinin sectigi antrenman gunleri, virgulle ayrilmis ve Pazartesi'den baslayarak
-    /// sirali ("Mon,Wed,Fri"). Bos ise program olusturucu gun sayisina gore varsayilan gunleri secer.
+    /// Kullanicinin antrenman yapabilecegi (musait) gunler, virgulle ayrilmis ve Pazartesi'den baslayarak
+    /// sirali ("Mon,Wed,Fri"). Bos ise haftanin tum gunleri musait kabul edilir.
     /// </summary>
     public string? PreferredTrainingDays { get; set; }
 

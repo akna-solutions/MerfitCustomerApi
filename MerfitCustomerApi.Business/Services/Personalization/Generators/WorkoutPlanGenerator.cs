@@ -59,7 +59,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
     /// saklar ve ayni profilin farkli surumlerdeki sonuclarini karsilastirir. Konfigurasyondaki
     /// (appsettings) agirlik degisiklikleri ayrica <c>WorkoutPlanGenerationOptions</c> parmak iziyle izlenir.
     /// </summary>
-    public const string AlgorithmVersion = "2026.11-v1";
+    public const string AlgorithmVersion = "2026.11-v2";
 
     public async Task<WorkoutPlanGenerationResult> GenerateAsync(long userId, CancellationToken cancellationToken = default)
     {
@@ -73,11 +73,13 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         var activeGoal = await _unitOfWork.Repository<UserGoal>()
             .FirstOrDefaultAsync(g => g.UserId == userId && g.IsActive, cancellationToken);
 
-        var ownedEquipmentIds = await _unitOfWork.Repository<UserEquipment>()
-            .GetQueryable()
-            .Where(ue => ue.UserId == userId)
-            .Select(ue => ue.EquipmentId)
-            .ToListAsync(cancellationToken);
+        // Ekipman tek tek secilmez: ekipmanli kullanici katalogdaki tum ekipmanlara sahip kabul edilir.
+        var ownedEquipmentIds = profile.HasEquipment
+            ? await _unitOfWork.Repository<Domain.Entities.Equipment>()
+                .GetQueryable()
+                .Select(e => e.Id)
+                .ToListAsync(cancellationToken)
+            : new List<long>();
 
         var input = new WorkoutPlanGenerationInput
         {
@@ -85,7 +87,6 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             // Hedef onceligi: aktif UserGoal -> UserProfile.Goal -> (Normalize icinde) Kas Gelistirme.
             Goal = activeGoal?.GoalType ?? profile.Goal,
             ExperienceLevel = profile.ExperienceLevel,
-            TrainingDaysPerWeek = profile.TrainingDaysPerWeek,
             PreferredTrainingDays = TrainingDayCodes.ParseStored(profile.PreferredTrainingDays),
             WorkoutDurationMin = profile.WorkoutDurationMin,
             OwnedEquipmentIds = ownedEquipmentIds,
@@ -110,15 +111,17 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         var goalWeights = ResolveGoalWeights(goalType);
         var experience = input.ExperienceLevel ?? ExperienceLevel.Beginner;
         var targetDifficulty = MapExperienceToDifficulty(experience);
-        // Kullanici gunleri profilinden tek tek sectiyse o gunler kullanilir; secmediyse haftalik
-        // gun sayisina gore varsayilan desen (ResolveDayPattern).
-        var preferredDays = input.PreferredTrainingDays
+        // Haftalik gun sayisini kullanici secmez: hedef ve deneyime gore algoritma belirler
+        // (TrainingDayPlanner). Kullanicinin isaretledigi gunler "musait gunler"dir; bos ise
+        // haftanin tum gunleri musait kabul edilir. Gunler bu musait gunler arasindan, dinlenme
+        // araliklari en dengeli olacak sekilde secilir.
+        var availableDays = input.PreferredTrainingDays
             .Distinct()
             .OrderBy(TrainingDayCodes.MondayFirstIndex)
             .ToList();
-        var trainingDays = preferredDays.Count > 0
-            ? preferredDays.Count
-            : Math.Clamp(input.TrainingDaysPerWeek ?? _options.DefaultTrainingDaysPerWeek, 2, 7);
+        var targetTrainingDays = TrainingDayPlanner.TargetTrainingDays(goalType, experience);
+        var dayPattern = TrainingDayPlanner.ChooseDays(availableDays, targetTrainingDays);
+        var trainingDays = dayPattern.Count;
         var durationPreference = input.WorkoutDurationMin ?? _options.DefaultWorkoutDurationMin;
         var maxDuration = durationPreference + _options.DurationToleranceMin;
 
@@ -242,8 +245,6 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             .ThenBy(s => s.Workout.Id) // esit skorda deterministik tie-break
             .ToList();
 
-        var dayPattern = preferredDays.Count > 0 ? preferredDays : ResolveDayPattern(trainingDays);
-
         var workoutExercisesByWorkout = await _unitOfWork.Repository<WorkoutExercise>()
             .GetQueryable()
             .Where(we => eligible.Select(w => w.Id).Contains(we.WorkoutId))
@@ -320,7 +321,9 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
                 Experience = experience,
                 TargetDifficulty = targetDifficulty,
                 TrainingDays = trainingDays,
-                UsedPreferredDays = preferredDays.Count > 0,
+                UsedPreferredDays = availableDays.Count > 0,
+                AvailableDays = availableDays,
+                TargetTrainingDays = targetTrainingDays,
                 DayPattern = dayPattern.ToList(),
                 DurationPreferenceMin = durationPreference,
                 MaxDurationMin = maxDuration,
@@ -728,20 +731,6 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
     {
         return _options.RepsRangeByGoal.TryGetValue(goal.ToString(), out var range) ? range : _options.DefaultRepsRange;
     }
-
-    /// <summary>
-    /// Haftalik antrenman gunu sayisina gore sabit, deterministik bir DayOfWeek deseni dondurur.
-    /// Gunler string olarak degil DayOfWeek enum'u ile temsil edilir.
-    /// </summary>
-    private static IReadOnlyList<DayOfWeek> ResolveDayPattern(int trainingDays) => trainingDays switch
-    {
-        2 => new[] { DayOfWeek.Tuesday, DayOfWeek.Friday },
-        3 => new[] { DayOfWeek.Monday, DayOfWeek.Wednesday, DayOfWeek.Friday },
-        4 => new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Thursday, DayOfWeek.Saturday },
-        5 => new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Friday, DayOfWeek.Saturday },
-        6 => new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday },
-        _ => new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday },
-    };
 
     private static DifficultyLevel MapExperienceToDifficulty(ExperienceLevel level) => level switch
     {

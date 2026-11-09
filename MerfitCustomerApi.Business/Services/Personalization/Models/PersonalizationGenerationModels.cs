@@ -46,10 +46,11 @@ public sealed class WorkoutPlanGenerationInput
     /// <summary>Bos ise Beginner.</summary>
     public ExperienceLevel? ExperienceLevel { get; init; }
 
-    /// <summary>Bos ise varsayilan (WorkoutPlanGenerationOptions.DefaultTrainingDaysPerWeek); 2-7 araligina sinirlanir.</summary>
-    public int? TrainingDaysPerWeek { get; init; }
-
-    /// <summary>Kullanicinin tek tek sectigi gunler. Doluysa gun sayisi bu listeden turetilir.</summary>
+    /// <summary>
+    /// Kullanicinin antrenman yapabilecegi (musait) gunler. Bos ise haftanin tum gunleri musaittir.
+    /// Gun sayisini algoritma belirler (TrainingDayPlanner); bu liste yalnizca hangi gunlerin
+    /// kullanilabilecegini sinirlar.
+    /// </summary>
     public IReadOnlyList<DayOfWeek> PreferredTrainingDays { get; init; } = Array.Empty<DayOfWeek>();
 
     /// <summary>Bos ise varsayilan (WorkoutPlanGenerationOptions.DefaultWorkoutDurationMin).</summary>
@@ -83,7 +84,15 @@ public sealed class WorkoutPlanGenerationDiagnostics
     public ExperienceLevel Experience { get; init; }
     public DifficultyLevel TargetDifficulty { get; init; }
     public int TrainingDays { get; init; }
+    /// <summary>Kullanici musait gunleri isaretlediyse true (bos ise haftanin tumu musait sayilir).</summary>
     public bool UsedPreferredDays { get; init; }
+
+    /// <summary>Kullanicinin isaretledigi musait gunler (bos olabilir).</summary>
+    public IReadOnlyList<DayOfWeek> AvailableDays { get; init; } = Array.Empty<DayOfWeek>();
+
+    /// <summary>Hedef ve deneyime gore algoritmanin belirledigi gun sayisi (musait gun azsa daha az gun kullanilir).</summary>
+    public int TargetTrainingDays { get; init; }
+
     public required IReadOnlyList<DayOfWeek> DayPattern { get; init; }
     public int DurationPreferenceMin { get; init; }
     public int MaxDurationMin { get; init; }

@@ -206,7 +206,17 @@ public class WorkoutPlanSimulationProcessor : IWorkoutPlanSimulationProcessor
         List<SimulationEquipment> equipment;
         string resolution;
         var unknownIds = new List<long>();
-        if (profile.TrainingLocation == TrainingLocation.Gym)
+        if (profile.HasEquipment == true)
+        {
+            equipment = catalog;
+            resolution = "AllEquipment";
+        }
+        else if (profile.HasEquipment == false)
+        {
+            equipment = new List<SimulationEquipment>();
+            resolution = "None";
+        }
+        else if (profile.TrainingLocation == TrainingLocation.Gym)
         {
             equipment = catalog;
             resolution = "GymAllEquipment";
@@ -235,7 +245,6 @@ public class WorkoutPlanSimulationProcessor : IWorkoutPlanSimulationProcessor
             UserId = 0,
             Goal = profile.Goal,
             ExperienceLevel = profile.ExperienceLevel,
-            TrainingDaysPerWeek = profile.TrainingDaysPerWeek,
             PreferredTrainingDays = preferredDays,
             WorkoutDurationMin = profile.WorkoutDurationMin,
             OwnedEquipmentIds = equipment.Select(e => e.Id).ToList(),
@@ -398,6 +407,8 @@ public class WorkoutPlanSimulationProcessor : IWorkoutPlanSimulationProcessor
             TargetDifficulty = diagnostics.TargetDifficulty,
             TrainingDays = diagnostics.TrainingDays,
             UsedPreferredDays = diagnostics.UsedPreferredDays,
+            TargetTrainingDays = diagnostics.TargetTrainingDays,
+            AvailableDays = diagnostics.AvailableDays.Select(TrainingDayCodes.ToCode).ToList(),
             DurationPreferenceMin = diagnostics.DurationPreferenceMin,
             UsedDefaultDuration = profile.WorkoutDurationMin is null,
             DurationToleranceMin = _generationOptions.DurationToleranceMin,
