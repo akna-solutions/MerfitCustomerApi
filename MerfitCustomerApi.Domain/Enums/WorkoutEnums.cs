@@ -81,3 +81,50 @@ public enum WorkoutAttributeType
     /// </summary>
     CoreStability
 }
+
+/// <summary>
+/// Antrenman Laboratuvari simulasyonunun isleme durumu. Admin API kaydi Pending olarak acar; bu API'deki
+/// WorkoutPlanSimulationBackgroundWorker kaydi alip gercek WorkoutPlanGenerator ile isler.
+/// </summary>
+public enum WorkoutPlanSimulationStatus
+{
+    /// <summary>
+    /// Islenmeyi bekliyor.
+    /// </summary>
+    Pending,
+    /// <summary>
+    /// Isleniyor.
+    /// </summary>
+    Processing,
+    /// <summary>
+    /// Program uretildi ve kalite kontrolleri hesaplandi.
+    /// </summary>
+    Completed,
+    /// <summary>
+    /// Program uretilemedi (orn. uygun antrenman yok); hata mesaji saklanir.
+    /// </summary>
+    Failed
+}
+
+/// <summary>
+/// Admin'in simulasyonla uretilen program icin verdigi genel degerlendirme.
+/// </summary>
+public enum WorkoutPlanEvaluationRating
+{
+    /// <summary>
+    /// Cok iyi.
+    /// </summary>
+    VeryGood,
+    /// <summary>
+    /// Iyi.
+    /// </summary>
+    Good,
+    /// <summary>
+    /// Gelistirilmeli.
+    /// </summary>
+    NeedsImprovement,
+    /// <summary>
+    /// Kotu.
+    /// </summary>
+    Poor
+}

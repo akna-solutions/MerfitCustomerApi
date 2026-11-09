@@ -53,6 +53,14 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         _logger = logger;
     }
 
+    /// <summary>
+    /// Algoritmanin surumu. Puanlama, filtreleme, fallback, gun dagilimi veya set/tekrar kurallarini
+    /// degistiren her degisiklikte artirilmalidir; Antrenman Laboratuvari simulasyonlari bu degeri
+    /// saklar ve ayni profilin farkli surumlerdeki sonuclarini karsilastirir. Konfigurasyondaki
+    /// (appsettings) agirlik degisiklikleri ayrica <c>WorkoutPlanGenerationOptions</c> parmak iziyle izlenir.
+    /// </summary>
+    public const string AlgorithmVersion = "2026.11-v1";
+
     public async Task<WorkoutPlanGenerationResult> GenerateAsync(long userId, CancellationToken cancellationToken = default)
     {
         var profile = await _unitOfWork.Repository<UserProfile>()
@@ -64,20 +72,6 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
 
         var activeGoal = await _unitOfWork.Repository<UserGoal>()
             .FirstOrDefaultAsync(g => g.UserId == userId && g.IsActive, cancellationToken);
-        // Eski hedefler (MaintainWeight, ImproveFitness, ImproveEndurance) uc ana hedeften birine
-        // donusturulur; hedef yoksa varsayilan Kas Gelistirme.
-        var goalType = FitnessGoals.Normalize(activeGoal?.GoalType ?? profile.Goal);
-        var goalWeights = ResolveGoalWeights(goalType);
-        var experience = profile.ExperienceLevel ?? ExperienceLevel.Beginner;
-        var targetDifficulty = MapExperienceToDifficulty(experience);
-        // Kullanici gunleri profilinden tek tek sectiyse o gunler kullanilir; secmediyse haftalik
-        // gun sayisina gore varsayilan desen (ResolveDayPattern).
-        var preferredDays = TrainingDayCodes.ParseStored(profile.PreferredTrainingDays);
-        var trainingDays = preferredDays.Count > 0
-            ? preferredDays.Count
-            : Math.Clamp(profile.TrainingDaysPerWeek ?? _options.DefaultTrainingDaysPerWeek, 2, 7);
-        var durationPreference = profile.WorkoutDurationMin ?? _options.DefaultWorkoutDurationMin;
-        var maxDuration = durationPreference + _options.DurationToleranceMin;
 
         var ownedEquipmentIds = await _unitOfWork.Repository<UserEquipment>()
             .GetQueryable()
@@ -85,19 +79,64 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             .Select(ue => ue.EquipmentId)
             .ToListAsync(cancellationToken);
 
+        var input = new WorkoutPlanGenerationInput
+        {
+            UserId = userId,
+            // Hedef onceligi: aktif UserGoal -> UserProfile.Goal -> (Normalize icinde) Kas Gelistirme.
+            Goal = activeGoal?.GoalType ?? profile.Goal,
+            ExperienceLevel = profile.ExperienceLevel,
+            TrainingDaysPerWeek = profile.TrainingDaysPerWeek,
+            PreferredTrainingDays = TrainingDayCodes.ParseStored(profile.PreferredTrainingDays),
+            WorkoutDurationMin = profile.WorkoutDurationMin,
+            OwnedEquipmentIds = ownedEquipmentIds,
+            HasActivePlusSubscription = await HasActivePlusSubscriptionAsync(userId, cancellationToken),
+        };
+
+        return await GenerateAsync(input, cancellationToken);
+    }
+
+    /// <summary>
+    /// Algoritmanin kendisi. Kullanici akisi (<see cref="GenerateAsync(long, CancellationToken)"/>) girdiyi
+    /// veritabanindaki profilden, Antrenman Laboratuvari ise admin'in sectigi tercihlerden olusturur; her iki
+    /// yol da bu metodu calistirir. Yalnizca katalog verisini (Workout, WorkoutEquipment, WorkoutExercise,
+    /// WorkoutAttributeScore) okur; hicbir kaydi yazmaz.
+    /// </summary>
+    public async Task<WorkoutPlanGenerationResult> GenerateAsync(WorkoutPlanGenerationInput input, CancellationToken cancellationToken = default)
+    {
+        var userId = input.UserId;
+        // Eski hedefler (MaintainWeight, ImproveFitness, ImproveEndurance) uc ana hedeften birine
+        // donusturulur; hedef yoksa varsayilan Kas Gelistirme.
+        var goalType = FitnessGoals.Normalize(input.Goal);
+        var goalWeights = ResolveGoalWeights(goalType);
+        var experience = input.ExperienceLevel ?? ExperienceLevel.Beginner;
+        var targetDifficulty = MapExperienceToDifficulty(experience);
+        // Kullanici gunleri profilinden tek tek sectiyse o gunler kullanilir; secmediyse haftalik
+        // gun sayisina gore varsayilan desen (ResolveDayPattern).
+        var preferredDays = input.PreferredTrainingDays
+            .Distinct()
+            .OrderBy(TrainingDayCodes.MondayFirstIndex)
+            .ToList();
+        var trainingDays = preferredDays.Count > 0
+            ? preferredDays.Count
+            : Math.Clamp(input.TrainingDaysPerWeek ?? _options.DefaultTrainingDaysPerWeek, 2, 7);
+        var durationPreference = input.WorkoutDurationMin ?? _options.DefaultWorkoutDurationMin;
+        var maxDuration = durationPreference + _options.DurationToleranceMin;
+
+        var ownedEquipmentIds = input.OwnedEquipmentIds.Distinct().ToList();
         var ownedSet = ownedEquipmentIds.ToHashSet();
 
         // Premium (yalnizca Plus) antrenmanlar, aktif aboneligi olmayan kullanicinin normal aday
         // havuzlarina (zorluk/ekipman fallback'leri dahil) girmez; yalnizca ucretsiz havuz tamamen
         // bos kalirsa Fallback-3 ile son care olarak acilir.
-        var includePremium = await HasActivePlusSubscriptionAsync(userId, cancellationToken);
+        var includePremium = input.HasActivePlusSubscription;
 
         // Aday secimi (zorluk/sure + ekipman fallback zinciri) includePremium bayragiyla calisir.
-        async Task<List<Workout>> SelectEligibleAsync(bool allowPremium)
+        async Task<(List<Workout> Eligible, WorkoutCandidatePoolStage Stage)> SelectEligibleAsync(bool allowPremium)
         {
             // Hard-rule 1-3: aktif + zorluk seviyesi uygun + sure toleransi icinde (birincil aday havuzu).
             var primaryCandidates = await GetActiveWorkoutsAsync(new[] { targetDifficulty }, maxDuration, allowPremium, cancellationToken);
             var eligible = await FilterByOwnedEquipmentAsync(primaryCandidates, ownedSet, cancellationToken);
+            var stage = WorkoutCandidatePoolStage.Primary;
 
             // Fallback-1: Birincil zorluk seviyesinde uygun aday bulunamazsa (once) veya bulunan
             // adaylarin hicbiri kullanicinin ekipmanina uymazsa, bitisik zorluk seviyelerini de aday
@@ -116,6 +155,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
                 var fallbackDifficulties = GetFallbackDifficulties(targetDifficulty);
                 var expandedCandidates = await GetActiveWorkoutsAsync(fallbackDifficulties, maxDuration, allowPremium, cancellationToken);
                 eligible = await FilterByOwnedEquipmentAsync(expandedCandidates, ownedSet, cancellationToken);
+                stage = WorkoutCandidatePoolStage.AdjacentDifficulty;
             }
 
             // Fallback-2: Hala uygun aday yoksa, hic ekipman gerektirmeyen (WorkoutEquipment kaydi
@@ -126,12 +166,14 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             if (eligible.Count == 0)
             {
                 eligible = await GetEquipmentFreeActiveWorkoutsAsync(allowPremium, cancellationToken);
+                stage = WorkoutCandidatePoolStage.EquipmentFreeAnyDifficulty;
             }
 
-            return eligible;
+            return (eligible, stage);
         }
 
-        var eligible = await SelectEligibleAsync(includePremium);
+        var (eligible, poolStage) = await SelectEligibleAsync(includePremium);
+        var premiumLastResortUsed = false;
 
         // Fallback-3 (son care): Premium'a erisimi olmayan kullanicinin ucretsiz havuzu bostur
         // (orn. ucretsiz antrenmanlarin hicbiri kullanicinin ekipmanina uymuyor). Program
@@ -139,9 +181,10 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         // havuzda hic aday varsa hic devreye girmez; yalnizca "hic program yok" durumunu onler.
         if (eligible.Count == 0 && !includePremium)
         {
-            eligible = await SelectEligibleAsync(allowPremium: true);
+            (eligible, poolStage) = await SelectEligibleAsync(allowPremium: true);
             if (eligible.Count > 0)
             {
+                premiumLastResortUsed = true;
                 _logger.LogWarning(
                     "Kullanici {UserId} icin ucretsiz antrenman havuzu bos kaldi; Premium antrenmanlar son care olarak aday havuzuna acildi.",
                     userId);
@@ -176,6 +219,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
         // Ana gunler direnc antrenmanidir: kardiyo agirlikli antrenmanlar yalnizca antrenman sonu kardiyo
         // olarak kullanilir, boylece hicbir hedefte program yalnizca kardiyodan olusmaz.
         var mainPool = eligible;
+        var cardioDominantMainDaysFallback = false;
         if (_options.ExcludeCardioDominantFromMainDays)
         {
             var resistance = eligible.Where(w => !attributeProfiles[w.Id].IsCardioDominant).ToList();
@@ -185,6 +229,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             }
             else
             {
+                cardioDominantMainDaysFallback = true;
                 _logger.LogWarning(
                     "Kullanici {UserId} icin uygun direnc antrenmani bulunamadi; kardiyo agirlikli antrenmanlar ana gunlerde kullanilacak.",
                     userId);
@@ -260,11 +305,53 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
             CreatedAt = DateTime.UtcNow,
         };
 
+        var mainPoolIds = mainPool.Select(w => w.Id).ToHashSet();
+        var baseScores = scored.ToDictionary(s => s.Workout.Id, s => s.Score);
+
         return new WorkoutPlanGenerationResult
         {
             Plan = plan,
             Days = days,
             Summary = summary,
+            Diagnostics = new WorkoutPlanGenerationDiagnostics
+            {
+                AlgorithmVersion = AlgorithmVersion,
+                Goal = goalType,
+                Experience = experience,
+                TargetDifficulty = targetDifficulty,
+                TrainingDays = trainingDays,
+                UsedPreferredDays = preferredDays.Count > 0,
+                DayPattern = dayPattern.ToList(),
+                DurationPreferenceMin = durationPreference,
+                MaxDurationMin = maxDuration,
+                OwnedEquipmentIds = ownedEquipmentIds,
+                IncludePremium = includePremium,
+                PoolStage = poolStage,
+                PremiumLastResortUsed = premiumLastResortUsed,
+                EligibleCount = eligible.Count,
+                MainPoolCount = mainPool.Count,
+                CardioDominantMainDaysFallback = cardioDominantMainDaysFallback,
+                CardioTarget = Math.Clamp(
+                    _options.CardioSessionsPerWeekByGoal.TryGetValue(goalType, out var cardioTarget) ? cardioTarget : 0, 0, days.Count),
+                CardioDays = cardioDays,
+                Candidates = eligible
+                    .Select(w =>
+                    {
+                        var profile = attributeProfiles[w.Id];
+                        return new WorkoutCandidateInsight
+                        {
+                            WorkoutId = w.Id,
+                            InMainPool = mainPoolIds.Contains(w.Id),
+                            BaseScore = baseScores.TryGetValue(w.Id, out var baseScore) ? baseScore : null,
+                            FitScore = profile.FitScore,
+                            Hypertrophy = profile.Hypertrophy,
+                            Strength = profile.Strength,
+                            Cardio = profile.Cardio,
+                            IsCardioDominant = profile.IsCardioDominant,
+                        };
+                    })
+                    .ToList(),
+            },
         };
     }
 
