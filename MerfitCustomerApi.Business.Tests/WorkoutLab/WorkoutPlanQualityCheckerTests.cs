@@ -30,10 +30,10 @@ public class WorkoutPlanQualityCheckerTests
     };
 
     private static WorkoutPlanSimulationResult Result(List<SimulationDay> days, int mainPool = 10, long[]? owned = null, int cardioTarget = 0, int cardioDays = 0,
-        string stage = "Primary", bool includePremium = false, bool premiumLastResort = false, int preference = 45) => new()
+        string stage = "Primary", bool includePremium = false, bool premiumLastResort = false, int preference = 45, int? target = null) => new()
         {
             AlgorithmVersion = "test", OptionsFingerprint = "x", PlanName = "p", Summary = "s",
-            Goal = FitnessGoal.BuildMuscle, TrainingDays = days.Count, DurationPreferenceMin = preference, DurationToleranceMin = 15,
+            Goal = FitnessGoal.BuildMuscle, TrainingDays = days.Count, TargetTrainingDays = target ?? days.Count, DurationPreferenceMin = preference, DurationToleranceMin = 15,
             MaxDurationMin = preference + 15, EquipmentResolution = "Selected", PoolStage = stage, MainPoolCount = mainPool, EligibleCount = mainPool,
             Equipment = (owned ?? Array.Empty<long>()).Select(e => new SimulationEquipment { Id = e, Name = $"E{e}" }).ToList(),
             CardioTarget = cardioTarget, CardioDays = cardioDays, IncludePremium = includePremium, PremiumLastResortUsed = premiumLastResort,
@@ -121,7 +121,7 @@ public class WorkoutPlanQualityCheckerTests
     }
 
     [Fact]
-    public void SpecificDays_MustMatchExactly()
+    public void ProgramDays_MustStayInsideAvailableDays()
     {
         var result = Result(new() { D("Mon", W(1)), D("Wed", W(2, 2)) });
 
@@ -130,11 +130,23 @@ public class WorkoutPlanQualityCheckerTests
     }
 
     [Fact]
-    public void DayCount_ClampedFromOne_IsWarning()
+    public void FewerAvailableDaysThanTarget_IsWarning()
     {
-        var result = Result(new() { D("Tue", W(1)), D("Fri", W(2, 2)) });
+        var result = Result(new() { D("Tue", W(1)), D("Fri", W(2, 2)) }, target: 3);
 
-        Assert.Equal(WorkoutPlanQualityCheckStatus.Warning, Run(result, "TrainingDayCount", P(1)).Status);
+        var check = Run(result, "TrainingDayCount", P(null, "Tue", "Fri"));
+
+        Assert.Equal(WorkoutPlanQualityCheckStatus.Warning, check.Status);
+        Assert.Contains("hedefin (3) altında", check.Message);
+    }
+
+    [Fact]
+    public void WholeWeekAvailable_DayCountMustEqualTarget()
+    {
+        var days = new List<SimulationDay> { D("Mon", W(1)), D("Wed", W(2, 2)), D("Fri", W(3, 3)) };
+
+        Assert.Equal(WorkoutPlanQualityCheckStatus.Passed, Run(Result(days, target: 3), "TrainingDayCount", P(null)).Status);
+        Assert.Equal(WorkoutPlanQualityCheckStatus.Failed, Run(Result(days, target: 4), "TrainingDayCount", P(null)).Status);
     }
 
     [Theory]

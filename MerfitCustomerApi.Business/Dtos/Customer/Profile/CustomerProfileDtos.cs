@@ -45,25 +45,33 @@ public class CustomerProfileResponse
     public string ExperienceLevel { get; set; } = string.Empty;
 
     /// <summary>
-    /// "FULL_GYM" | "HOME_GYM" | "BODYWEIGHT" | "MINIMAL_EQUIPMENT" - TrainingLocation ve
-    /// UserEquipment kayitlarindan turetilen kaba bir kategori (bkz. ProfileService.DeriveEquipmentCategory).
-    /// Salt okunur; PUT ile geri yazilmaz (antrenman yeri icin TrainingLocation kullanilir).
+    /// "FULL_GYM" (ekipmanli) | "BODYWEIGHT" (ekipmansiz). Eski istemciler icin; yeni alan <see cref="HasEquipment"/>.
+    /// Salt okunur; PUT ile geri yazilmaz.
     /// </summary>
     public string Equipment { get; set; } = string.Empty;
+
+    /// <summary>Ekipmanli (true) / ekipmansiz (false). Ekipman tek tek secilmez.</summary>
+    public bool HasEquipment { get; set; }
 
     /// <summary>"gym" | "home" | "outdoor"; kayitta secilmediyse null.</summary>
     public string? TrainingLocation { get; set; }
 
-    /// <summary>Kayitta secilen haftalik antrenman gunu sayisi (UserProfile.TrainingDaysPerWeek).</summary>
+    /// <summary>Haftalik antrenman gunu sayisi; kullanici secmez, algoritma belirler (= TrainingDays.Count).</summary>
     public int TrainingDaysPerWeek { get; set; }
 
     public int WorkoutDurationMin { get; set; }
 
     /// <summary>
-    /// "Mon".."Sun" - kullanicinin sectigi gunler (UserProfile.PreferredTrainingDays); secim
-    /// yoksa aktif antrenman programindaki (WorkoutPlanDay) gunler. Ikisi de yoksa bos liste.
+    /// "Mon".."Sun" - aktif antrenman programindaki (WorkoutPlanDay) gunler; plan yoksa algoritmanin
+    /// musait gunlerden secegi gunler.
     /// </summary>
     public List<string> TrainingDays { get; set; } = new();
+
+    /// <summary>
+    /// "Mon".."Sun" - kullanicinin isaretledigi musait gunler (UserProfile.PreferredTrainingDays).
+    /// Bos liste = tum hafta musait.
+    /// </summary>
+    public List<string> AvailableTrainingDays { get; set; } = new();
 
     /// <summary>"sedentary" | "light" | "moderate" | "active" | "athlete"; secilmediyse null.</summary>
     public string? ActivityLevel { get; set; }
@@ -168,11 +176,18 @@ public class UpdateProfileRequest
     [Range(5, 240)]
     public int? WorkoutDurationMin { get; set; }
 
+    /// <summary>Eski istemciler icin kabul edilir ama yok sayilir: gun sayisini algoritma belirler.</summary>
     [Range(1, 7)]
     public int? TrainingDaysPerWeek { get; set; }
 
-    /// <summary>Kullanicinin sectigi antrenman gunleri ("Mon".."Sun"). Bos degilse UserProfile.PreferredTrainingDays'e yazilir ve haftalik gun sayisi bu listeden turetilir.</summary>
+    /// <summary>
+    /// Kullanicinin antrenman yapabilecegi (musait) gunler ("Mon".."Sun"). Gonderilmezse veya bos liste
+    /// gelirse degismez (tum hafta icin yedi gun gonderilir); en az 2 gun. Program bu gunler arasindan algoritmanin sectigi gunlerde olur.
+    /// </summary>
     public List<string>? TrainingDays { get; set; }
+
+    /// <summary>Ekipmanli (true) / ekipmansiz (false). Gonderilmezse degismez.</summary>
+    public bool? HasEquipment { get; set; }
 
     /// <summary>"gym" | "home" | "outdoor".</summary>
     public string? TrainingLocation { get; set; }

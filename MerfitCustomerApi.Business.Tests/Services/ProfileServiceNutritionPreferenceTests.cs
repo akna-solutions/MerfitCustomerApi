@@ -108,7 +108,7 @@ public class ProfileServiceNutritionPreferenceTests
     {
         var fixture = CreateFixture(new PersonalizationJob { Id = 3, UserId = UserId, Status = PersonalizationJobStatus.Pending, NutritionOnly = true });
 
-        await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { TrainingDaysPerWeek = 5 });
+        await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { TrainingDays = new List<string> { "Mon", "Wed", "Fri" } });
 
         var job = Assert.Single(fixture.Jobs);
         Assert.False(job.NutritionOnly);
@@ -200,6 +200,7 @@ public class ProfileServiceNutritionPreferenceTests
         // Mevcut alanlar ayni sekilde doner.
         Assert.Equal(70, response.Weight);
         Assert.Equal("light", response.ActivityLevel);
-        Assert.Equal(3, response.TrainingDaysPerWeek);
+        // Plan yokken gun sayisini algoritma belirler (yag kaybi + baslangic = 4).
+        Assert.Equal(4, response.TrainingDaysPerWeek);
     }
 }

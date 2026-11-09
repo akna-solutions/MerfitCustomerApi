@@ -77,6 +77,7 @@ public class ProfileServiceTrainingDataTests
         WeightKg = 82,
         TrainingDaysPerWeek = 3,
         TrainingLocation = TrainingLocation.Gym,
+        HasEquipment = true,
         Goal = FitnessGoal.BuildMuscle,
         ExperienceLevel = ExperienceLevel.Beginner,
     };
@@ -99,23 +100,26 @@ public class ProfileServiceTrainingDataTests
     }
 
     [Fact]
-    public async Task GetProfileAsync_ReturnsNoDays_WhenNoActivePlan_InsteadOfInventingThem()
+    public async Task GetProfileAsync_WithoutActivePlan_ReturnsDaysTheAlgorithmWillUse()
     {
         var fixture = CreateFixture(MakeProfile());
 
         var result = await fixture.Service.GetProfileAsync(UserId);
 
-        Assert.Empty(result.TrainingDays);
+        // Baslangic + kas: 3 gun, tum hafta musait -> aralarinda dinlenme olacak sekilde.
+        Assert.Equal(new[] { "Mon", "Wed", "Fri" }, result.TrainingDays);
         Assert.Equal(3, result.TrainingDaysPerWeek);
+        Assert.Empty(result.AvailableTrainingDays);
     }
 
     [Fact]
-    public async Task GetProfileAsync_GymUserWithoutEquipmentRows_IsFullGym()
+    public async Task GetProfileAsync_EquippedUser_IsFullGym()
     {
         var fixture = CreateFixture(MakeProfile());
 
         var result = await fixture.Service.GetProfileAsync(UserId);
 
+        Assert.True(result.HasEquipment);
         Assert.Equal("FULL_GYM", result.Equipment);
         Assert.Equal("gym", result.TrainingLocation);
     }
@@ -125,10 +129,12 @@ public class ProfileServiceTrainingDataTests
     {
         var profile = MakeProfile();
         profile.TrainingLocation = TrainingLocation.Home;
+        profile.HasEquipment = false;
         var fixture = CreateFixture(profile);
 
         var result = await fixture.Service.GetProfileAsync(UserId);
 
+        Assert.False(result.HasEquipment);
         Assert.Equal("BODYWEIGHT", result.Equipment);
         Assert.Equal("home", result.TrainingLocation);
     }
@@ -146,7 +152,7 @@ public class ProfileServiceTrainingDataTests
     }
 
     [Fact]
-    public async Task UpdateProfileAsync_PersistsFrequencyAndLocation()
+    public async Task UpdateProfileAsync_LegacyFrequency_IsIgnored_LocationIsPersisted()
     {
         var fixture = CreateFixture(MakeProfile());
 
@@ -156,10 +162,34 @@ public class ProfileServiceTrainingDataTests
             TrainingLocation = "outdoor",
         });
 
-        Assert.Equal(5, fixture.Profiles[0].TrainingDaysPerWeek);
+        // Gun sayisini kullanici secemez; algoritmanin degeri (Baslangic + kas = 3) korunur.
+        Assert.Equal(3, fixture.Profiles[0].TrainingDaysPerWeek);
         Assert.Equal(TrainingLocation.Outdoor, fixture.Profiles[0].TrainingLocation);
-        Assert.Equal(5, result.TrainingDaysPerWeek);
+        Assert.Equal(3, result.TrainingDaysPerWeek);
         Assert.Equal("outdoor", result.TrainingLocation);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_HasEquipment_IsStored_AndQueuesPlanRegeneration()
+    {
+        var fixture = CreateFixture(MakeProfile());
+
+        var result = await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { HasEquipment = false });
+
+        Assert.False(fixture.Profiles[0].HasEquipment);
+        Assert.False(result.HasEquipment);
+        Assert.Equal("BODYWEIGHT", result.Equipment);
+        Assert.False(Assert.Single(fixture.Jobs).NutritionOnly);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_SingleAvailableDay_IsRejected()
+    {
+        var fixture = CreateFixture(MakeProfile());
+
+        await Assert.ThrowsAsync<MerfitCustomerApi.Domain.Exceptions.AppValidationException>(() =>
+            fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { TrainingDays = new List<string> { "Mon" } }));
+        Assert.Null(fixture.Profiles[0].PreferredTrainingDays);
     }
 
     [Fact]
@@ -186,21 +216,23 @@ public class ProfileServiceTrainingDataTests
     }
 
     [Fact]
-    public async Task UpdateProfileAsync_SelectedDays_AreStoredAndReturned_AndCountFollows()
+    public async Task UpdateProfileAsync_AvailableDays_AreStored_AndAlgorithmPicksAmongThem()
     {
         var fixture = CreateFixture(MakeProfile());
-        fixture.Plans.Add(new WorkoutPlan { Id = 11, UserId = UserId, IsActive = true, StartDate = DateTime.UtcNow });
-        fixture.PlanDays.Add(new WorkoutPlanDay { WorkoutPlanId = 11, DayOfWeek = DayOfWeek.Monday });
 
         var result = await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest
         {
-            TrainingDays = new List<string> { "sat", "Tue", "Thu", "Tue" },
+            TrainingDays = new List<string> { "sat", "Tue", "Thu", "Tue", "Wed", "Sun" },
         });
 
-        Assert.Equal("Tue,Thu,Sat", fixture.Profiles[0].PreferredTrainingDays);
+        Assert.Equal("Tue,Wed,Thu,Sat,Sun", fixture.Profiles[0].PreferredTrainingDays);
+        Assert.Equal(new[] { "Tue", "Wed", "Thu", "Sat", "Sun" }, result.AvailableTrainingDays);
+        // Baslangic + kas: 3 gun; musait gunler icinden en dengeli dinlenme araligi.
         Assert.Equal(3, fixture.Profiles[0].TrainingDaysPerWeek);
-        Assert.Equal(new[] { "Tue", "Thu", "Sat" }, result.TrainingDays);
         Assert.Equal(3, result.TrainingDaysPerWeek);
+        Assert.Equal(3, result.TrainingDays.Count);
+        Assert.All(result.TrainingDays, d => Assert.Contains(d, result.AvailableTrainingDays));
+        Assert.False(Assert.Single(fixture.Jobs).NutritionOnly);
     }
 
     [Fact]
@@ -214,7 +246,7 @@ public class ProfileServiceTrainingDataTests
     }
 
     [Fact]
-    public async Task UpdateProfileAsync_FrequencyOnly_ClearsMismatchedDaySelection()
+    public async Task UpdateProfileAsync_LegacyFrequencyOnly_KeepsAvailableDays_AndTriggersNothing()
     {
         var profile = MakeProfile();
         profile.PreferredTrainingDays = "Mon,Wed,Fri";
@@ -222,8 +254,20 @@ public class ProfileServiceTrainingDataTests
 
         await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { TrainingDaysPerWeek = 4 });
 
-        Assert.Equal(4, fixture.Profiles[0].TrainingDaysPerWeek);
-        Assert.Null(fixture.Profiles[0].PreferredTrainingDays);
+        Assert.Equal(3, fixture.Profiles[0].TrainingDaysPerWeek);
+        Assert.Equal("Mon,Wed,Fri", fixture.Profiles[0].PreferredTrainingDays);
+        Assert.Empty(fixture.Jobs);
+    }
+
+    [Fact]
+    public async Task UpdateProfileAsync_ExperienceChange_RecalculatesDayCount()
+    {
+        var fixture = CreateFixture(MakeProfile());
+
+        var result = await fixture.Service.UpdateProfileAsync(UserId, new UpdateProfileRequest { ExperienceLevel = "ADVANCED" });
+
+        Assert.Equal(5, fixture.Profiles[0].TrainingDaysPerWeek);
+        Assert.Equal(5, result.TrainingDaysPerWeek);
     }
 
     [Fact]

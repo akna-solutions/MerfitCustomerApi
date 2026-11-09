@@ -31,7 +31,7 @@ public class WorkoutPlanGeneratorInputTests
         var catalog = new WorkoutLabTestCatalog().WithDefaultCatalog();
         catalog.Uow.Set<UserProfile>().Add(new UserProfile
         {
-            Id = 1, UserId = UserId, Goal = goal, ExperienceLevel = experience, TrainingDaysPerWeek = days,
+            Id = 1, UserId = UserId, Goal = goal, ExperienceLevel = experience, TrainingDaysPerWeek = days, HasEquipment = equipment.Length > 0,
             PreferredTrainingDays = preferredDays, WorkoutDurationMin = duration,
         });
         foreach (var id in equipment)
@@ -51,10 +51,10 @@ public class WorkoutPlanGeneratorInputTests
             UserId = UserId,
             Goal = goal,
             ExperienceLevel = experience,
-            TrainingDaysPerWeek = days,
             PreferredTrainingDays = TrainingDayCodes.ParseStored(preferredDays),
             WorkoutDurationMin = duration,
-            OwnedEquipmentIds = equipment,
+            // Ekipmanli kullanici katalogdaki tum ekipmanlara sahip sayilir (varsayilan katalog: 1-5).
+            OwnedEquipmentIds = equipment.Length > 0 ? new long[] { 1, 2, 3, 4, 5 } : Array.Empty<long>(),
             HasActivePlusSubscription = plus,
         });
 

@@ -44,11 +44,24 @@ public class WorkoutPlanGeneratorScoringTests
                 Goal = goal,
                 ExperienceLevel = experience,
                 TrainingDaysPerWeek = trainingDays,
+                // Gun sayisini algoritma belirler; testlerde eski sabit desen "musait gunler" olarak verilir,
+                // boylece hedef gun sayisi >= trainingDays oldugunda plan tam bu gunlerde olur.
+                PreferredTrainingDays = AvailabilityPattern(trainingDays),
                 WorkoutDurationMin = durationMin,
             };
             Profiles.Add(profile);
             return profile;
         }
+
+        private static string AvailabilityPattern(int days) => days switch
+        {
+            2 => "Tue,Fri",
+            3 => "Mon,Wed,Fri",
+            4 => "Mon,Tue,Thu,Sat",
+            5 => "Mon,Tue,Wed,Fri,Sat",
+            6 => "Mon,Tue,Wed,Thu,Fri,Sat",
+            _ => "Mon,Tue,Wed,Thu,Fri,Sat,Sun",
+        };
 
         public Workout Workout(
             long id,
@@ -365,7 +378,7 @@ public class WorkoutPlanGeneratorScoringTests
     public async Task FewerCandidatesThanTrainingDays_RepeatsWorkoutsAndFillsEveryDay()
     {
         var catalog = new Catalog();
-        catalog.Profile(goal: FitnessGoal.BuildMuscle, trainingDays: 4);
+        catalog.Profile(goal: FitnessGoal.BuildMuscle, experience: ExperienceLevel.Intermediate, trainingDays: 4); // Orta seviye hedefi 4 gun
         catalog.Workout(1); catalog.Scores(1, hypertrophy: 90, strength: 50);
         catalog.Workout(2); catalog.Scores(2, hypertrophy: 60, strength: 50);
 
@@ -402,7 +415,7 @@ public class WorkoutPlanGeneratorScoringTests
     public async Task PlanStructure_FollowsTrainingDaysPattern()
     {
         var catalog = new Catalog();
-        catalog.Profile(goal: FitnessGoal.BuildMuscle, trainingDays: 4);
+        catalog.Profile(goal: FitnessGoal.BuildMuscle, experience: ExperienceLevel.Intermediate, trainingDays: 4); // Orta seviye hedefi 4 gun
         for (var id = 1; id <= 5; id++)
         {
             catalog.Workout(id);
@@ -565,7 +578,7 @@ public class WorkoutPlanGeneratorScoringTests
     {
         var catalog = new Catalog();
         // 4 gun: Pzt, Sal, Per, Cmt. Pzt-Sal ardisik.
-        catalog.Profile(goal: FitnessGoal.BuildMuscle, trainingDays: 4);
+        catalog.Profile(goal: FitnessGoal.BuildMuscle, experience: ExperienceLevel.Intermediate, trainingDays: 4); // Orta seviye hedefi 4 gun
         catalog.Workout(1, muscleGroupId: 10); catalog.Scores(1, hypertrophy: 100, strength: 100, cardio: 0);
         catalog.Workout(2, muscleGroupId: 10); catalog.Scores(2, hypertrophy: 100, strength: 60, cardio: 0);
         catalog.Workout(3, muscleGroupId: 20); catalog.Scores(3, hypertrophy: 40, strength: 40, cardio: 0);

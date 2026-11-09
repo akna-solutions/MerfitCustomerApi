@@ -37,6 +37,7 @@ internal sealed class FitnessOnboarding
     private readonly BodyMeasurement? _measurement;
     private readonly BodyFatAssessment _bodyFat;
     private readonly bool _lowBodyFatConfirmed;
+    private readonly List<DayOfWeek> _availableDays;
 
     private FitnessOnboarding(FitnessProfileRequest request, BodyCompositionOptions options)
     {
@@ -47,6 +48,10 @@ internal sealed class FitnessOnboarding
         _gender = ParseGender(request.Gender);
         _dateOfBirth = request.Age.HasValue ? DateTime.UtcNow.Date.AddYears(-request.Age.Value) : null;
         _measurement = BuildOnboardingMeasurement(request, _gender, _heightCm, _weightKg);
+        if (!TrainingSchedule.TryParseAvailableDays(request.AvailableTrainingDays, out _availableDays, out var dayError))
+        {
+            throw new AppValidationException(nameof(request.AvailableTrainingDays), dayError!);
+        }
         _bodyFat = BodyFatAssessor.Assess(
             _gender,
             _dateOfBirth,
@@ -101,7 +106,12 @@ internal sealed class FitnessOnboarding
         profile.ExperienceLevel = ParseExperienceLevel(_request.TrainingExperience);
         profile.ActivityLevel = ParseActivityLevel(_request.ActivityLevel);
         profile.TrainingLocation = ParseTrainingLocation(_request.TrainingLocation);
-        profile.TrainingDaysPerWeek = _request.TrainingDays;
+        // Ekipman tek tek secilmez. Eski istemciler HasEquipment gondermez: salon veya secili ekipman = ekipmanli.
+        profile.HasEquipment = _request.HasEquipment
+            ?? (profile.TrainingLocation == TrainingLocation.Gym || (_request.EquipmentIds?.Count ?? 0) > 0);
+        // Gun sayisini kullanici secmez (eski istemcilerin TrainingDays degeri yok sayilir); musait gunler
+        // ve hedef/deneyime gore algoritma belirler.
+        TrainingSchedule.SetAvailableDays(profile, _availableDays);
         profile.UnitSystem = _request.HeightUnit.Equals("ft_in", StringComparison.OrdinalIgnoreCase)
             || _request.WeightUnit.Equals("lb", StringComparison.OrdinalIgnoreCase)
             ? UnitSystem.Imperial

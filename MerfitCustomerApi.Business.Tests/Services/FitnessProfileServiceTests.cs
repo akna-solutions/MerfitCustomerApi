@@ -116,6 +116,52 @@ public class FitnessProfileServiceTests
     }
 
     [Fact]
+    public async Task CompleteAsync_StoresEquipmentFlag_AvailableDays_AndAlgorithmDayCount()
+    {
+        var fx = CreateFixture();
+        var request = MakeRequest();
+        request.HasEquipment = false;
+        request.EquipmentIds = null;
+        request.TrainingDays = 6; // eski alan: yok sayilir, gun sayisini algoritma belirler
+        request.TrainingExperience = "intermediate";
+        request.AvailableTrainingDays = new List<string> { "Sun", "Mon", "Tue", "Thu", "Sat" };
+
+        await fx.Service.CompleteAsync(UserId, request);
+
+        Assert.False(fx.Profile.HasEquipment);
+        Assert.Equal("Mon,Tue,Thu,Sat,Sun", fx.Profile.PreferredTrainingDays);
+        Assert.Equal(4, fx.Profile.TrainingDaysPerWeek); // Orta + kas = 4 gun
+    }
+
+    [Theory]
+    [InlineData("gym", false, true)]
+    [InlineData("home", true, true)]
+    [InlineData("home", false, false)]
+    public async Task CompleteAsync_LegacyClientWithoutFlag_DerivesEquipmentFlag(string location, bool sendsEquipment, bool expected)
+    {
+        var fx = CreateFixture();
+        var request = MakeRequest();
+        request.TrainingLocation = location;
+        request.EquipmentIds = sendsEquipment ? new List<long> { 4 } : null;
+
+        await fx.Service.CompleteAsync(UserId, request);
+
+        Assert.Equal(expected, fx.Profile.HasEquipment);
+        Assert.Null(fx.Profile.PreferredTrainingDays);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_SingleAvailableDay_IsRejected()
+    {
+        var fx = CreateFixture();
+        var request = MakeRequest();
+        request.AvailableTrainingDays = new List<string> { "Mon" };
+
+        await Assert.ThrowsAsync<AppValidationException>(() => fx.Service.CompleteAsync(UserId, request));
+        Assert.Empty(fx.Jobs);
+    }
+
+    [Fact]
     public async Task CompleteAsync_WhenAlreadyCompleted_ThrowsConflict_AndChangesNothing()
     {
         var fx = CreateFixture(heightCm: 180);

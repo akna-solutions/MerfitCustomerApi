@@ -103,22 +103,15 @@ public class WorkoutService : IWorkoutService
                 query = query.Where(w => w.Difficulty == targetDifficulty);
             }
 
-            var ownedEquipmentIds = await _unitOfWork.Repository<UserEquipment>()
-                .GetQueryable()
-                .Where(ue => ue.UserId == userId)
-                .Select(ue => ue.EquipmentId)
-                .ToListAsync(cancellationToken);
-
-            if (ownedEquipmentIds.Count > 0)
+            // Ekipman tek tek secilmez: ekipmanli kullanici tum antrenmanlari, ekipmansiz kullanici yalnizca
+            // ekipman gerektirmeyen (WorkoutEquipment kaydi olmayan) antrenmanlari gorur.
+            if (profile is not null && !profile.HasEquipment)
             {
-                var workoutIdsMatchingEquipment = await _unitOfWork.Repository<WorkoutEquipment>()
+                var workoutIdsRequiringEquipment = _unitOfWork.Repository<WorkoutEquipment>()
                     .GetQueryable()
-                    .Where(we => ownedEquipmentIds.Contains(we.EquipmentId))
-                    .Select(we => we.WorkoutId)
-                    .Distinct()
-                    .ToListAsync(cancellationToken);
+                    .Select(we => we.WorkoutId);
 
-                query = query.Where(w => workoutIdsMatchingEquipment.Contains(w.Id));
+                query = query.Where(w => !workoutIdsRequiringEquipment.Contains(w.Id));
             }
         }
 

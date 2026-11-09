@@ -42,16 +42,21 @@ public sealed class WorkoutPlanSimulationProfile
     /// </summary>
     public TrainingLocation TrainingLocation { get; set; } = TrainingLocation.Home;
 
-    /// <summary>Secilen Equipment.Id degerleri (Gym'de yok sayilir).</summary>
+    /// <summary>
+    /// Ekipmanli (true: katalogdaki tum ekipmanlar) / ekipmansiz (false). Gercek kullanici profiliyle ayni kural.
+    /// Bos ise eski kayitlarin TrainingLocation/EquipmentIds/NoEquipment alanlari kullanilir.
+    /// </summary>
+    public bool? HasEquipment { get; set; }
+
+    /// <summary>Eski kayitlar: secilen Equipment.Id degerleri (Gym'de yok sayilir).</summary>
     public List<long> EquipmentIds { get; set; } = new();
 
     /// <summary>"Hic ekipmanim yok" secildi (EquipmentIds bos olmalidir).</summary>
     public bool NoEquipment { get; set; }
-
-    /// <summary>Haftalik gun sayisi; bos ise algoritmanin varsayilani.</summary>
+    /// <summary>Eski kayitlar icin; algoritma artik kullanmaz (gun sayisini TrainingDayPlanner belirler).</summary>
     public int? TrainingDaysPerWeek { get; set; }
 
-    /// <summary>Belirli gunler ("Mon".."Sun"); doluysa gun sayisi bu listeden turetilir.</summary>
+    /// <summary>Musait gunler ("Mon".."Sun"); bos ise tum hafta. Gun sayisini algoritma belirler.</summary>
     public List<string> TrainingDays { get; set; } = new();
 
     /// <summary>Tercih edilen sure (dk); bos ise algoritmanin varsayilani.</summary>
@@ -100,14 +105,21 @@ public sealed class WorkoutPlanSimulationResult
     public ExperienceLevel Experience { get; init; }
     public DifficultyLevel TargetDifficulty { get; init; }
     public int TrainingDays { get; init; }
+    /// <summary>Profilde musait gun isaretlendiyse true (bos ise haftanin tumu musait).</summary>
     public bool UsedPreferredDays { get; init; }
+
+    /// <summary>Hedef ve deneyime gore algoritmanin belirledigi gun sayisi.</summary>
+    public int TargetTrainingDays { get; init; }
+
+    /// <summary>Profilde isaretlenen musait gunler ("Mon".."Sun"); bos = tum hafta.</summary>
+    public List<string> AvailableDays { get; init; } = new();
     public int DurationPreferenceMin { get; init; }
     public bool UsedDefaultDuration { get; init; }
     public int DurationToleranceMin { get; init; }
     public int MaxDurationMin { get; init; }
     public bool IncludePremium { get; init; }
 
-    /// <summary>"GymAllEquipment", "Selected" veya "None".</summary>
+    /// <summary>"AllEquipment" (ekipmanli), "None" (ekipmansiz); eski kayitlar: "GymAllEquipment" veya "Selected".</summary>
     public required string EquipmentResolution { get; init; }
 
     /// <summary>Algoritmaya verilen ekipmanlar (Gym'de katalogdaki tumu).</summary>

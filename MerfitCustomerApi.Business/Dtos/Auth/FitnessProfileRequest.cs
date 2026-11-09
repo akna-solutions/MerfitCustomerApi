@@ -70,7 +70,10 @@ public class FitnessProfileRequest
     /// <summary>beginner | intermediate | advanced (ExperienceStep).</summary>
     public string? TrainingExperience { get; set; }
 
-    /// <summary>Haftada kac gun antrenman yapilmak istendigi (FrequencyStep).</summary>
+    /// <summary>
+    /// Eski istemciler icin kabul edilir ama kullanilmaz: haftalik gun sayisini algoritma belirler
+    /// (bkz. <see cref="AvailableTrainingDays"/>).
+    /// </summary>
     [Range(1, 7, ErrorMessage = "Antrenman gunu 1-7 araliginda olmalidir.")]
     public int? TrainingDays { get; set; }
 
@@ -78,7 +81,20 @@ public class FitnessProfileRequest
     public string? TrainingLocation { get; set; }
 
     /// <summary>
-    /// EquipmentStep'te secilen ekipmanlarin Equipment tablosundaki kimlikleri (Id).
+    /// Ekipmanli (true) / ekipmansiz (false) secimi (EquipmentStep). Gonderilmezse eski istemciler icin
+    /// antrenman yeri "gym" veya EquipmentIds dolu ise ekipmanli kabul edilir.
+    /// </summary>
+    public bool? HasEquipment { get; set; }
+
+    /// <summary>
+    /// Kullanicinin antrenman yapabilecegi gunler ("Mon".."Sun"; DaysStep). Bos ise tum hafta musaittir;
+    /// doluysa en az 2 gun. Gun sayisini bu gunler arasindan algoritma belirler.
+    /// </summary>
+    public List<string>? AvailableTrainingDays { get; set; }
+
+    /// <summary>
+    /// Eski istemciler: EquipmentStep'te secilen ekipmanlarin Equipment tablosundaki kimlikleri (Id).
+    /// Artik plan uretiminde kullanilmaz (bkz. <see cref="HasEquipment"/>).
     /// Register sirasinda UserEquipment kayitlarini olusturmak icin kullanilir.
     /// </summary>
     public List<long>? EquipmentIds { get; set; }

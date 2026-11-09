@@ -4200,6 +4200,11 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<bool>("HasEquipment")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<decimal?>("HeightCm")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");

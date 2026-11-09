@@ -80,6 +80,12 @@ public class ProfileService : IProfileService
         }
 
         var planInputsAfter = PlanInputs.From(profile);
+        if (planInputsAfter != planInputsBefore)
+        {
+            // Hedef, deneyim veya musait gunler degisti: haftalik gun sayisini algoritma yeniden belirler.
+            // (Ilgisiz guncellemelerde mevcut kullanicilarin gun sayisina dokunulmaz.)
+            TrainingSchedule.Recalculate(profile);
+        }
         var nutritionInputsAfter = NutritionInputs.From(profile);
         var goalChanged = profile.Goal.HasValue && profile.Goal != previousGoal;
 
@@ -270,30 +276,23 @@ public class ProfileService : IProfileService
             profile.WorkoutDurationMin = request.WorkoutDurationMin.Value;
         }
 
-        // Kullanici gunleri tek tek secerse (TrainingDays) secim UserProfile.PreferredTrainingDays'e
-        // yazilir ve haftalik gun sayisi bu listeden turetilir. Yalnizca sayi gelirse ve onceki
-        // secimle uyusmuyorsa secim temizlenir; plan uretici o durumda varsayilan gun desenini kullanir.
-        var requestedDays = (request.TrainingDays ?? new List<string>())
-            .Select(code => TrainingDayCodes.TryParseCode(code, out var day) ? (DayOfWeek?)day : null)
-            .ToList();
-        if (requestedDays.Any(day => day is null))
+        // TrainingDays artik "musait gunler"dir; gun sayisini algoritma belirler. Eski istemcilerin
+        // gonderdigi TrainingDaysPerWeek yok sayilir.
+        // Eski istemciler her kayitta bos liste gonderir; bos liste "degisiklik yok" demektir (tum hafta icin
+        // yeni istemci yedi gunu de gonderir).
+        if (request.TrainingDays is { Count: > 0 })
         {
-            throw new AppValidationException(nameof(request.TrainingDays), "Gecersiz antrenman gunu. Gecerli degerler: Mon, Tue, Wed, Thu, Fri, Sat, Sun.");
+            if (!TrainingSchedule.TryParseAvailableDays(request.TrainingDays, out var availableDays, out var dayError))
+            {
+                throw new AppValidationException(nameof(request.TrainingDays), dayError!);
+            }
+
+            profile.PreferredTrainingDays = TrainingDayCodes.Format(availableDays);
         }
 
-        var selectedDays = requestedDays.Select(day => day!.Value).Distinct().ToList();
-        if (selectedDays.Count > 0)
+        if (request.HasEquipment.HasValue)
         {
-            profile.PreferredTrainingDays = TrainingDayCodes.Format(selectedDays);
-            profile.TrainingDaysPerWeek = selectedDays.Count;
-        }
-        else if (request.TrainingDaysPerWeek.HasValue)
-        {
-            profile.TrainingDaysPerWeek = request.TrainingDaysPerWeek.Value;
-            if (TrainingDayCodes.ParseStored(profile.PreferredTrainingDays).Count != request.TrainingDaysPerWeek.Value)
-            {
-                profile.PreferredTrainingDays = null;
-            }
+            profile.HasEquipment = request.HasEquipment.Value;
         }
 
         if (request.TrainingLocation is not null
@@ -411,16 +410,16 @@ public class ProfileService : IProfileService
     private sealed record PlanInputs(
         FitnessGoal? Goal,
         ExperienceLevel? ExperienceLevel,
-        int? TrainingDaysPerWeek,
         string? PreferredTrainingDays,
-        TrainingLocation? TrainingLocation)
+        TrainingLocation? TrainingLocation,
+        bool HasEquipment)
     {
         public static PlanInputs From(UserProfile profile) => new(
             profile.Goal,
             profile.ExperienceLevel,
-            profile.TrainingDaysPerWeek,
             profile.PreferredTrainingDays,
-            profile.TrainingLocation);
+            profile.TrainingLocation,
+            profile.HasEquipment);
     }
 
     /// <summary>
@@ -661,10 +660,6 @@ public class ProfileService : IProfileService
         var privacySettings = await _unitOfWork.Repository<UserPrivacySetting>()
             .FirstOrDefaultAsync(s => s.UserId == user.Id, cancellationToken);
 
-        var equipmentCount = await _unitOfWork.Repository<UserEquipment>()
-            .GetQueryable()
-            .CountAsync(ue => ue.UserId == user.Id, cancellationToken);
-
         var workoutsCount = await _unitOfWork.Repository<WorkoutSession>()
             .GetQueryable()
             .CountAsync(s => s.UserId == user.Id && s.Status == WorkoutSessionStatus.Completed, cancellationToken);
@@ -672,11 +667,13 @@ public class ProfileService : IProfileService
         var streak = await _unitOfWork.Repository<UserStreak>()
             .FirstOrDefaultAsync(s => s.UserId == user.Id, cancellationToken);
 
-        // Kullanici gunlerini kendisi sectiyse o secim, secmediyse aktif planin gunleri gosterilir.
-        var preferredDays = TrainingDayCodes.ParseStored(profile.PreferredTrainingDays);
-        var trainingDays = preferredDays.Count > 0
-            ? preferredDays.Select(TrainingDayCodes.ToCode).ToList()
-            : await GetActivePlanTrainingDaysAsync(user.Id, cancellationToken);
+        // Antrenman gunleri: aktif plan varsa planin gunleri, yoksa algoritmanin musait gunlerden sececegi gunler.
+        var availableDays = TrainingDayCodes.ParseStored(profile.PreferredTrainingDays);
+        var trainingDays = await GetActivePlanTrainingDaysAsync(user.Id, cancellationToken);
+        if (trainingDays.Count == 0)
+        {
+            trainingDays = TrainingSchedule.PlannedDays(profile).Select(TrainingDayCodes.ToCode).ToList();
+        }
 
         var age = profile.DateOfBirth.HasValue ? CalculateAge(profile.DateOfBirth.Value, DateTime.UtcNow) : 0;
 
@@ -698,11 +695,13 @@ public class ProfileService : IProfileService
             TargetWeight = activeGoal?.TargetWeightKg ?? profile.TargetWeightKg ?? 0,
             Goal = MapGoalToDisplay(profile.Goal),
             ExperienceLevel = profile.ExperienceLevel?.ToString().ToUpperInvariant() ?? "BEGINNER",
-            Equipment = DeriveEquipmentCategory(profile.TrainingLocation, equipmentCount),
+            Equipment = profile.HasEquipment ? "FULL_GYM" : "BODYWEIGHT",
+            HasEquipment = profile.HasEquipment,
             TrainingLocation = profile.TrainingLocation?.ToString().ToLowerInvariant(),
             WorkoutDurationMin = profile.WorkoutDurationMin ?? 45,
-            TrainingDaysPerWeek = preferredDays.Count > 0 ? preferredDays.Count : profile.TrainingDaysPerWeek ?? trainingDays.Count,
+            TrainingDaysPerWeek = trainingDays.Count,
             TrainingDays = trainingDays,
+            AvailableTrainingDays = availableDays.Select(TrainingDayCodes.ToCode).ToList(),
             ActivityLevel = MapActivityLevelToCode(profile.ActivityLevel),
             DietaryPreference = profile.DietaryPreference?.ToString().ToLowerInvariant(),
             Allergies = FoodPreferenceFormat.AllergensToNames(profile.Allergies),
@@ -748,22 +747,6 @@ public class ProfileService : IProfileService
             },
         };
     }
-
-    /// <summary>
-    /// Kayitta secilen antrenman yeri (TrainingLocation) ve UserEquipment kayitlarindan kaba bir
-    /// kategori turetir. Salon secen kullanici ekipman isaretlemese bile FULL_GYM'dir.
-    /// </summary>
-    private static string DeriveEquipmentCategory(TrainingLocation? location, int equipmentCount) => location switch
-    {
-        TrainingLocation.Gym => "FULL_GYM",
-        TrainingLocation.Outdoor => equipmentCount == 0 ? "BODYWEIGHT" : "MINIMAL_EQUIPMENT",
-        _ => equipmentCount switch
-        {
-            0 => "BODYWEIGHT",
-            <= 2 => "MINIMAL_EQUIPMENT",
-            _ => "HOME_GYM",
-        },
-    };
 
     /// <summary>
     /// Kullanicinin gercek antrenman gunleri: aktif WorkoutPlan'in WorkoutPlanDay kayitlari

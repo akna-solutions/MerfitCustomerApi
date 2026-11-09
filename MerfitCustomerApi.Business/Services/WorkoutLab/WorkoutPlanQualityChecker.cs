@@ -257,48 +257,49 @@ public static class WorkoutPlanQualityChecker
 
     private static WorkoutPlanQualityCheck CheckDayCount(WorkoutPlanSimulationResult result, WorkoutPlanSimulationProfile profile)
     {
-        const string rule = "Belirli günler seçildiyse program tam olarak o günlerde olmalı; seçilmediyse gün sayısı seçilen haftalık " +
-            "sayıya (algoritmanın 2-7 sınırıyla) eşit olmalı. Uymazsa başarısız; sayı 2-7 dışından sınıra çekildiyse uyarı.";
+        const string title = "Antrenman günleri";
+        const string rule = "Gün sayısını algoritma belirler (Başlangıç 3, Orta 4, İleri 5; yağ kaybında +1, en fazla 6). " +
+            "Program yalnızca müsait günlerde olmalı (işaretlenmediyse tüm hafta) ve gün sayısı hedef ile müsait gün sayısının " +
+            "küçüğüne eşit olmalı. Uymazsa başarısız; müsait gün hedeften azsa uyarı.";
         var details = new List<string>();
         var actualCodes = result.Days.Select(d => d.DayOfWeek).ToList();
         details.Add($"Program günleri: {string.Join(", ", actualCodes.Select(DayLabel))}.");
 
-        var requestedDays = profile.TrainingDays
+        var availableDays = profile.TrainingDays
             .Select(code => TrainingDayCodes.TryParseCode(code, out var d) ? TrainingDayCodes.ToCode(d) : null)
             .Where(code => code is not null)
+            .Select(code => code!)
             .Distinct()
             .ToList();
+        var available = availableDays.Count > 0 ? availableDays : TrainingDayCodes.All.ToList();
+        details.Add(availableDays.Count > 0
+            ? $"Müsait günler: {string.Join(", ", availableDays.Select(DayLabel))}."
+            : "Müsait gün işaretlenmedi; tüm hafta müsait kabul edildi.");
+        details.Add($"Algoritmanın hedef gün sayısı: {result.TargetTrainingDays}.");
 
-        if (requestedDays.Count > 0)
+        var outside = actualCodes.Where(code => !available.Contains(code)).ToList();
+        if (outside.Count > 0)
         {
-            var match = requestedDays.Count == actualCodes.Count && requestedDays.All(actualCodes.Contains);
-            return Check("TrainingDayCount", "Haftalık gün sayısı", match ? WorkoutPlanQualityCheckStatus.Passed : WorkoutPlanQualityCheckStatus.Failed,
-                match
-                    ? $"Program seçilen {requestedDays.Count} günde ({string.Join(", ", requestedDays.Select(DayLabel!))})."
-                    : "Program günleri seçilen günlerle uyuşmuyor.",
-                rule, details);
+            return Check("TrainingDayCount", title, WorkoutPlanQualityCheckStatus.Failed,
+                $"Program müsait olmayan günlere düştü: {string.Join(", ", outside.Select(DayLabel))}.", rule, details);
         }
 
-        var requested = profile.TrainingDaysPerWeek;
-        var expected = result.TrainingDays;
+        var expected = Math.Min(result.TargetTrainingDays, available.Count);
         if (actualCodes.Count != expected)
         {
-            return Check("TrainingDayCount", "Haftalık gün sayısı", WorkoutPlanQualityCheckStatus.Failed,
+            return Check("TrainingDayCount", title, WorkoutPlanQualityCheckStatus.Failed,
                 $"Beklenen {expected} gün, programda {actualCodes.Count} gün var.", rule, details);
         }
 
-        if (requested is null)
+        if (available.Count < result.TargetTrainingDays)
         {
-            details.Insert(0, $"Gün sayısı seçilmedi; algoritmanın varsayılanı ({expected}) kullanıldı.");
-        }
-        else if (requested != expected)
-        {
-            return Check("TrainingDayCount", "Haftalık gün sayısı", WorkoutPlanQualityCheckStatus.Warning,
-                $"Seçilen {requested} gün, algoritma sınırı nedeniyle {expected} güne çekildi.", rule, details);
+            return Check("TrainingDayCount", title, WorkoutPlanQualityCheckStatus.Warning,
+                $"Müsait gün sayısı ({available.Count}) hedefin ({result.TargetTrainingDays}) altında; {expected} gün kullanıldı.",
+                rule, details);
         }
 
-        return Check("TrainingDayCount", "Haftalık gün sayısı", WorkoutPlanQualityCheckStatus.Passed,
-            $"Program haftada {expected} gün.", rule, details);
+        return Check("TrainingDayCount", title, WorkoutPlanQualityCheckStatus.Passed,
+            $"Program haftada {expected} gün, müsait günler içinde.", rule, details);
     }
 
     private static WorkoutPlanQualityCheck CheckGoalAlignment(WorkoutPlanSimulationResult result, WorkoutPlanLabOptions options)
