@@ -16,6 +16,7 @@ using MerfitCustomerApi.Business.Services.FoodAnalysis;
 using MerfitCustomerApi.Business.Services.Foods;
 using MerfitCustomerApi.Business.Services.Leaderboard;
 using MerfitCustomerApi.Business.Services.MiniGames;
+using MerfitCustomerApi.Business.Services.Activity;
 using MerfitCustomerApi.Business.Services.Scoring;
 using MerfitCustomerApi.Business.Services.Store;
 using MerfitCustomerApi.Business.Services.Nutrition;
@@ -241,6 +242,11 @@ builder.Services.AddOptions<MiniGameRewardOptions>()
 builder.Services.AddSingleton<IValidateOptions<MiniGameRewardOptions>, MiniGameRewardOptionsValidator>();
 builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IMiniGameService, MiniGameService>();
+
+// Adim sayar: gunluk aktivite senkronizasyonu (idempotent), hedef ve istatistikler. Adimlar dogrudan puan
+// vermez; dogrulanmis gunler adim basarilarini (MerfitScoreService step_* kosullari) tetikler.
+builder.Services.Configure<StepActivityOptions>(builder.Configuration.GetSection(StepActivityOptions.SectionName));
+builder.Services.AddScoped<IStepActivityService, StepActivityService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IFitnessProfileService, FitnessProfileService>();
 builder.Services.AddScoped<IEquipmentService, EquipmentService>();

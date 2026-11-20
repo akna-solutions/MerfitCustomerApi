@@ -262,6 +262,16 @@ public class AppDbContext : DbContext
     public DbSet<MiniGameSession> MiniGameSessions => Set<MiniGameSession>();
 
     /// <summary>
+    /// Kullanici + gun basina adim aktivitesi (adim sayar).
+    /// </summary>
+    public DbSet<DailyActivity> DailyActivities => Set<DailyActivity>();
+
+    /// <summary>
+    /// Kullanicinin adim hedefi gibi aktivite ayarlari.
+    /// </summary>
+    public DbSet<UserActivitySetting> UserActivitySettings => Set<UserActivitySetting>();
+
+    /// <summary>
     /// Beslenme asistani sohbetleri (kullanici ve gun basina bir sohbet).
     /// </summary>
     public DbSet<NutritionAssistantConversation> NutritionAssistantConversations => Set<NutritionAssistantConversation>();

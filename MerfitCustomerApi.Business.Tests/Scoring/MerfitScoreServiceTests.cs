@@ -35,6 +35,7 @@ public class MerfitScoreServiceTests
     private readonly List<MerfitScoreBreakdown> _breakdowns = new();
     private readonly List<MerfitScoreHistory> _history = new();
     private readonly List<MiniGameSession> _miniGames = new();
+    private readonly List<DailyActivity> _dailyActivities = new();
 
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
 
@@ -52,6 +53,7 @@ public class MerfitScoreServiceTests
         _unitOfWork.Setup(u => u.Repository<MerfitScore>()).Returns(MockRepositoryFactory.Create(_scores).Object);
         _unitOfWork.Setup(u => u.Repository<MerfitScoreHistory>()).Returns(MockRepositoryFactory.Create(_history).Object);
         _unitOfWork.Setup(u => u.Repository<MiniGameSession>()).Returns(MockRepositoryFactory.Create(_miniGames).Object);
+        _unitOfWork.Setup(u => u.Repository<DailyActivity>()).Returns(MockRepositoryFactory.Create(_dailyActivities).Object);
 
         var breakdownRepo = MockRepositoryFactory.Create(_breakdowns);
         breakdownRepo.Setup(r => r.FindAsync(It.IsAny<Expression<Func<MerfitScoreBreakdown, bool>>>(), It.IsAny<CancellationToken>()))
@@ -251,6 +253,29 @@ public class MerfitScoreServiceTests
         var earned = Assert.Single(_userAchievements);
         Assert.Equal(7, earned.AchievementId);
         Assert.Null(earned.SeenAt);
+    }
+
+    [Fact]
+    public async Task TryRefresh_StepAchievement_IgnoresSuspiciousDaysAndOtherUsers()
+    {
+        _achievements.Add(new Achievement { Id = 20, Code = "STEPS_DAILY_10000", IsActive = true, Points = 25, ConditionType = "steps_daily_max", ConditionValue = "10000" });
+        var date = new DateOnly(2026, 11, 18);
+        // Abartili (suphe isaretli) gun ve baska kullanicinin gunu basari kazandirmaz.
+        _dailyActivities.Add(new DailyActivity { Id = 1, UserId = UserA, Date = date, TotalSteps = 40_000, DailyGoal = 10_000, IsSuspicious = true, HourlySteps = new int[24] });
+        _dailyActivities.Add(new DailyActivity { Id = 2, UserId = UserB, Date = date, TotalSteps = 12_000, DailyGoal = 10_000, HourlySteps = new int[24] });
+        _dailyActivities.Add(new DailyActivity { Id = 3, UserId = UserA, Date = date.AddDays(1), TotalSteps = 9_999, DailyGoal = 10_000, HourlySteps = new int[24] });
+
+        await CreateService().TryRefreshUserAsync(UserA);
+        Assert.Empty(_userAchievements);
+
+        _dailyActivities.Add(new DailyActivity { Id = 4, UserId = UserA, Date = date.AddDays(2), TotalSteps = 10_400, DailyGoal = 10_000, HourlySteps = new int[24] });
+        await CreateService().TryRefreshUserAsync(UserA);
+        await CreateService().TryRefreshUserAsync(UserA);
+
+        // Bir kez kazanilir; puan basarinin Points degeri uzerinden gelir.
+        var earned = Assert.Single(_userAchievements);
+        Assert.Equal(20, earned.AchievementId);
+        Assert.Equal(UserA, earned.UserId);
     }
 
     [Fact]
