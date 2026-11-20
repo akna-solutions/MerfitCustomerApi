@@ -539,6 +539,89 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.DailyActivity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("CaloriesBurned")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("CreatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("DailyGoal")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<int>("DistanceMeters")
+                        .HasColumnType("integer");
+
+                    b.PrimitiveCollection<int[]>("HourlySteps")
+                        .IsRequired()
+                        .HasColumnType("integer[]");
+
+                    b.Property<bool>("IsSuspicious")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Platform")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("SuspiciousReason")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("TotalSteps")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("UpdatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("UtcOffsetMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Date")
+                        .IsUnique();
+
+                    b.ToTable("DailyActivity", "activity", t =>
+                        {
+                            t.HasCheckConstraint("CK_DailyActivity_HourlySteps_Length", "cardinality(\"HourlySteps\") = 24");
+
+                            t.HasCheckConstraint("CK_DailyActivity_NonNegative", "\"TotalSteps\" >= 0 AND \"DistanceMeters\" >= 0 AND \"CaloriesBurned\" >= 0 AND \"DailyGoal\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.Equipment", b =>
                 {
                     b.Property<long>("Id")
@@ -3673,6 +3756,43 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.ToTable("UserAchievement", "gamification");
                 });
 
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserActivitySetting", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("CreatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("DailyStepGoal")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("UpdatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("UserActivitySetting", "activity", t =>
+                        {
+                            t.HasCheckConstraint("CK_UserActivitySetting_DailyStepGoal", "\"DailyStepGoal\" BETWEEN 1000 AND 100000");
+                        });
+                });
+
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserAddress", b =>
                 {
                     b.Property<long>("Id")
@@ -5228,6 +5348,15 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.DailyActivity", b =>
+                {
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.Exercise", b =>
                 {
                     b.HasOne("MerfitCustomerApi.Domain.Entities.MuscleGroup", null)
@@ -5734,6 +5863,15 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserActivitySetting", b =>
+                {
                     b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")

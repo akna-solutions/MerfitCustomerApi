@@ -26,6 +26,12 @@ public class MerfitScoringOptions
     public int WaterLogDayPoints { get; set; } = 5;
 
     /// <summary>
+    /// Adim hedefi serisi basarisinda (step_goal_streak_days) bir gunun sayilmasi icin gereken en dusuk adim.
+    /// Hedefini 1.000'e indiren kullanici seriyi kolayca kazanamasin diye etkin hedef = max(gunun hedefi, bu deger).
+    /// </summary>
+    public int StepGoalStreakMinimumSteps { get; set; } = 5_000;
+
+    /// <summary>
     /// Gun/hafta/ay sinirlarinin hesaplandigi saat dilimi farki (Turkiye icin UTC+3).
     /// Haftalik siralama Pazartesi 00:00, aylik siralama ayin 1'i 00:00 yerel saatte baslar.
     /// </summary>

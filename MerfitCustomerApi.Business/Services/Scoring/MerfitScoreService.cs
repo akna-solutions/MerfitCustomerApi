@@ -45,6 +45,17 @@ public class MerfitScoreService : IMerfitScoreService
     public const string TotalPointsCondition = "total_points";
 
     /// <summary>
+    /// Adim sayar kosullari. Yalnizca makullik kontrollerinden gecmis (IsSuspicious = false) DailyActivity
+    /// gunleri sayilir; istemcinin gonderdigi abartili veri basari kazandirmaz.
+    /// steps_total: toplam adim; steps_daily_max: tek gunde en cok adim; steps_weekly_max: bir takvim
+    /// haftasinda (Pzt-Paz) en cok adim; step_goal_streak_days: hedefin ust uste tamamlandigi en uzun gun serisi.
+    /// </summary>
+    public const string StepsTotalCondition = "steps_total";
+    public const string StepsDailyMaxCondition = "steps_daily_max";
+    public const string StepsWeeklyMaxCondition = "steps_weekly_max";
+    public const string StepGoalStreakDaysCondition = "step_goal_streak_days";
+
+    /// <summary>
     /// Admin panelinin eski surumlerinde (ve ornek verilerde) kullanilan kosul adlari. Bu adlarla kaydedilmis
     /// basarilar daha once hic kazanilamiyordu (desteklenmeyen kosul diye atlaniyordu); artik ayni metrige eslenir.
     /// </summary>
@@ -60,6 +71,10 @@ public class MerfitScoreService : IMerfitScoreService
         ["meal_log_count"] = MealLogDaysCondition,
         ["water_log_count"] = WaterLogDaysCondition,
         ["points"] = TotalPointsCondition,
+        ["total_steps"] = StepsTotalCondition,
+        ["daily_steps"] = StepsDailyMaxCondition,
+        ["weekly_steps"] = StepsWeeklyMaxCondition,
+        ["step_goal_streak"] = StepGoalStreakDaysCondition,
     };
 
     /// <summary>Kosul turunu kucuk harfe cevirir ve eski adlari desteklenen adlara esler.</summary>
@@ -322,8 +337,59 @@ public class MerfitScoreService : IMerfitScoreService
                     // Basari puanlari haric tutulur; aksi halde bir basari baska bir basariyi tetikleyebilir.
                     _ => events.Where(e => e.Category != AchievementsCategory).Sum(e => e.Points),
                 };
+            case StepsTotalCondition:
+            case StepsDailyMaxCondition:
+            case StepsWeeklyMaxCondition:
+            case StepGoalStreakDaysCondition:
+                var days = await _unitOfWork.Repository<DailyActivity>().GetQueryable()
+                    .Where(a => a.UserId == userId && !a.IsSuspicious && a.TotalSteps > 0)
+                    .Select(a => new StepDay(a.Date, a.TotalSteps, a.DailyGoal))
+                    .ToListAsync(cancellationToken);
+                return ComputeStepMetric(conditionType, days, _options.StepGoalStreakMinimumSteps);
             default:
                 return null;
+        }
+    }
+
+    public sealed record StepDay(DateOnly Date, int TotalSteps, int DailyGoal);
+
+    /// <summary>Dogrulanmis adim gunlerinden adim basari metrigini hesaplar (saf fonksiyon; test edilebilir).</summary>
+    public static int ComputeStepMetric(string conditionType, IReadOnlyCollection<StepDay> days, int streakMinimumSteps)
+    {
+        if (days.Count == 0)
+        {
+            return 0;
+        }
+
+        switch (conditionType)
+        {
+            case StepsTotalCondition:
+                return (int)Math.Min(int.MaxValue, days.Sum(d => (long)d.TotalSteps));
+            case StepsDailyMaxCondition:
+                return days.Max(d => d.TotalSteps);
+            case StepsWeeklyMaxCondition:
+                // Takvim haftasi Pazartesi baslar (liderlik tablosundaki haftalik donemle ayni).
+                return days
+                    .GroupBy(d => d.Date.AddDays(-(((int)d.Date.DayOfWeek + 6) % 7)))
+                    .Max(g => g.Sum(d => d.TotalSteps));
+            case StepGoalStreakDaysCondition:
+                var completed = days
+                    .Where(d => d.TotalSteps >= Math.Max(d.DailyGoal, streakMinimumSteps))
+                    .Select(d => d.Date.DayNumber)
+                    .Distinct()
+                    .OrderBy(n => n)
+                    .ToList();
+                var longest = 0;
+                var current = 0;
+                for (var i = 0; i < completed.Count; i++)
+                {
+                    current = i > 0 && completed[i] == completed[i - 1] + 1 ? current + 1 : 1;
+                    longest = Math.Max(longest, current);
+                }
+
+                return longest;
+            default:
+                return 0;
         }
     }
 
