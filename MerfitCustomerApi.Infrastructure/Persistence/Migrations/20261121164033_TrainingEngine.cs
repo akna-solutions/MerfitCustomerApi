@@ -12,15 +12,11 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_WorkoutSetLog_WorkoutSessionExerciseId",
-                schema: "workout",
-                table: "WorkoutSetLog");
+            // Canli veritabaninda bu indeks bulunmayabilir; yoksa atla.
+            migrationBuilder.Sql("DROP INDEX IF EXISTS workout.\"IX_WorkoutSetLog_WorkoutSessionExerciseId\";");
 
-            migrationBuilder.DropIndex(
-                name: "IX_WorkoutPlan_UserId",
-                schema: "workout",
-                table: "WorkoutPlan");
+            // Canli veritabaninda bu indeks bulunmayabilir; yoksa atla.
+            migrationBuilder.Sql("DROP INDEX IF EXISTS workout.\"IX_WorkoutPlan_UserId\";");
 
             migrationBuilder.AddColumn<bool>(
                 name: "IsCompleted",
