@@ -74,18 +74,12 @@ public class ActivityCalendarService : IActivityCalendarService
                 && s.CompletedAt != null
                 && s.CompletedAt >= rangeStartUtc
                 && s.CompletedAt < rangeEndUtc)
-            .Select(s => new { s.Id, s.WorkoutId, CompletedAt = s.CompletedAt!.Value, s.DurationSeconds, s.CaloriesBurned })
+            .Select(s => new { s.Id, s.WorkoutId, s.WorkoutPlanDayId, CompletedAt = s.CompletedAt!.Value, s.DurationSeconds, s.CaloriesBurned })
             .ToListAsync(cancellationToken);
 
         var sessionIds = sessions.Select(s => s.Id).ToList();
-        var workoutIds = sessions.Select(s => s.WorkoutId).Distinct().ToList();
-
-        var workoutTitles = workoutIds.Count == 0
-            ? new Dictionary<long, string>()
-            : await _unitOfWork.Repository<Workout>()
-                .GetQueryable()
-                .Where(w => workoutIds.Contains(w.Id))
-                .ToDictionaryAsync(w => w.Id, w => w.Title, cancellationToken);
+        var workoutTitles = await WorkoutSessions.WorkoutSessionTitles.LoadAsync(
+            _unitOfWork, sessions.Select(s => (s.WorkoutId, s.WorkoutPlanDayId)), cancellationToken);
 
         var setCounts = sessionIds.Count == 0
             ? new Dictionary<long, (int Sets, int Exercises)>()
@@ -108,7 +102,7 @@ public class ActivityCalendarService : IActivityCalendarService
                     Dto = new CustomerCalendarWorkoutSessionDto
                     {
                         Id = s.Id,
-                        Title = workoutTitles.GetValueOrDefault(s.WorkoutId, string.Empty),
+                        Title = workoutTitles.Resolve(s.WorkoutId, s.WorkoutPlanDayId),
                         CompletedAt = DateTime.SpecifyKind(s.CompletedAt, DateTimeKind.Utc),
                         DurationSeconds = s.DurationSeconds,
                         CaloriesBurned = s.CaloriesBurned is null ? null : (int)Math.Round(s.CaloriesBurned.Value),

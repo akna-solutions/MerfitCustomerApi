@@ -699,6 +699,18 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<decimal?>("LoadIncrementKg")
+                        .HasPrecision(6, 2)
+                        .HasColumnType("numeric(6,2)");
+
+                    b.Property<string>("MechanicType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("MovementPattern")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -727,6 +739,83 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.HasIndex("PrimaryMuscleGroupId");
 
                     b.ToTable("Exercise", "workout");
+                });
+
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.ExerciseEquipment", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("CreatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("EquipmentId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ExerciseId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("UpdatedUser")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EquipmentId");
+
+                    b.HasIndex("ExerciseId", "EquipmentId")
+                        .IsUnique();
+
+                    b.ToTable("ExerciseEquipment", "workout");
+                });
+
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.ExerciseMuscleGroup", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("CreatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ExerciseId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("MuscleGroupId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("UpdatedUser")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MuscleGroupId");
+
+                    b.HasIndex("ExerciseId", "MuscleGroupId")
+                        .IsUnique();
+
+                    b.ToTable("ExerciseMuscleGroup", "workout");
                 });
 
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.ExternalLogin", b =>
@@ -4800,6 +4889,67 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.ToTable("UserStreak", "profile");
                 });
 
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserTrainingPreference", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AvoidedExerciseIds")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("CreatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("DaysPerWeek")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Focus")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("LimitationsNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("LimitedMuscleGroupIds")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("PreferredExerciseIds")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("PriorityMuscleGroupIds")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("UpdatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("UserTrainingPreference", "profile", t =>
+                        {
+                            t.HasCheckConstraint("CK_UserTrainingPreference_DaysPerWeek", "\"DaysPerWeek\" IS NULL OR (\"DaysPerWeek\" >= 2 AND \"DaysPerWeek\" <= 7)");
+                        });
+                });
+
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.WaterLog", b =>
                 {
                     b.Property<long>("Id")
@@ -5097,6 +5247,15 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<DateTime?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("BlockWeeks")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ChangeSummary")
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -5110,6 +5269,10 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("EndDate")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("EngineVersion")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<string>("Goal")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
@@ -5120,13 +5283,36 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsAiGenerated")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsDeload")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<long?>("PreviousPlanId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("ProgramVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("SplitType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<DateTime>("StartDate")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -5139,7 +5325,9 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("PreviousPlanId");
+
+                    b.HasIndex("UserId", "Status");
 
                     b.ToTable("WorkoutPlan", "workout");
                 });
@@ -5164,8 +5352,16 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<int>("DayOfWeek")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Focus")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<int>("Order")
                         .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -5173,7 +5369,7 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<long?>("UpdatedUser")
                         .HasColumnType("bigint");
 
-                    b.Property<long>("WorkoutId")
+                    b.Property<long?>("WorkoutId")
                         .HasColumnType("bigint");
 
                     b.Property<long>("WorkoutPlanId")
@@ -5197,6 +5393,10 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AlternativeExerciseIds")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -5222,7 +5422,21 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<int?>("RestSeconds")
                         .HasColumnType("integer");
 
+                    b.Property<string>("SelectionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<int>("Sets")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("SuggestedWeightKg")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<long?>("TargetMuscleGroupId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("TargetRir")
                         .HasColumnType("integer");
 
                     b.Property<DateTime?>("UpdatedAt")
@@ -5231,12 +5445,18 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<long?>("UpdatedUser")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("WeightGuidance")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
                     b.Property<long>("WorkoutPlanDayId")
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
 
                     b.HasIndex("ExerciseId");
+
+                    b.HasIndex("TargetMuscleGroupId");
 
                     b.HasIndex("WorkoutPlanDayId", "Order");
 
@@ -5436,7 +5656,7 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<long>("UserId")
                         .HasColumnType("bigint");
 
-                    b.Property<long>("WorkoutId")
+                    b.Property<long?>("WorkoutId")
                         .HasColumnType("bigint");
 
                     b.Property<long?>("WorkoutPlanDayId")
@@ -5497,6 +5717,74 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.ToTable("WorkoutSessionExercise", "workout");
                 });
 
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.WorkoutSessionFeedback", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("CreatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("Difficulty")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("DiscomfortExerciseIds")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("Fatigue")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("HasDiscomfort")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("Recovery")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("Satisfaction")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("UpdatedUser")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("WorkoutSessionId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkoutSessionId")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.ToTable("WorkoutSessionFeedback", "workout", t =>
+                        {
+                            t.HasCheckConstraint("CK_WorkoutSessionFeedback_Difficulty", "\"Difficulty\" IS NULL OR (\"Difficulty\" >= 1 AND \"Difficulty\" <= 5)");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionFeedback_Fatigue", "\"Fatigue\" IS NULL OR (\"Fatigue\" >= 1 AND \"Fatigue\" <= 5)");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionFeedback_Recovery", "\"Recovery\" IS NULL OR (\"Recovery\" >= 1 AND \"Recovery\" <= 5)");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionFeedback_Satisfaction", "\"Satisfaction\" IS NULL OR (\"Satisfaction\" >= 1 AND \"Satisfaction\" <= 5)");
+                        });
+                });
+
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.WorkoutSetLog", b =>
                 {
                     b.Property<long>("Id")
@@ -5517,11 +5805,20 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("IsCompleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsWarmup")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
                     b.Property<int?>("Reps")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("Rir")
                         .HasColumnType("integer");
 
                     b.Property<decimal?>("Rpe")
@@ -5546,9 +5843,13 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("WorkoutSessionExerciseId");
+                    b.HasIndex("WorkoutSessionExerciseId", "SetNumber")
+                        .IsUnique();
 
-                    b.ToTable("WorkoutSetLog", "workout");
+                    b.ToTable("WorkoutSetLog", "workout", t =>
+                        {
+                            t.HasCheckConstraint("CK_WorkoutSetLog_Rir_Range", "\"Rir\" IS NULL OR (\"Rir\" >= 0 AND \"Rir\" <= 10)");
+                        });
                 });
 
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.AiGenerationRequest", b =>
@@ -5625,6 +5926,36 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("PrimaryMuscleGroupId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.ExerciseEquipment", b =>
+                {
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.Equipment", null)
+                        .WithMany()
+                        .HasForeignKey("EquipmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.Exercise", null)
+                        .WithMany()
+                        .HasForeignKey("ExerciseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.ExerciseMuscleGroup", b =>
+                {
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.Exercise", null)
+                        .WithMany()
+                        .HasForeignKey("ExerciseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.MuscleGroup", null)
+                        .WithMany()
+                        .HasForeignKey("MuscleGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
@@ -6335,6 +6666,15 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.UserTrainingPreference", b =>
+                {
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.WaterLog", b =>
                 {
                     b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
@@ -6399,6 +6739,11 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.WorkoutPlan", b =>
                 {
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.WorkoutPlan", null)
+                        .WithMany()
+                        .HasForeignKey("PreviousPlanId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -6416,8 +6761,7 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.HasOne("MerfitCustomerApi.Domain.Entities.Workout", null)
                         .WithMany()
                         .HasForeignKey("WorkoutId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("MerfitCustomerApi.Domain.Entities.WorkoutPlan", null)
                         .WithMany()
@@ -6433,6 +6777,11 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ExerciseId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.MuscleGroup", null)
+                        .WithMany()
+                        .HasForeignKey("TargetMuscleGroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("MerfitCustomerApi.Domain.Entities.WorkoutPlanDay", null)
                         .WithMany()
@@ -6460,8 +6809,7 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.HasOne("MerfitCustomerApi.Domain.Entities.Workout", null)
                         .WithMany()
                         .HasForeignKey("WorkoutId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("MerfitCustomerApi.Domain.Entities.WorkoutPlanDay", null)
                         .WithMany()
@@ -6481,6 +6829,21 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("WorkoutSessionId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MerfitCustomerApi.Domain.Entities.WorkoutSessionFeedback", b =>
+                {
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MerfitCustomerApi.Domain.Entities.WorkoutSession", null)
+                        .WithMany()
+                        .HasForeignKey("WorkoutSessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

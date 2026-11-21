@@ -5,8 +5,11 @@ namespace MerfitCustomerApi.Business.Dtos.Customer.WorkoutSessions;
 /// <summary>POST /api/workout-sessions govdesi; bir antrenmani baslatmak icin sadece hangi Workout'un secildigi gerekir.</summary>
 public class StartWorkoutSessionRequest
 {
-    [Required(ErrorMessage = "WorkoutId alani zorunludur.")]
-    public long WorkoutId { get; set; }
+    /// <summary>
+    /// Katalog antrenmaninin kimligi. Antrenman motorunun plan gununden baslatirken bos birakilabilir
+    /// (WorkoutPlanDayId zorunlu olur).
+    /// </summary>
+    public long? WorkoutId { get; set; }
 
     /// <summary>
     /// Opsiyonel. Oturum, kullanicinin kisisel programindaki ("Bugünün Antrenmanı") bir
@@ -24,7 +27,10 @@ public class StartWorkoutSessionRequest
 public class CustomerWorkoutSessionDto
 {
     public long Id { get; set; }
-    public long WorkoutId { get; set; }
+    public long? WorkoutId { get; set; }
+
+    /// <summary>Oturum bir plan gununden baslatildiysa o gunun kimligi.</summary>
+    public long? WorkoutPlanDayId { get; set; }
     public string Title { get; set; } = string.Empty;
 
     /// <summary>"Started" | "Paused" | "Completed" | "Cancelled" | "Abandoned".</summary>
@@ -78,6 +84,15 @@ public class CustomerWorkoutSessionExerciseDto
     /// ayni agirlikla ust tekrar hedefi. Sureye dayali egzersizlerde null.
     /// </summary>
     public CustomerProgressionSuggestionDto? Progression { get; set; }
+
+    /// <summary>Hedef RIR (yalnizca antrenman motoru planlarinda).</summary>
+    public int? TargetRir { get; set; }
+
+    /// <summary>"FromHistory" | "RampUp" | "Bodyweight" (yalnizca motor planlarinda).</summary>
+    public string? WeightGuidance { get; set; }
+
+    /// <summary>Program olusturulurken gecmisten hesaplanan baslangic agirligi (yoksa bos; uydurma deger yok).</summary>
+    public decimal? SuggestedStartWeightKg { get; set; }
 }
 
 /// <summary>Bir egzersiz icin bir sonraki hedef.</summary>
@@ -100,6 +115,18 @@ public class CustomerProgressionSuggestionDto
 
     /// <summary>Kullaniciya gosterilecek kisa metin.</summary>
     public string Message { get; set; } = string.Empty;
+
+    /// <summary>Hedef RIR (motor planlarinda).</summary>
+    public int? TargetRir { get; set; }
+
+    /// <summary>false ise oneri kosulludur (or. RIR girilmedigi icin artis kesinlestirilmedi).</summary>
+    public bool IsConfident { get; set; } = true;
+
+    /// <summary>"Insufficient" | "Improving" | "Stable" | "OneOffDip" | "Declining" (motor planlarinda).</summary>
+    public string? Trend { get; set; }
+
+    /// <summary>Kararin kural tabanli gerekceleri.</summary>
+    public List<string> Reasons { get; set; } = new();
 }
 
 public class CustomerLastPerformanceDto
@@ -116,6 +143,13 @@ public class CustomerWorkoutSetLogDto
     public int? Reps { get; set; }
     public int? DurationSeconds { get; set; }
     public decimal? Rpe { get; set; }
+
+    /// <summary>Sette kalan tekrar (0 = tukenis).</summary>
+    public int? Rir { get; set; }
+
+    public bool IsWarmup { get; set; }
+
+    public bool IsCompleted { get; set; } = true;
 }
 
 public class CustomerPreviousBestDto
@@ -141,6 +175,19 @@ public class LogWorkoutSetRequest
 
     [Range(0, 10, ErrorMessage = "Rpe 0-10 araliginda olmalidir.")]
     public decimal? Rpe { get; set; }
+
+    /// <summary>
+    /// Sette kalan tekrar: 4+ rahat, 3 orta, 2 zorlayici ama kontrollu, 1 cok zor, 0 tukenis. Girilmezse ve RPE
+    /// varsa RIR = 10 - RPE. Ikisi de yoksa motor agirlik artisi icin kesin karar vermez.
+    /// </summary>
+    [Range(0, 10, ErrorMessage = "Rir 0-10 araliginda olmalidir.")]
+    public int? Rir { get; set; }
+
+    /// <summary>Isinma seti mi? (varsayilan false). Isinma setleri hacim ve progresyona katilmaz.</summary>
+    public bool? IsWarmup { get; set; }
+
+    /// <summary>Set planlandigi gibi tamamlandi mi? (varsayilan true). false = basarisiz / yarim set.</summary>
+    public bool? IsCompleted { get; set; }
 }
 
 /// <summary>PUT /api/workout-sessions/{id}/complete govdesi.</summary>
@@ -183,7 +230,7 @@ public class CustomerNewPersonalRecordDto
 public class CustomerWorkoutSessionHistoryItemDto
 {
     public long Id { get; set; }
-    public long WorkoutId { get; set; }
+    public long? WorkoutId { get; set; }
     public string Title { get; set; } = string.Empty;
     public DateTime StartedAt { get; set; }
     public DateTime CompletedAt { get; set; }
@@ -197,4 +244,50 @@ public class CustomerWorkoutSessionHistoryItemDto
 
     /// <summary>Oturumda kaldirilan en yuksek agirlik; agirlikli set yoksa null.</summary>
     public decimal? MaxWeightKg { get; set; }
+}
+
+/// <summary>
+/// Antrenman sonu kisa degerlendirme. Tum alanlar istege baglidir (1-5).
+/// </summary>
+public class SubmitWorkoutFeedbackRequest
+{
+    /// <summary>Antrenman zorlugu: 1 cok kolay ... 5 cok zor.</summary>
+    [Range(1, 5)]
+    public int? Difficulty { get; set; }
+
+    /// <summary>Genel yorgunluk: 1 dinc ... 5 cok yorgun.</summary>
+    [Range(1, 5)]
+    public int? Fatigue { get; set; }
+
+    /// <summary>Kaslarin toparlanmasi: 1 hic ... 5 tamamen.</summary>
+    [Range(1, 5)]
+    public int? Recovery { get; set; }
+
+    /// <summary>Programdan memnuniyet: 1 hic ... 5 cok.</summary>
+    [Range(1, 5)]
+    public int? Satisfaction { get; set; }
+
+    public bool HasDiscomfort { get; set; }
+
+    /// <summary>Rahatsizlik veren egzersizler (bu oturumdaki egzersizlerden).</summary>
+    [MaxLength(20)]
+    public List<long>? DiscomfortExerciseIds { get; set; }
+
+    [StringLength(500)]
+    public string? Note { get; set; }
+}
+
+public class CustomerWorkoutFeedbackDto
+{
+    public long SessionId { get; set; }
+    public int? Difficulty { get; set; }
+    public int? Fatigue { get; set; }
+    public int? Recovery { get; set; }
+    public int? Satisfaction { get; set; }
+    public bool HasDiscomfort { get; set; }
+    public List<long> DiscomfortExerciseIds { get; set; } = new();
+    public string? Note { get; set; }
+
+    /// <summary>Rahatsizlik bildirildiyse guvenli yonlendirme (tibbi teshis degildir).</summary>
+    public string? SafetyMessage { get; set; }
 }

@@ -168,18 +168,13 @@ public class ProgressService : IProgressService
             .OrderByDescending(s => s.CompletedAt)
             .Take(5)
             .ToList();
-        var workoutIds = recentSessions.Select(s => s.WorkoutId).Distinct().ToList();
-        var workoutTitles = workoutIds.Count == 0
-            ? new Dictionary<long, string>()
-            : await _unitOfWork.Repository<Workout>()
-                .GetQueryable()
-                .Where(w => workoutIds.Contains(w.Id))
-                .ToDictionaryAsync(w => w.Id, w => w.Title, cancellationToken);
+        var workoutTitles = await WorkoutSessions.WorkoutSessionTitles.LoadAsync(
+            _unitOfWork, recentSessions.Select(s => (s.WorkoutId, s.WorkoutPlanDayId)), cancellationToken);
 
         var recentActivity = recentSessions.Select(s => new CustomerRecentActivityDto
         {
             Id = s.Id,
-            Title = workoutTitles.GetValueOrDefault(s.WorkoutId, string.Empty),
+            Title = workoutTitles.Resolve(s.WorkoutId, s.WorkoutPlanDayId),
             DurationMin = (int)Math.Round((s.DurationSeconds ?? 0) / 60m),
             DateLabel = FormatRelativeDateLabel(s.CompletedAt!.Value, now),
         }).ToList();

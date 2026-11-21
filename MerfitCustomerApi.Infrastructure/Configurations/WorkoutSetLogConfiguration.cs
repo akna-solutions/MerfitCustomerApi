@@ -37,6 +37,16 @@ public class WorkoutSetLogConfiguration : IEntityTypeConfiguration<WorkoutSetLog
             .IsRequired(false)
             .HasMaxLength(2000);
 
+        // RIR 0-10 araliginda; eski satirlarda bos.
+        builder.ToTable(t => t.HasCheckConstraint("CK_WorkoutSetLog_Rir_Range", "\"Rir\" IS NULL OR (\"Rir\" >= 0 AND \"Rir\" <= 10)"));
+
+        // IsWarmup / IsCompleted: eski satirlar migration'daki veritabani varsayilaniyla (false / true)
+        // calisma seti ve tamamlanmis kabul edilir. Uygulama degeri her zaman acikca yazar.
+
+        // Ayni oturum-egzersiz icin ayni set numarasi tek satirdir (ayni setin iki kez kaydi guncelleme olur).
+        builder.HasIndex(x => new { x.WorkoutSessionExerciseId, x.SetNumber })
+            .IsUnique();
+
         // Iliskiler (foreign key) yapilandirmasi.
         // Iliskili oturum-egzersiz kaydinin kimligi.
         builder.HasOne<WorkoutSessionExercise>()

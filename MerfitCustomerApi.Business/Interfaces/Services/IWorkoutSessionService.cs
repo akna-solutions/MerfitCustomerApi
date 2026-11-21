@@ -49,4 +49,7 @@ public interface IWorkoutSessionService
     /// </summary>
     /// <exception cref="Domain.Exceptions.NotFoundException">Oturum bulunamaz veya baska kullaniciya aitse firlatilir.</exception>
     Task CancelSessionAsync(long userId, long sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Tamamlanan oturum icin kisa degerlendirme kaydeder (ikinci gonderim gunceller).</summary>
+    Task<CustomerWorkoutFeedbackDto> SubmitFeedbackAsync(long userId, long sessionId, SubmitWorkoutFeedbackRequest request, CancellationToken cancellationToken = default);
 }

@@ -18,9 +18,10 @@ public class WorkoutSession : BaseEntity
     public long UserId { get; set; }
 
     /// <summary>
-    /// Gerceklestirilen antrenmanin kimligi.
+    /// Gerceklestirilen katalog antrenmaninin kimligi. Motor plan gununden baslatilan oturumlarda bos olabilir
+    /// (bu durumda WorkoutPlanDayId doludur).
     /// </summary>
-    public long WorkoutId { get; set; }
+    public long? WorkoutId { get; set; }
 
     /// <summary>
     /// Oturum kisisellestirilmis bir plan gununden baslatildiysa, ilgili WorkoutPlanDay'in

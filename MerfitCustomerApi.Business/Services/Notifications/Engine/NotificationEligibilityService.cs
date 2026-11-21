@@ -81,7 +81,7 @@ public class NotificationEligibilityService : INotificationEligibilityService
         var plans = _unitOfWork.Repository<WorkoutPlan>().GetQueryable().Where(p => ids.Contains(p.UserId) && p.IsActive);
         var scheduled = await _unitOfWork.Repository<WorkoutPlanDay>().GetQueryable()
             .Where(d => d.DayOfWeek == day)
-            .Join(plans, d => d.WorkoutPlanId, p => p.Id, (d, p) => new { p.UserId, DayId = d.Id, d.WorkoutId, d.Order })
+            .Join(plans, d => d.WorkoutPlanId, p => p.Id, (d, p) => new { p.UserId, DayId = d.Id, d.WorkoutId, d.Title, d.Order })
             .ToListAsync(cancellationToken);
         if (scheduled.Count == 0)
         {
@@ -98,7 +98,7 @@ public class NotificationEligibilityService : INotificationEligibilityService
             .Distinct()
             .ToListAsync(cancellationToken);
 
-        var workoutIds = scheduled.Select(s => s.WorkoutId).Distinct().ToList();
+        var workoutIds = scheduled.Where(s => s.WorkoutId.HasValue).Select(s => s.WorkoutId!.Value).Distinct().ToList();
         var names = await _unitOfWork.Repository<Workout>().GetQueryable()
             .Where(w => workoutIds.Contains(w.Id))
             .Select(w => new { w.Id, w.Title })
@@ -110,7 +110,9 @@ public class NotificationEligibilityService : INotificationEligibilityService
             .ToDictionary(g => g.Key, g =>
             {
                 var first = g.OrderBy(x => x.Order).First();
-                return new ScheduledWorkout(first.DayId, names.GetValueOrDefault(first.WorkoutId, string.Empty));
+                // Motor gunlerinde katalog antrenmani yoktur; gunun basligi kullanilir.
+                var title = first.WorkoutId is long wid ? names.GetValueOrDefault(wid, string.Empty) : first.Title ?? string.Empty;
+                return new ScheduledWorkout(first.DayId, title);
             });
     }
 }

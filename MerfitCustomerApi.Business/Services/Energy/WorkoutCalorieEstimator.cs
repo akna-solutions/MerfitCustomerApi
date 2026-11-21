@@ -20,7 +20,14 @@ public enum WorkoutEnergyKind
 }
 
 /// <summary>Kalori tahmini icin bir antrenmanin (katalog) bilgileri.</summary>
-public sealed record WorkoutEnergyProfile(string Title, DifficultyLevel Difficulty, WorkoutEnergyKind Kind);
+public sealed record WorkoutEnergyProfile(string Title, DifficultyLevel Difficulty, WorkoutEnergyKind Kind)
+{
+    /// <summary>
+    /// Antrenman motorunun plan gununden baslatilan (katalog antrenmani olmayan) oturumlar icin profil: direnc
+    /// antrenmani, orta zorluk. Bu varsayim raporda belirtilmistir; oturum suresi ve kilo yine gercek degerlerdir.
+    /// </summary>
+    public static WorkoutEnergyProfile ForEngineSession(string title) => new(title, DifficultyLevel.Intermediate, WorkoutEnergyKind.Strength);
+}
 
 /// <summary>
 /// Antrenman kalorisinin TEK hesaplama noktasi. Oturum tamamlanirken sunucu bu degeri WorkoutSession.CaloriesBurned'e

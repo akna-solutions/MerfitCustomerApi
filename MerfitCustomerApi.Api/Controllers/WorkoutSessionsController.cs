@@ -87,4 +87,19 @@ public class WorkoutSessionsController : ControllerBase
         await _workoutSessionService.CancelSessionAsync(userId, id, cancellationToken);
         return NoContent();
     }
+
+    /// <summary>
+    /// Tamamlanan antrenman icin kisa geri bildirim (zorluk, yorgunluk, toparlanma, memnuniyet 1-5; rahatsizlik).
+    /// Ayni oturum icin tekrar gonderilirse guncellenir. Rahatsizlik bildirilirse guvenli yonlendirme metni doner.
+    /// </summary>
+    [HttpPost("{id:long}/feedback")]
+    public async Task<ActionResult<CustomerWorkoutFeedbackDto>> SubmitFeedback(
+        long id,
+        [FromBody] SubmitWorkoutFeedbackRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.GetUserId()!.Value;
+        var result = await _workoutSessionService.SubmitFeedbackAsync(userId, id, request, cancellationToken);
+        return Ok(result);
+    }
 }

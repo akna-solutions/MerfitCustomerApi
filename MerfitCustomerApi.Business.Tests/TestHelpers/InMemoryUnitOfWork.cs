@@ -31,6 +31,15 @@ public sealed class InMemoryUnitOfWork
                 AssignIds();
                 return 1;
             });
+
+        // Gercek UnitOfWork gibi: CommitTransactionAsync once SaveChanges yapar (yeni kayitlara Id verilir).
+        Mock.Setup(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                SaveCount++;
+                AssignIds();
+                return Task.CompletedTask;
+            });
     }
 
     public List<T> Set<T>() where T : BaseEntity
