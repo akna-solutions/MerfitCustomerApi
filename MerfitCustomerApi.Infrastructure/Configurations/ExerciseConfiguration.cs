@@ -70,6 +70,22 @@ public class ExerciseConfiguration : IEntityTypeConfiguration<Exercise>
         builder.Property(x => x.CaloriesPerMinute)
             .HasPrecision(18, 2);
 
+        // Bilesik / izolasyon (metin olarak saklanir, bos olabilir).
+        builder.Property(x => x.MechanicType)
+            .HasConversion<string>()
+            .IsRequired(false)
+            .HasMaxLength(50);
+
+        // Hareket paterni (metin olarak saklanir, bos olabilir).
+        builder.Property(x => x.MovementPattern)
+            .HasConversion<string>()
+            .IsRequired(false)
+            .HasMaxLength(50);
+
+        // Egzersize ozel en kucuk agirlik artisi (kg).
+        builder.Property(x => x.LoadIncrementKg)
+            .HasPrecision(6, 2);
+
         // Iliskiler (foreign key) yapilandirmasi.
         // Egzersizin hedefledigi ana kas grubunun kimligi.
         builder.HasOne<MuscleGroup>()

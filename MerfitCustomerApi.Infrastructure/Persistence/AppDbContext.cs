@@ -1,4 +1,4 @@
-﻿using MerfitCustomerApi.Domain.Entities;
+using MerfitCustomerApi.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection.Emit;
 
@@ -458,6 +458,18 @@ public class AppDbContext : DbContext
 
     /// <summary>Yorum raporlari.</summary>
     public DbSet<ProductReviewReport> ProductReviewReports => Set<ProductReviewReport>();
+
+    /// <summary>Egzersiz - kas grubu baglantilari (yardimci kaslar).</summary>
+    public DbSet<ExerciseMuscleGroup> ExerciseMuscleGroups => Set<ExerciseMuscleGroup>();
+
+    /// <summary>Egzersiz - ekipman baglantilari.</summary>
+    public DbSet<ExerciseEquipment> ExerciseEquipments => Set<ExerciseEquipment>();
+
+    /// <summary>Antrenman motoru kullanici tercihleri.</summary>
+    public DbSet<UserTrainingPreference> UserTrainingPreferences => Set<UserTrainingPreference>();
+
+    /// <summary>Antrenman sonu kisa degerlendirmeler.</summary>
+    public DbSet<WorkoutSessionFeedback> WorkoutSessionFeedbacks => Set<WorkoutSessionFeedback>();
 
     /// <summary>
     /// Model olustururken MerfitCustomerApi.Infrastructure.Configurations namespace'inde tanimli

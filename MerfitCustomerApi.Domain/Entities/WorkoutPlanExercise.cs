@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Common;
 
 namespace MerfitCustomerApi.Domain.Entities;
@@ -36,4 +37,34 @@ public class WorkoutPlanExercise : BaseEntity
 
     /// <summary>Sureye dayali egzersizler icin kullaniciya ozel hedef sure (saniye).</summary>
     public int? DurationSeconds { get; set; }
+
+    /// <summary>
+    /// Hedef RIR (sette kalan tekrar). Bos ise hedef yok.
+    /// </summary>
+    public int? TargetRir { get; set; }
+
+    /// <summary>
+    /// Bu egzersizle hedeflenen kas grubu.
+    /// </summary>
+    public long? TargetMuscleGroupId { get; set; }
+
+    /// <summary>
+    /// Baslangic agirliginin nasil belirlenecegi.
+    /// </summary>
+    public WeightGuidanceType? WeightGuidance { get; set; }
+
+    /// <summary>
+    /// Yalnizca kullanicinin gecmis kayitlarindan hesaplanan onerilen calisma agirligi. Uydurma deger yazilmaz.
+    /// </summary>
+    public decimal? SuggestedWeightKg { get; set; }
+
+    /// <summary>
+    /// Veritabanindan secilmis alternatif egzersiz kimlikleri (virgulle ayrilmis).
+    /// </summary>
+    public string? AlternativeExerciseIds { get; set; }
+
+    /// <summary>
+    /// Egzersizin neden secildigine dair kisa, kural tabanli aciklama.
+    /// </summary>
+    public string? SelectionReason { get; set; }
 }

@@ -24,6 +24,15 @@ public class WorkoutPlanDayConfiguration : IEntityTypeConfiguration<WorkoutPlanD
         // Birincil anahtari tanimlar.
         builder.HasKey(x => x.Id);
 
+        // Motor gunlerinin basligi ve odagi.
+        builder.Property(x => x.Title)
+            .IsRequired(false)
+            .HasMaxLength(200);
+
+        builder.Property(x => x.Focus)
+            .IsRequired(false)
+            .HasMaxLength(50);
+
         // Iliskiler (foreign key) yapilandirmasi.
         // Iliskili antrenman planinin kimligi.
         builder.HasOne<WorkoutPlan>()
@@ -31,10 +40,11 @@ public class WorkoutPlanDayConfiguration : IEntityTypeConfiguration<WorkoutPlanD
             .HasForeignKey(x => x.WorkoutPlanId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // O gun icin planlanan antrenmanin kimligi.
+        // O gun icin planlanan katalog antrenmaninin kimligi (motor gunlerinde bos).
         builder.HasOne<Workout>()
             .WithMany()
             .HasForeignKey(x => x.WorkoutId)
+            .IsRequired(false)
             .OnDelete(DeleteBehavior.Restrict);
 
         // Gunun sonuna eklenen kardiyo bolumunun antrenmani (opsiyonel).

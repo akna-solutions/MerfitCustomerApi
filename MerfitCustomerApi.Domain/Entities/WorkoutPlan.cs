@@ -51,4 +51,54 @@ public class WorkoutPlan : BaseEntity
     /// Planin yapay zeka tarafindan uretilip uretilmedigi.
     /// </summary>
     public bool IsAiGenerated { get; set; }
+
+    /// <summary>
+    /// Program versiyon numarasi (1, 2, 3...). Katalog planlarinda bos.
+    /// </summary>
+    public int? ProgramVersion { get; set; }
+
+    /// <summary>
+    /// Bu versiyonun turetildigi onceki versiyonun plan kimligi.
+    /// </summary>
+    public long? PreviousPlanId { get; set; }
+
+    /// <summary>
+    /// Versiyon durumu. Eski kayitlar icin IsActive'den turetilir (Active / Archived).
+    /// </summary>
+    public TrainingProgramStatus Status { get; set; } = TrainingProgramStatus.Active;
+
+    /// <summary>
+    /// Planin kaynagi (katalog, motor, elle degisiklik).
+    /// </summary>
+    public TrainingProgramSource Source { get; set; } = TrainingProgramSource.Catalog;
+
+    /// <summary>
+    /// Motorun sectigi split kodu (FullBody, UpperLower, PushPullLegs...).
+    /// </summary>
+    public string? SplitType { get; set; }
+
+    /// <summary>
+    /// Plani ureten motor surumu.
+    /// </summary>
+    public string? EngineVersion { get; set; }
+
+    /// <summary>
+    /// Bu versiyonda neyin neden degistigini anlatan JSON (kurallar ve gerekceler).
+    /// </summary>
+    public string? ChangeSummary { get; set; }
+
+    /// <summary>
+    /// Versiyonun planlanan blok uzunlugu (hafta).
+    /// </summary>
+    public int? BlockWeeks { get; set; }
+
+    /// <summary>
+    /// Versiyonun bir deload (hafifletme) haftasi olup olmadigi.
+    /// </summary>
+    public bool IsDeload { get; set; }
+
+    /// <summary>
+    /// Versiyonun arsivlendigi zaman.
+    /// </summary>
+    public DateTime? ArchivedAt { get; set; }
 }

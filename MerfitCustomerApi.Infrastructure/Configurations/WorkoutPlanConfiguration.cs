@@ -41,6 +41,43 @@ public class WorkoutPlanConfiguration : IEntityTypeConfiguration<WorkoutPlan>
             .IsRequired(false)
             .HasMaxLength(50);
 
+        // Versiyon durumu (metin). Var olan satirlar migration'da IsActive'e gore doldurulur
+        // (veritabani varsayilani yalnizca migration'da; uygulama degeri her zaman acikca yazar).
+        builder.Property(x => x.Status)
+            .HasConversion<string>()
+            .IsRequired(true)
+            .HasMaxLength(20);
+
+        // Planin kaynagi (metin). Var olan satirlar Catalog.
+        builder.Property(x => x.Source)
+            .HasConversion<string>()
+            .IsRequired(true)
+            .HasMaxLength(20);
+
+        builder.Property(x => x.SplitType)
+            .IsRequired(false)
+            .HasMaxLength(50);
+
+        builder.Property(x => x.EngineVersion)
+            .IsRequired(false)
+            .HasMaxLength(50);
+
+        // Neyin neden degistigi (JSON).
+        builder.Property(x => x.ChangeSummary)
+            .IsRequired(false)
+            .HasColumnType("text");
+
+        // Kullanicinin versiyon gecmisi ve onerileri icin.
+        builder.HasIndex(x => new { x.UserId, x.Status });
+
+        // Iliskiler (foreign key) yapilandirmasi.
+        // Bir onceki versiyon (silinirse bag kopar, bu versiyon korunur).
+        builder.HasOne<WorkoutPlan>()
+            .WithMany()
+            .HasForeignKey(x => x.PreviousPlanId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.SetNull);
+
         // Iliskiler (foreign key) yapilandirmasi.
         // Planin ait oldugu kullanicinin kimligi.
         builder.HasOne<ApplicationUser>()

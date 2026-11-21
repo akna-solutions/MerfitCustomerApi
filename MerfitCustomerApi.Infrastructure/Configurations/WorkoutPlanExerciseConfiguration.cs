@@ -28,6 +28,24 @@ public class WorkoutPlanExerciseConfiguration : IEntityTypeConfiguration<Workout
         // Onerilen sorgu senaryosu (WorkoutPlanDayId + Order) icin composite index.
         builder.HasIndex(x => new { x.WorkoutPlanDayId, x.Order });
 
+        // Agirlik belirleme yontemi (metin).
+        builder.Property(x => x.WeightGuidance)
+            .HasConversion<string>()
+            .IsRequired(false)
+            .HasMaxLength(30);
+
+        // Gecmisten hesaplanan onerilen agirlik.
+        builder.Property(x => x.SuggestedWeightKg)
+            .HasPrecision(18, 2);
+
+        builder.Property(x => x.AlternativeExerciseIds)
+            .IsRequired(false)
+            .HasMaxLength(500);
+
+        builder.Property(x => x.SelectionReason)
+            .IsRequired(false)
+            .HasMaxLength(500);
+
         // Iliskiler (foreign key) yapilandirmasi.
         // Iliskili antrenman plani gununun kimligi. Gun silinirse (plan yeniden olusturulup
         // eski gunler temizlenirse) bu satirlar da silinmeli - Cascade.
@@ -41,6 +59,13 @@ public class WorkoutPlanExerciseConfiguration : IEntityTypeConfiguration<Workout
         builder.HasOne<Exercise>()
             .WithMany()
             .HasForeignKey(x => x.ExerciseId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Hedeflenen kas grubu.
+        builder.HasOne<MuscleGroup>()
+            .WithMany()
+            .HasForeignKey(x => x.TargetMuscleGroupId)
+            .IsRequired(false)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

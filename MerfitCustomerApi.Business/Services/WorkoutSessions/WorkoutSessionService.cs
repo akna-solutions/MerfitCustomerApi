@@ -1,4 +1,4 @@
-﻿using MerfitCustomerApi.Business.Common;
+using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Common.Pagination;
 using MerfitCustomerApi.Business.Dtos.Customer.WorkoutSessions;
 using MerfitCustomerApi.Business.Interfaces.Services;
@@ -34,13 +34,16 @@ public class WorkoutSessionService : IWorkoutSessionService
 
     private readonly INotificationReminderCanceller? _reminderCanceller;
     private readonly ProgressiveOverloadOptions _progressionOptions;
+    private readonly TrainingEngineOptions _engineOptions;
 
     public WorkoutSessionService(
         IUnitOfWork unitOfWork,
         IMerfitScoreService scoreService,
         INotificationReminderCanceller? reminderCanceller = null,
-        IOptions<ProgressiveOverloadOptions>? progressionOptions = null)
+        IOptions<ProgressiveOverloadOptions>? progressionOptions = null,
+        IOptions<TrainingEngineOptions>? engineOptions = null)
     {
+        _engineOptions = engineOptions?.Value ?? new TrainingEngineOptions();
         _unitOfWork = unitOfWork;
         _scoreService = scoreService;
         _reminderCanceller = reminderCanceller;
@@ -49,10 +52,19 @@ public class WorkoutSessionService : IWorkoutSessionService
 
     public async Task<CustomerWorkoutSessionDto> StartSessionAsync(long userId, StartWorkoutSessionRequest request, CancellationToken cancellationToken = default)
     {
-        var workout = await _unitOfWork.Repository<Workout>().GetByIdAsync(request.WorkoutId, cancellationToken);
-        if (workout is null || !workout.IsActive)
+        if (request.WorkoutId is null && request.WorkoutPlanDayId is null)
         {
-            throw new NotFoundException(nameof(Workout), request.WorkoutId);
+            throw new AppValidationException(nameof(request.WorkoutId), "WorkoutId veya WorkoutPlanDayId gönderilmelidir.");
+        }
+
+        Workout? workout = null;
+        if (request.WorkoutId is long requestedWorkoutId)
+        {
+            workout = await _unitOfWork.Repository<Workout>().GetByIdAsync(requestedWorkoutId, cancellationToken);
+            if (workout is null || !workout.IsActive)
+            {
+                throw new NotFoundException(nameof(Workout), requestedWorkoutId);
+            }
         }
 
         // Faz 2: oturum kisisellestirilmis bir plan gununden ("Bugünün Antrenmanı" -> Başlat)
@@ -66,7 +78,9 @@ public class WorkoutSessionService : IWorkoutSessionService
         {
             var planDay = await _unitOfWork.Repository<WorkoutPlanDay>()
                 .GetByIdAsync(request.WorkoutPlanDayId.Value, cancellationToken);
-            if (planDay is null || planDay.WorkoutId != request.WorkoutId)
+            // Antrenman motoru gunlerinde katalog antrenmani yoktur (WorkoutId bos); o zaman istekte WorkoutId
+            // gonderilmemeli ya da gunle ayni olmalidir. Katalog gunlerinde eski kural aynen gecerli.
+            if (planDay is null || (request.WorkoutId.HasValue && planDay.WorkoutId != request.WorkoutId))
             {
                 throw new AppValidationException(nameof(request.WorkoutPlanDayId), "Belirtilen plan günü bu antrenmana ait değil.");
             }
@@ -77,6 +91,16 @@ public class WorkoutSessionService : IWorkoutSessionService
             {
                 // Kaydin varligini sizdirmamak icin NotFound (IDOR korumasi) - baska kullanicinin plan gunu.
                 throw new NotFoundException(nameof(WorkoutPlanDay), request.WorkoutPlanDayId.Value);
+            }
+
+            if (ownerPlan.Status is TrainingProgramStatus.Proposed or TrainingProgramStatus.Rejected)
+            {
+                throw new AppValidationException(nameof(request.WorkoutPlanDayId), "Onaylanmamış bir program önerisinden antrenman başlatılamaz.");
+            }
+
+            if (workout is null && planDay.WorkoutId is long dayWorkoutId)
+            {
+                workout = await _unitOfWork.Repository<Workout>().GetByIdAsync(dayWorkoutId, cancellationToken);
             }
 
             workoutPlanDayId = planDay.Id;
@@ -91,7 +115,7 @@ public class WorkoutSessionService : IWorkoutSessionService
         {
             var catalogExercises = await _unitOfWork.Repository<WorkoutExercise>()
                 .GetQueryable()
-                .Where(we => we.WorkoutId == workout.Id)
+                .Where(we => we.WorkoutId == workout!.Id)
                 .OrderBy(we => we.Order)
                 .ToListAsync(cancellationToken);
             exerciseOrder = catalogExercises.Select(we => (we.ExerciseId, we.Order)).ToList();
@@ -102,7 +126,7 @@ public class WorkoutSessionService : IWorkoutSessionService
         var session = new WorkoutSession
         {
             UserId = userId,
-            WorkoutId = workout.Id,
+            WorkoutId = workout?.Id,
             WorkoutPlanDayId = workoutPlanDayId,
             StartedAt = DateTime.UtcNow,
             Status = WorkoutSessionStatus.Started,
@@ -143,12 +167,8 @@ public class WorkoutSessionService : IWorkoutSessionService
         }
 
         var sessionIds = sessions.Select(s => s.Id).ToList();
-        var workoutIds = sessions.Select(s => s.WorkoutId).Distinct().ToList();
-
-        var workoutTitles = await _unitOfWork.Repository<Workout>()
-            .GetQueryable()
-            .Where(w => workoutIds.Contains(w.Id))
-            .ToDictionaryAsync(w => w.Id, w => w.Title, cancellationToken);
+        var workoutTitles = await WorkoutSessionTitles.LoadAsync(
+            _unitOfWork, sessions.Select(s => (s.WorkoutId, s.WorkoutPlanDayId)), cancellationToken);
 
         var sessionExercises = await _unitOfWork.Repository<WorkoutSessionExercise>()
             .GetQueryable()
@@ -165,13 +185,14 @@ public class WorkoutSessionService : IWorkoutSessionService
 
         var items = sessions.Select(s =>
         {
-            var sets = setsBySession[s.Id].ToList();
+            // Isinma setleri hacme ve en yuksek agirliga katilmaz (eski kayitlarda isinma isareti yoktur).
+            var sets = setsBySession[s.Id].Where(l => !l.IsWarmup).ToList();
             var weights = sets.Where(l => l.WeightKg is > 0).Select(l => l.WeightKg!.Value).ToList();
             return new CustomerWorkoutSessionHistoryItemDto
             {
                 Id = s.Id,
                 WorkoutId = s.WorkoutId,
-                Title = workoutTitles.GetValueOrDefault(s.WorkoutId, string.Empty),
+                Title = workoutTitles.Resolve(s.WorkoutId, s.WorkoutPlanDayId),
                 StartedAt = s.StartedAt,
                 CompletedAt = s.CompletedAt!.Value,
                 DurationSeconds = s.DurationSeconds,
@@ -190,7 +211,8 @@ public class WorkoutSessionService : IWorkoutSessionService
     public async Task<CustomerWorkoutSessionDto> GetSessionAsync(long userId, long sessionId, CancellationToken cancellationToken = default)
     {
         var session = await GetOwnedSessionAsync(userId, sessionId, cancellationToken);
-        var workout = await _unitOfWork.Repository<Workout>().GetByIdAsync(session.WorkoutId, cancellationToken);
+        var title = (await WorkoutSessionTitles.LoadAsync(
+            _unitOfWork, new[] { (session.WorkoutId, session.WorkoutPlanDayId) }, cancellationToken)).Resolve(session.WorkoutId, session.WorkoutPlanDayId);
 
         var targets = await GetExerciseTargetsAsync(session, cancellationToken);
 
@@ -200,7 +222,7 @@ public class WorkoutSessionService : IWorkoutSessionService
             .OrderBy(se => se.Order)
             .ToListAsync(cancellationToken);
 
-        return await BuildSessionDtoAsync(session, targets, sessionExercises, userId, cancellationToken, workout?.Title);
+        return await BuildSessionDtoAsync(session, targets, sessionExercises, userId, cancellationToken, title);
     }
 
     public async Task<CustomerWorkoutSessionExerciseDto> LogSetAsync(
@@ -229,6 +251,10 @@ public class WorkoutSessionService : IWorkoutSessionService
             _unitOfWork.Repository<WorkoutSessionExercise>().Update(sessionExercise);
         }
 
+        var rir = ResolveRir(request);
+
+        // Ayni set numarasi ikinci kez gonderilirse yeni satir acilmaz, mevcut set guncellenir. Iki istek ayni anda
+        // gelirse veritabanindaki unique index ikinci eklemeyi reddeder; o durumda mevcut satir guncellenir.
         var existingSet = await _unitOfWork.Repository<WorkoutSetLog>()
             .FirstOrDefaultAsync(
                 s => s.WorkoutSessionExerciseId == sessionExerciseId && s.SetNumber == request.SetNumber,
@@ -240,26 +266,36 @@ public class WorkoutSessionService : IWorkoutSessionService
             {
                 WorkoutSessionExerciseId = sessionExerciseId,
                 SetNumber = request.SetNumber,
-                WeightKg = weightKg,
-                Reps = request.Reps,
-                DurationSeconds = request.DurationSeconds,
-                Rpe = request.Rpe,
-                CompletedAt = DateTime.UtcNow,
                 CreatedAt = DateTime.UtcNow,
             };
+            ApplySet(newSet, request, weightKg, rir);
             await _unitOfWork.Repository<WorkoutSetLog>().AddAsync(newSet, cancellationToken);
+            try
+            {
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex) when (DbExceptionClassifier.IsUniqueViolation(ex, out _))
+            {
+                _unitOfWork.ClearTracking();
+                if (sessionExercise.StartedAt.HasValue)
+                {
+                    _unitOfWork.Repository<WorkoutSessionExercise>().Update(sessionExercise);
+                }
+
+                var concurrent = await _unitOfWork.Repository<WorkoutSetLog>()
+                    .GetQueryable(asNoTracking: false)
+                    .FirstAsync(s => s.WorkoutSessionExerciseId == sessionExerciseId && s.SetNumber == request.SetNumber, cancellationToken);
+                ApplySet(concurrent, request, weightKg, rir);
+                _unitOfWork.Repository<WorkoutSetLog>().Update(concurrent);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
         }
         else
         {
-            existingSet.WeightKg = weightKg;
-            existingSet.Reps = request.Reps;
-            existingSet.DurationSeconds = request.DurationSeconds;
-            existingSet.Rpe = request.Rpe;
-            existingSet.CompletedAt = DateTime.UtcNow;
+            ApplySet(existingSet, request, weightKg, rir);
             _unitOfWork.Repository<WorkoutSetLog>().Update(existingSet);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         var targets = await GetExerciseTargetsAsync(session, cancellationToken);
         var setLogs = await _unitOfWork.Repository<WorkoutSetLog>()
@@ -269,9 +305,10 @@ public class WorkoutSessionService : IWorkoutSessionService
             .ToListAsync(cancellationToken);
         var previousBest = await GetPreviousBestAsync(userId, sessionExercise.ExerciseId, cancellationToken);
         var lastPerformances = await GetLastPerformancesAsync(userId, session, new List<long> { sessionExercise.ExerciseId }, cancellationToken);
+        var engineContext = await LoadEngineProgressionContextAsync(userId, session, targets, new List<long> { sessionExercise.ExerciseId }, cancellationToken);
 
         var target = targets.TryGetValue(sessionExercise.ExerciseId, out var t) ? t : (ExerciseTargetValues?)null;
-        return MapSessionExercise(sessionExercise, exercise, target, setLogs, previousBest, lastPerformances.GetValueOrDefault(sessionExercise.ExerciseId));
+        return MapSessionExercise(sessionExercise, exercise, target, setLogs, previousBest, lastPerformances.GetValueOrDefault(sessionExercise.ExerciseId), engineContext);
     }
 
     public async Task<CustomerWorkoutSessionSummaryDto> CompleteSessionAsync(
@@ -343,8 +380,19 @@ public class WorkoutSessionService : IWorkoutSessionService
                 .Select(p => p.WeightKg)
                 .FirstOrDefaultAsync(cancellationToken);
 
-        var profiles = await WorkoutCalorieEstimator.LoadProfilesAsync(_unitOfWork, new[] { session.WorkoutId }, cancellationToken);
-        if (!profiles.TryGetValue(session.WorkoutId, out var meta))
+        WorkoutEnergyProfile? meta = null;
+        if (session.WorkoutId is long workoutId)
+        {
+            var profiles = await WorkoutCalorieEstimator.LoadProfilesAsync(_unitOfWork, new[] { workoutId }, cancellationToken);
+            profiles.TryGetValue(workoutId, out meta);
+        }
+        else if (session.WorkoutPlanDayId.HasValue)
+        {
+            // Motor plan gunu: katalog antrenmani yok; direnc antrenmani, orta zorluk varsayimi.
+            meta = WorkoutEnergyProfile.ForEngineSession(string.Empty);
+        }
+
+        if (meta is null)
         {
             return clientEstimate;
         }
@@ -420,10 +468,10 @@ public class WorkoutSessionService : IWorkoutSessionService
 
         var previousBests = await GetPreviousBestsAsync(userId, exerciseIds, cancellationToken);
         var lastPerformances = await GetLastPerformancesAsync(userId, session, exerciseIds, cancellationToken);
+        var engineContext = await LoadEngineProgressionContextAsync(userId, session, targets, exerciseIds, cancellationToken);
 
-        var workout = workoutTitleFallback is null
-            ? await _unitOfWork.Repository<Workout>().GetByIdAsync(session.WorkoutId, cancellationToken)
-            : null;
+        var title = workoutTitleFallback ?? (await WorkoutSessionTitles.LoadAsync(
+            _unitOfWork, new[] { (session.WorkoutId, session.WorkoutPlanDayId) }, cancellationToken)).Resolve(session.WorkoutId, session.WorkoutPlanDayId);
 
         var exerciseDtos = sessionExercises.Select(se =>
         {
@@ -432,14 +480,15 @@ public class WorkoutSessionService : IWorkoutSessionService
             var setLogs = allSetLogs.Where(s => s.WorkoutSessionExerciseId == se.Id).ToList();
             var previousBest = previousBests.GetValueOrDefault(se.ExerciseId);
 
-            return MapSessionExercise(se, exercise, target, setLogs, previousBest, lastPerformances.GetValueOrDefault(se.ExerciseId));
+            return MapSessionExercise(se, exercise, target, setLogs, previousBest, lastPerformances.GetValueOrDefault(se.ExerciseId), engineContext);
         }).ToList();
 
         return new CustomerWorkoutSessionDto
         {
             Id = session.Id,
             WorkoutId = session.WorkoutId,
-            Title = workoutTitleFallback ?? workout?.Title ?? string.Empty,
+            WorkoutPlanDayId = session.WorkoutPlanDayId,
+            Title = title,
             Status = session.Status.ToString(),
             StartedAt = session.StartedAt,
             CompletedAt = session.CompletedAt,
@@ -454,7 +503,9 @@ public class WorkoutSessionService : IWorkoutSessionService
     /// WorkoutExercise - veya kisisellestirilmis plan - WorkoutPlanExercise) bagimsiz olarak
     /// tasir; MapSessionExercise bu iki kaynagi ayirt etmek zorunda kalmaz.
     /// </summary>
-    private readonly record struct ExerciseTargetValues(int Sets, int? Reps, int? RestSeconds, int? DurationSeconds, int? RepsMax = null);
+    private readonly record struct ExerciseTargetValues(
+        int Sets, int? Reps, int? RestSeconds, int? DurationSeconds, int? RepsMax = null, int? TargetRir = null,
+        WeightGuidanceType? WeightGuidance = null, decimal? SuggestedWeightKg = null);
 
     /// <summary>
     /// Bir oturumun hedef degerlerini, oturumun hangi kaynaktan baslatildigina gore
@@ -472,13 +523,19 @@ public class WorkoutSessionService : IWorkoutSessionService
 
             return planExercises
                 .GroupBy(pe => pe.ExerciseId)
-                .ToDictionary(g => g.Key, g => new ExerciseTargetValues(g.First().Sets, g.First().Reps, g.First().RestSeconds, g.First().DurationSeconds, g.First().RepsMax));
+                .ToDictionary(g => g.Key, g => new ExerciseTargetValues(
+                    g.First().Sets, g.First().Reps, g.First().RestSeconds, g.First().DurationSeconds, g.First().RepsMax,
+                    g.First().TargetRir, g.First().WeightGuidance, g.First().SuggestedWeightKg));
         }
 
         var catalogExercises = await _unitOfWork.Repository<WorkoutExercise>()
             .GetQueryable()
             .Where(we => we.WorkoutId == session.WorkoutId)
             .ToListAsync(cancellationToken);
+        if (!session.WorkoutId.HasValue)
+        {
+            return new Dictionary<long, ExerciseTargetValues>();
+        }
 
         return catalogExercises
             .GroupBy(we => we.ExerciseId)
@@ -491,7 +548,8 @@ public class WorkoutSessionService : IWorkoutSessionService
         ExerciseTargetValues? target,
         List<WorkoutSetLog> setLogs,
         CustomerPreviousBestDto? previousBest,
-        CustomerLastPerformanceDto? lastPerformance)
+        CustomerLastPerformanceDto? lastPerformance,
+        EngineProgressionContext? engineContext = null)
     {
         return new CustomerWorkoutSessionExerciseDto
         {
@@ -510,9 +568,15 @@ public class WorkoutSessionService : IWorkoutSessionService
             PreviousBest = previousBest,
             RequiresWeight = RequiresWeight(exercise),
             LastPerformance = lastPerformance,
-            // Sureye dayali hedefte (tekrar yok) oneri uretilmez.
+            TargetRir = target?.TargetRir,
+            WeightGuidance = target?.WeightGuidance?.ToString(),
+            SuggestedStartWeightKg = target?.SuggestedWeightKg,
+            // Sureye dayali hedefte (tekrar yok) oneri uretilmez. Antrenman motorunun planlarinda (hedef RIR var)
+            // RIR, egilim ve rahatsizlik bildirimini dikkate alan ProgressionEngine; diger planlarda eski kural.
             Progression = target is { Reps: > 0 }
-                ? ProgressiveOverloadAdvisor.Suggest(target.Value.Sets, target.Value.Reps, target.Value.RepsMax, lastPerformance?.Sets, _progressionOptions)
+                ? target.Value.TargetRir.HasValue && engineContext is not null
+                    ? EngineSuggestion(sessionExercise.ExerciseId, exercise, target.Value, engineContext)
+                    : ProgressiveOverloadAdvisor.Suggest(target.Value.Sets, target.Value.Reps, target.Value.RepsMax, lastPerformance?.Sets, _progressionOptions)
                 : null,
         };
     }
@@ -524,7 +588,153 @@ public class WorkoutSessionService : IWorkoutSessionService
         Reps = s.Reps,
         DurationSeconds = s.DurationSeconds,
         Rpe = s.Rpe,
+        Rir = s.Rir,
+        IsWarmup = s.IsWarmup,
+        IsCompleted = s.IsCompleted,
     };
+
+    /// <summary>RIR dogrudan girildiyse o; yalnizca RPE girildiyse RIR = 10 - RPE (yuvarlanir, 0-10).</summary>
+    private static int? ResolveRir(LogWorkoutSetRequest request)
+    {
+        if (request.Rir.HasValue)
+        {
+            return request.Rir;
+        }
+
+        return request.Rpe is decimal rpe ? (int)Math.Clamp(Math.Round(10 - rpe, MidpointRounding.AwayFromZero), 0, 10) : null;
+    }
+
+    private static void ApplySet(WorkoutSetLog set, LogWorkoutSetRequest request, decimal? weightKg, int? rir)
+    {
+        set.WeightKg = weightKg;
+        set.Reps = request.Reps;
+        set.DurationSeconds = request.DurationSeconds;
+        set.Rpe = request.Rpe;
+        set.Rir = rir;
+        set.IsWarmup = request.IsWarmup ?? false;
+        set.IsCompleted = request.IsCompleted ?? true;
+        set.CompletedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Motor progresyonu icin bu oturumdan onceki maruziyetler ve rahatsizlik bildirimleri.</summary>
+    private sealed record EngineProgressionContext(
+        IReadOnlyDictionary<long, IReadOnlyList<Training.ExerciseExposure>> Exposures,
+        IReadOnlySet<long> DiscomfortExerciseIds,
+        IReadOnlyDictionary<long, Training.CatalogExercise> Catalog);
+
+    private async Task<EngineProgressionContext?> LoadEngineProgressionContextAsync(
+        long userId,
+        WorkoutSession session,
+        Dictionary<long, ExerciseTargetValues> targets,
+        List<long> exerciseIds,
+        CancellationToken cancellationToken)
+    {
+        var engineExerciseIds = exerciseIds.Where(id => targets.TryGetValue(id, out var t) && t.TargetRir.HasValue).ToList();
+        if (engineExerciseIds.Count == 0)
+        {
+            return null;
+        }
+
+        var exposures = await Training.TrainingHistoryReader.LoadExposuresAsync(
+            _unitOfWork, userId, engineExerciseIds, before: session.StartedAt, excludeSessionId: session.Id, maxPerExercise: 6, cancellationToken);
+        var discomfort = await Training.TrainingHistoryReader.LoadRecentDiscomfortAsync(
+            _unitOfWork, userId, DateTime.UtcNow.AddDays(-_engineOptions.DiscomfortLookbackDays), cancellationToken);
+        var catalog = await Training.TrainingHistoryReader.LoadCatalogAsync(_unitOfWork, _engineOptions, engineExerciseIds, cancellationToken);
+        return new EngineProgressionContext(exposures, discomfort, catalog);
+    }
+
+    private CustomerProgressionSuggestionDto EngineSuggestion(
+        long exerciseId, Exercise? exercise, ExerciseTargetValues target, EngineProgressionContext context)
+    {
+        var catalog = context.Catalog.GetValueOrDefault(exerciseId);
+        var decision = Training.ProgressionEngine.Decide(
+            new Training.ProgressionInput(
+                target.Sets,
+                target.Reps ?? 1,
+                target.RepsMax ?? target.Reps ?? 1,
+                target.TargetRir,
+                catalog?.LoadIncrementKg ?? 2.5m,
+                catalog?.IsBodyweight ?? !RequiresWeight(exercise),
+                context.DiscomfortExerciseIds.Contains(exerciseId)),
+            context.Exposures.GetValueOrDefault(exerciseId) ?? Array.Empty<Training.ExerciseExposure>(),
+            _engineOptions);
+
+        return new CustomerProgressionSuggestionDto
+        {
+            Action = decision.Action,
+            PreviousWeightKg = decision.PreviousWeightKg,
+            SuggestedWeightKg = decision.SuggestedWeightKg,
+            IncreaseKg = decision.ChangeKg,
+            TargetRepsMin = decision.TargetRepsMin,
+            TargetRepsMax = decision.TargetRepsMax,
+            Message = decision.Message,
+            TargetRir = target.TargetRir,
+            IsConfident = decision.IsConfident,
+            Trend = decision.Trend.ToString(),
+            Reasons = decision.Reasons.ToList(),
+        };
+    }
+
+    public async Task<CustomerWorkoutFeedbackDto> SubmitFeedbackAsync(
+        long userId, long sessionId, SubmitWorkoutFeedbackRequest request, CancellationToken cancellationToken = default)
+    {
+        var session = await GetOwnedSessionAsync(userId, sessionId, cancellationToken);
+        if (session.Status != WorkoutSessionStatus.Completed)
+        {
+            throw new AppValidationException("Değerlendirme yalnızca tamamlanan antrenman için gönderilebilir.");
+        }
+
+        var discomfortIds = (request.DiscomfortExerciseIds ?? new List<long>()).Distinct().ToList();
+        if (discomfortIds.Count > 0)
+        {
+            var sessionExerciseIds = await _unitOfWork.Repository<WorkoutSessionExercise>().GetQueryable()
+                .Where(se => se.WorkoutSessionId == sessionId)
+                .Select(se => se.ExerciseId)
+                .ToListAsync(cancellationToken);
+            if (discomfortIds.Any(id => !sessionExerciseIds.Contains(id)))
+            {
+                throw new AppValidationException(nameof(request.DiscomfortExerciseIds), "Rahatsızlık bildirilen egzersiz bu antrenmanda yok.");
+            }
+        }
+
+        var repo = _unitOfWork.Repository<WorkoutSessionFeedback>();
+        var feedback = await repo.GetQueryable(asNoTracking: false).FirstOrDefaultAsync(f => f.WorkoutSessionId == sessionId, cancellationToken);
+        var isNew = feedback is null;
+        feedback ??= new WorkoutSessionFeedback { WorkoutSessionId = sessionId, UserId = userId, CreatedAt = DateTime.UtcNow };
+        feedback.Difficulty = request.Difficulty;
+        feedback.Fatigue = request.Fatigue;
+        feedback.Recovery = request.Recovery;
+        feedback.Satisfaction = request.Satisfaction;
+        feedback.HasDiscomfort = request.HasDiscomfort || discomfortIds.Count > 0;
+        feedback.DiscomfortExerciseIds = discomfortIds.Count > 0 ? string.Join(',', discomfortIds) : null;
+        feedback.Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+        if (isNew)
+        {
+            await repo.AddAsync(feedback, cancellationToken);
+        }
+        else
+        {
+            feedback.UpdatedAt = DateTime.UtcNow;
+            repo.Update(feedback);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return new CustomerWorkoutFeedbackDto
+        {
+            SessionId = sessionId,
+            Difficulty = feedback.Difficulty,
+            Fatigue = feedback.Fatigue,
+            Recovery = feedback.Recovery,
+            Satisfaction = feedback.Satisfaction,
+            HasDiscomfort = feedback.HasDiscomfort,
+            DiscomfortExerciseIds = discomfortIds,
+            Note = feedback.Note,
+            SafetyMessage = feedback.HasDiscomfort
+                ? "Rahatsızlık bildirdiğin hareketlerde ağırlık artışı durduruldu. Ağrı yapan hareketi zorlama, alternatifini kullanabilirsin. Ağrı sürerse veya şiddetliyse bir sağlık profesyoneline danış."
+                : null,
+        };
+    }
 
     /// <summary>Egzersiz harici agirlik gerektiriyor mu (bkz. <see cref="BodyweightEquipmentMarkers"/>).</summary>
     private static bool RequiresWeight(Exercise? exercise)
@@ -678,7 +888,7 @@ public class WorkoutSessionService : IWorkoutSessionService
         var sessionExerciseIds = sessionExercises.Select(se => se.Id).ToList();
         var setLogs = await _unitOfWork.Repository<WorkoutSetLog>()
             .GetQueryable()
-            .Where(s => sessionExerciseIds.Contains(s.WorkoutSessionExerciseId) && s.WeightKg != null && s.Reps != null && s.Reps > 0)
+            .Where(s => sessionExerciseIds.Contains(s.WorkoutSessionExerciseId) && !s.IsWarmup && s.WeightKg != null && s.Reps != null && s.Reps > 0)
             .ToListAsync(cancellationToken);
 
         foreach (var sessionExercise in sessionExercises)

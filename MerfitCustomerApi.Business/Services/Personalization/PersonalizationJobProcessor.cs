@@ -72,7 +72,15 @@ public class PersonalizationJobProcessor : IPersonalizationJobProcessor
             // Yalnizca beslenmeyi etkileyen profil degisikliklerinde (kilo, boy, alerji...) antrenman
             // programi yeniden uretilmez.
             WorkoutPlanGenerationResult? workoutResult = null;
-            if (!nutritionOnly)
+
+            // Kullanicinin aktif programi kisisellestirilmis antrenman motorundan geliyorsa (Engine / Manual), profil
+            // degisikligi bu programi kullanici onayi olmadan degistirmez; katalog plani uretilmez. Kullanici yeni
+            // versiyonu antrenman motorundan (oneri + onay) alir. Beslenme plani her zamanki gibi guncellenir.
+            var hasEngineProgram = await _unitOfWork.Repository<WorkoutPlan>().AnyAsync(
+                p => p.UserId == userId && p.IsActive
+                    && (p.Source == TrainingProgramSource.Engine || p.Source == TrainingProgramSource.Manual),
+                cancellationToken);
+            if (!nutritionOnly && !hasEngineProgram)
             {
                 var workoutStopwatch = Stopwatch.StartNew();
                 workoutResult = await _workoutPlanGenerator.GenerateAsync(userId, cancellationToken);
@@ -296,6 +304,8 @@ public class PersonalizationJobProcessor : IPersonalizationJobProcessor
             foreach (var plan in existing)
             {
                 plan.IsActive = false;
+                plan.Status = TrainingProgramStatus.Archived;
+                plan.ArchivedAt = DateTime.UtcNow;
                 plan.EndDate = DateTime.UtcNow;
                 plan.UpdatedAt = DateTime.UtcNow;
                 _unitOfWork.Repository<WorkoutPlan>().Update(plan);
