@@ -199,6 +199,7 @@ builder.Services.AddSingleton<IGoogleIdTokenValidator, GoogleIdTokenValidator>()
 // bir saglayici entegre edilene kadar "card" yontemi kapali gorunur.
 builder.Services.Configure<StoreOptions>(builder.Configuration.GetSection(StoreOptions.SectionName));
 var storeOptions = builder.Configuration.GetSection(StoreOptions.SectionName).Get<StoreOptions>() ?? new StoreOptions();
+builder.Services.AddScoped<IStoreBadgeService, StoreBadgeService>();
 builder.Services.AddScoped<IStoreCatalogService, StoreCatalogService>();
 builder.Services.AddScoped<IStoreCartService, StoreCartService>();
 builder.Services.AddScoped<IStoreFavoriteService, StoreFavoriteService>();

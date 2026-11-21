@@ -29,11 +29,13 @@ public class StoreRecommendationService : IStoreRecommendationService
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly TimeProvider _timeProvider;
+    private readonly IStoreBadgeService _badges;
 
-    public StoreRecommendationService(IUnitOfWork unitOfWork, TimeProvider? timeProvider = null)
+    public StoreRecommendationService(IUnitOfWork unitOfWork, TimeProvider? timeProvider = null, IStoreBadgeService? badges = null)
     {
         _unitOfWork = unitOfWork;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _badges = badges ?? new StoreBadgeService(unitOfWork, timeProvider: _timeProvider);
     }
 
     public async Task<StoreProductRecommendationsDto> GetForProductAsync(long userId, long productId, int limit, CancellationToken cancellationToken = default)
@@ -145,13 +147,15 @@ public class StoreRecommendationService : IStoreRecommendationService
         var images = await PrimaryImagesAsync(similar.Concat(recommended).Select(c => c.Id).ToList(), cancellationToken);
         StoreProductListItemDto ToDto(StoreRecommendationScorer.Candidate c) => StoreProductMapper.ToListItem(candidatesById[c.Id], images.GetValueOrDefault(c.Id));
 
-        return new StoreProductRecommendationsDto
+        var result = new StoreProductRecommendationsDto
         {
             ProductId = productId,
             Similar = similar.Select(ToDto).ToList(),
             Recommended = recommended.Select(ToDto).ToList(),
             Personalized = personalized,
         };
+        await _badges.ApplyAsync(result.Similar.Concat(result.Recommended), cancellationToken);
+        return result;
     }
 
     private IQueryable<Product> VisibleProducts()

@@ -2717,6 +2717,10 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.Property<string>("FeaturesJson")
                         .HasColumnType("jsonb");
 
+                    b.Property<string>("HighlightBadge")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -2785,6 +2789,8 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
                     b.ToTable("Product", "store", t =>
                         {
                             t.HasCheckConstraint("CK_Product_DiscountPrice_Valid", "\"DiscountPrice\" IS NULL OR (\"DiscountPrice\" > 0 AND \"DiscountPrice\" < \"Price\")");
+
+                            t.HasCheckConstraint("CK_Product_HighlightBadge_Valid", "\"HighlightBadge\" IS NULL OR \"HighlightBadge\" IN ('advantageous', 'mbfit_pick')");
 
                             t.HasCheckConstraint("CK_Product_Price_Positive", "\"Price\" > 0");
 

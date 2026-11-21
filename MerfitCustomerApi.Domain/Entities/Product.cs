@@ -43,6 +43,12 @@ public class Product : BaseEntity
     /// <summary>Admin'in belirledigi gosterim sirasi ("one cikanlar" siralamasi).</summary>
     public int SortOrder { get; set; }
 
+    /// <summary>
+    /// Admin'in elle atadigi vitrin rozeti (orn. "advantageous" = Avantajli Urun); null ise yok. Diger rozetler
+    /// (yeni, cok satan, son urunler, kargo bedava, yuksek puan) gercek veriden sunucuda turetilir (bkz. StoreBadgeRules).
+    /// </summary>
+    public string? HighlightBadge { get; set; }
+
     /// <summary>Urun ozellikleri; JSON dizi (string[]).</summary>
     public string? FeaturesJson { get; set; }
 

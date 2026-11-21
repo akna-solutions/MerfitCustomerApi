@@ -37,6 +37,37 @@ public class StoreOptions
 
     /// <summary>Sepet, favori ve adres yazma uclari icin kullanici basina dakikalik istek siniri.</summary>
     public int WriteRequestsPerMinute { get; set; } = 120;
+
+    /// <summary>Urun rozeti esikleri (bkz. StoreBadgeRules).</summary>
+    public StoreBadgeOptions Badges { get; set; } = new();
+}
+
+/// <summary>
+/// Gercek veriden turetilen urun rozetlerinin esikleri. Rozet yalnizca kosul gercekten saglaniyorsa gosterilir;
+/// sahte/sabit rozet yoktur.
+/// </summary>
+public class StoreBadgeOptions
+{
+    /// <summary>"Yeni": urun bu kadar gun icinde eklendiyse.</summary>
+    public int NewProductDays { get; set; } = 30;
+
+    /// <summary>"Son N urun": stok 1..bu deger arasindaysa.</summary>
+    public int LowStockThreshold { get; set; } = 5;
+
+    /// <summary>"Cok satan" penceresi (gun); iptal edilmemis siparisler sayilir.</summary>
+    public int BestsellerWindowDays { get; set; } = 30;
+
+    /// <summary>Pencerede en cok satan ilk N urun rozet alir.</summary>
+    public int BestsellerTopCount { get; set; } = 10;
+
+    /// <summary>... ve pencerede en az bu kadar adet satilmis olmalidir.</summary>
+    public int BestsellerMinQuantity { get; set; } = 5;
+
+    /// <summary>"Yuksek puanli": yayindaki yorumlarin ortalamasi en az bu deger ...</summary>
+    public decimal TopRatedMinAverage { get; set; } = 4.5m;
+
+    /// <summary>... ve en az bu kadar yorum varsa.</summary>
+    public int TopRatedMinReviews { get; set; } = 5;
 }
 
 /// <summary>Havale/EFT bilgileri. Iban bos ise havale secenegi sunulmaz.</summary>

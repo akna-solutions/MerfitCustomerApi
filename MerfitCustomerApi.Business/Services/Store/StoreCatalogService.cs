@@ -21,11 +21,13 @@ public class StoreCatalogService : IStoreCatalogService
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly TimeProvider _timeProvider;
+    private readonly IStoreBadgeService _badges;
 
-    public StoreCatalogService(IUnitOfWork unitOfWork, TimeProvider? timeProvider = null)
+    public StoreCatalogService(IUnitOfWork unitOfWork, TimeProvider? timeProvider = null, IStoreBadgeService? badges = null)
     {
         _unitOfWork = unitOfWork;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _badges = badges ?? new StoreBadgeService(unitOfWork, timeProvider: _timeProvider);
     }
 
     public async Task<List<StoreCategoryDto>> GetCategoriesAsync(CancellationToken cancellationToken = default)
@@ -99,6 +101,7 @@ public class StoreCatalogService : IStoreCatalogService
             });
         }
 
+        await _badges.ApplyAsync(result.Select(c => c.FeaturedProduct!), cancellationToken);
         return result;
     }
 
@@ -200,9 +203,9 @@ public class StoreCatalogService : IStoreCatalogService
         var rows = await WithPrimaryImage(ordered.Skip((request.Page - 1) * request.PageSize).Take(request.PageSize))
             .ToListAsync(cancellationToken);
 
-        return PagedResult<StoreProductListItemDto>.Create(
-            rows.Select(r => StoreProductMapper.ToListItem(r.Product, r.ImageUrl)).ToList(),
-            request.Page, request.PageSize, totalCount);
+        var items = rows.Select(r => StoreProductMapper.ToListItem(r.Product, r.ImageUrl)).ToList();
+        await _badges.ApplyAsync(items, cancellationToken);
+        return PagedResult<StoreProductListItemDto>.Create(items, request.Page, request.PageSize, totalCount);
     }
 
     public async Task<StoreProductDetailDto> GetProductAsync(long id, CancellationToken cancellationToken = default)
@@ -230,6 +233,7 @@ public class StoreCatalogService : IStoreCatalogService
         dto.Variants = StoreJson.ReadList<StoreVariantGroup>(product.VariantsJson);
         dto.Features = StoreJson.ReadList<string>(product.FeaturesJson);
         dto.Specs = StoreJson.ReadList<StoreSpec>(product.SpecsJson);
+        await _badges.ApplyAsync(new[] { dto }, cancellationToken);
         return dto;
     }
 

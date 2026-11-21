@@ -51,6 +51,7 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
             table.HasCheckConstraint("CK_Product_StockQuantity_NonNegative", "\"StockQuantity\" >= 0");
             table.HasCheckConstraint("CK_Product_Price_Positive", "\"Price\" > 0");
             table.HasCheckConstraint("CK_Product_DiscountPrice_Valid", "\"DiscountPrice\" IS NULL OR (\"DiscountPrice\" > 0 AND \"DiscountPrice\" < \"Price\")");
+            table.HasCheckConstraint("CK_Product_HighlightBadge_Valid", "\"HighlightBadge\" IS NULL OR \"HighlightBadge\" IN ('advantageous', 'mbfit_pick')");
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Name).IsRequired().HasMaxLength(200);
@@ -64,6 +65,7 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(x => x.StockQuantity).IsConcurrencyToken();
         builder.Property(x => x.IsActive).HasDefaultValue(true);
         builder.Property(x => x.IsFeatured).HasDefaultValue(false);
+        builder.Property(x => x.HighlightBadge).HasMaxLength(32);
         builder.Property(x => x.SortOrder).HasDefaultValue(0);
         builder.Property(x => x.FeaturesJson).HasColumnType("jsonb");
         builder.Property(x => x.SpecsJson).HasColumnType("jsonb");

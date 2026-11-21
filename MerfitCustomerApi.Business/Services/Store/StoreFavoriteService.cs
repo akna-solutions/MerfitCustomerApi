@@ -16,11 +16,13 @@ public class StoreFavoriteService : IStoreFavoriteService
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly TimeProvider _timeProvider;
+    private readonly IStoreBadgeService _badges;
 
-    public StoreFavoriteService(IUnitOfWork unitOfWork, TimeProvider? timeProvider = null)
+    public StoreFavoriteService(IUnitOfWork unitOfWork, TimeProvider? timeProvider = null, IStoreBadgeService? badges = null)
     {
         _unitOfWork = unitOfWork;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _badges = badges ?? new StoreBadgeService(unitOfWork, timeProvider: _timeProvider);
     }
 
     public async Task<List<StoreProductListItemDto>> GetAsync(long userId, CancellationToken cancellationToken = default)
@@ -43,7 +45,9 @@ public class StoreFavoriteService : IStoreFavoriteService
             .Take(MaxFavorites)
             .ToListAsync(cancellationToken);
 
-        return rows.Select(r => StoreProductMapper.ToListItem(r.Product, r.ImageUrl)).ToList();
+        var items = rows.Select(r => StoreProductMapper.ToListItem(r.Product, r.ImageUrl)).ToList();
+        await _badges.ApplyAsync(items, cancellationToken);
+        return items;
     }
 
     public async Task AddAsync(long userId, long productId, CancellationToken cancellationToken = default)
