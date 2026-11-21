@@ -24,6 +24,7 @@ internal static class StoreProductMapper
         dto.HasVariants = StoreJson.ReadList<StoreVariantGroup>(p.VariantsJson).Count > 0;
         dto.IsFeatured = p.IsFeatured;
         dto.CreatedAt = DateTime.SpecifyKind(p.CreatedAt, DateTimeKind.Utc);
+        dto.HighlightBadge = p.HighlightBadge;
         return dto;
     }
 

@@ -1,4 +1,5 @@
 using MerfitCustomerApi.Business.Common.Pagination;
+using System.Text.Json.Serialization;
 using MerfitCustomerApi.Business.Services.Store;
 
 namespace MerfitCustomerApi.Business.Dtos.Customer.Store;
@@ -45,6 +46,28 @@ public class StoreProductListItemDto
 
     public bool IsFeatured { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Urun gorselinin kosesinde gosterilecek rozetler, onem sirasina gore (ilk eleman en onemli). Indirim orani
+    /// DiscountPercentage alaninda ayrica gelir ve bu listede yer almaz.
+    /// </summary>
+    public List<StoreProductBadgeDto> Badges { get; set; } = new();
+
+    /// <summary>Admin'in atadigi rozet kodu; yalnizca sunucu icinde rozet hesaplamak icin tasinir.</summary>
+    [JsonIgnore]
+    public string? HighlightBadge { get; set; }
+}
+
+/// <summary>Urun rozeti. Code istemcinin cizim/ikon secimi icindir; Label hazir Turkce metindir.</summary>
+public class StoreProductBadgeDto
+{
+    /// <summary>"advantageous" | "mbfit_pick" | "low_stock" | "bestseller" | "top_rated" | "new" | "free_shipping".</summary>
+    public string Code { get; set; } = string.Empty;
+
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>Sayisal deger gerekiyorsa (low_stock: kalan adet).</summary>
+    public int? Value { get; set; }
 }
 
 public class StoreProductDetailDto : StoreProductListItemDto

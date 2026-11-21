@@ -79,3 +79,9 @@ public interface IStoreOrderService
     /// <summary>Yalnizca "received" durumundaki siparis iptal edilebilir; stok iade edilir.</summary>
     Task<StoreOrderDto> CancelAsync(long userId, long orderId, CancelStoreOrderRequest request, CancellationToken cancellationToken = default);
 }
+
+/// <summary>Urun listelerine gercek veriden turetilen rozetleri ekler (toplu: liste basina en fazla iki sorgu).</summary>
+public interface IStoreBadgeService
+{
+    Task ApplyAsync(IEnumerable<StoreProductListItemDto> items, CancellationToken cancellationToken = default);
+}
