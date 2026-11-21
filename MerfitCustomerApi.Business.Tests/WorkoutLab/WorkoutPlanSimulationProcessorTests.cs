@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Services.Activity;
 using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Services.Personalization.Models;
 using MerfitCustomerApi.Business.Services.WorkoutLab;
@@ -437,5 +438,37 @@ public class WorkoutPlanSimulationProcessorTests
         Assert.False(await catalog.CreateProcessor().ProcessNextAsync());
         Assert.Equal(WorkoutPlanSimulationStatus.Failed, stuck.Status);
         Assert.Contains("zaman aşımı", stuck.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task StepGoal_IsCalculatedFromProfile_WithTheSameRuleAsRealUsers()
+    {
+        var catalog = new WorkoutLabTestCatalog().WithDefaultCatalog();
+        var profile = Profile(FitnessGoal.LoseWeight);
+        profile.ActivityLevel = ActivityLevel.Sedentary;
+        profile.Age = 30;
+
+        var (_, result, _) = await catalog.RunAsync(profile);
+
+        Assert.NotNull(result!.StepGoal);
+        Assert.Equal(7_500, result.StepGoal!.DailyGoal); // hareketsiz 6.000 + kilo verme 1.500
+        Assert.Equal(ActivityLevel.Sedentary, result.StepGoal.ActivityLevel);
+        Assert.False(result.StepGoal.UsedDefault);
+        Assert.Contains("aktivite seviyene", result.StepGoal.Reason);
+        AssertNoUserDataTouched(catalog);
+    }
+
+    [Fact]
+    public void StepGoal_WithoutActivityLevel_UsesDefaultGoal()
+    {
+        var options = new StepActivityOptions();
+
+        var stepGoal = WorkoutPlanSimulationProcessor.BuildStepGoal(Profile(), options);
+
+        Assert.True(stepGoal.UsedDefault);
+        Assert.Null(stepGoal.ActivityLevel);
+        Assert.Equal(StepGoalCalculator.Calculate(null, FitnessGoal.BuildMuscle, null, options).Goal, stepGoal.DailyGoal);
+        Assert.Equal(options.AutoGoalMin, stepGoal.MinDailyGoal);
+        Assert.Equal(options.AutoGoalMax, stepGoal.MaxDailyGoal);
     }
 }

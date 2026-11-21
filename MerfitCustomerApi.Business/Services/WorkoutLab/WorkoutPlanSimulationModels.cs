@@ -30,6 +30,9 @@ public sealed class WorkoutPlanSimulationProfile
     public decimal? WeightKg { get; set; }
     public decimal? TargetWeightKg { get; set; }
 
+    /// <summary>Gunluk aktivite seviyesi; yalnizca adim hedefi hesabinda kullanilir. Bos ise varsayilan adim hedefi.</summary>
+    public ActivityLevel? ActivityLevel { get; set; }
+
     /// <summary>Uc ana hedeften biri. Bos ise algoritmanin varsayilani (Kas Gelistirme).</summary>
     public FitnessGoal? Goal { get; set; }
 
@@ -146,6 +149,23 @@ public sealed class WorkoutPlanSimulationResult
     public List<SimulationDay> Days { get; init; } = new();
 
     public required SimulationMetrics Metrics { get; init; }
+
+    /// <summary>Bu profile uygulamanin otomatik verecegi gunluk adim hedefi. Eski kayitlarda null.</summary>
+    public SimulationStepGoal? StepGoal { get; init; }
+}
+
+/// <summary>Profilden hesaplanan gunluk adim hedefi (StepGoalCalculator).</summary>
+public sealed class SimulationStepGoal
+{
+    public int DailyGoal { get; init; }
+    public required string Reason { get; init; }
+    public ActivityLevel? ActivityLevel { get; init; }
+
+    /// <summary>Aktivite seviyesi secilmediginden varsayilan taban kullanildi.</summary>
+    public bool UsedDefault { get; init; }
+    public int DefaultDailyGoal { get; init; }
+    public int MinDailyGoal { get; init; }
+    public int MaxDailyGoal { get; init; }
 }
 
 public sealed class SimulationEquipment

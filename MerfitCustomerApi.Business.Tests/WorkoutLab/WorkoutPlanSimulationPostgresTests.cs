@@ -32,6 +32,7 @@ public class WorkoutPlanSimulationPostgresTests
             new WorkoutPlanGenerator(uow, options, NullLogger<WorkoutPlanGenerator>.Instance),
             options,
             Options.Create(new WorkoutPlanLabOptions()),
+            Options.Create(new StepActivityOptions()),
             NullLogger<WorkoutPlanSimulationProcessor>.Instance);
     }
 
