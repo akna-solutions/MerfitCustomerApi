@@ -141,6 +141,7 @@ public sealed class WorkoutLabTestCatalog
             CreateGenerator(generationOptions),
             Options.Create(generationOptions),
             Options.Create(labOptions ?? new WorkoutPlanLabOptions()),
+            Options.Create(new StepActivityOptions()),
             NullLogger<WorkoutPlanSimulationProcessor>.Instance);
     }
 

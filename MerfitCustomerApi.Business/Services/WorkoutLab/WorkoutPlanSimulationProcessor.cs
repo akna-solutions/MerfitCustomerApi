@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using MerfitCustomerApi.Business.Common;
 using MerfitCustomerApi.Business.Interfaces.Services;
+using MerfitCustomerApi.Business.Services.Activity;
 using MerfitCustomerApi.Business.Services.Personalization.Generators;
 using MerfitCustomerApi.Business.Services.Personalization.Models;
 using MerfitCustomerApi.Domain.Entities;
@@ -30,6 +31,7 @@ public class WorkoutPlanSimulationProcessor : IWorkoutPlanSimulationProcessor
     private readonly IWorkoutPlanGenerator _generator;
     private readonly WorkoutPlanGenerationOptions _generationOptions;
     private readonly WorkoutPlanLabOptions _labOptions;
+    private readonly StepActivityOptions _stepOptions;
     private readonly ILogger<WorkoutPlanSimulationProcessor> _logger;
 
     public WorkoutPlanSimulationProcessor(
@@ -37,12 +39,14 @@ public class WorkoutPlanSimulationProcessor : IWorkoutPlanSimulationProcessor
         IWorkoutPlanGenerator generator,
         IOptions<WorkoutPlanGenerationOptions> generationOptions,
         IOptions<WorkoutPlanLabOptions> labOptions,
+        IOptions<StepActivityOptions> stepOptions,
         ILogger<WorkoutPlanSimulationProcessor> logger)
     {
         _unitOfWork = unitOfWork;
         _generator = generator;
         _generationOptions = generationOptions.Value;
         _labOptions = labOptions.Value;
+        _stepOptions = stepOptions.Value;
         _logger = logger;
     }
 
@@ -431,6 +435,26 @@ public class WorkoutPlanSimulationProcessor : IWorkoutPlanSimulationProcessor
             MaxExercisesPerDay = _generationOptions.MaxExercisesPerDay,
             Days = days,
             Metrics = BuildMetrics(days),
+            StepGoal = BuildStepGoal(profile, _stepOptions),
+        };
+    }
+
+    /// <summary>
+    /// Bu profildeki bir kullaniciya uygulamanin verecegi gunluk adim hedefi. Gercek kullanicilarla ayni
+    /// <see cref="StepGoalCalculator"/> kullanilir (aktivite seviyesi, hedef, yas).
+    /// </summary>
+    public static SimulationStepGoal BuildStepGoal(WorkoutPlanSimulationProfile profile, StepActivityOptions options)
+    {
+        var calculated = StepGoalCalculator.Calculate(profile.ActivityLevel, profile.Goal, profile.Age, options);
+        return new SimulationStepGoal
+        {
+            DailyGoal = calculated.Goal,
+            Reason = calculated.Reason,
+            ActivityLevel = profile.ActivityLevel,
+            UsedDefault = profile.ActivityLevel is null,
+            DefaultDailyGoal = options.DefaultDailyGoal,
+            MinDailyGoal = options.AutoGoalMin,
+            MaxDailyGoal = options.AutoGoalMax,
         };
     }
 
