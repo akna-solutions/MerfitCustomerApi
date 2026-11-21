@@ -22,6 +22,15 @@ public class CustomerWorkoutPlanDto
     /// </summary>
     public string? Summary { get; set; }
 
+    /// <summary>"Catalog" | "Engine" | "Manual".</summary>
+    public string Source { get; set; } = "Catalog";
+
+    /// <summary>Program versiyonu (motor planlarinda).</summary>
+    public int? ProgramVersion { get; set; }
+
+    /// <summary>Split kodu (motor planlarinda).</summary>
+    public string? SplitType { get; set; }
+
     public List<CustomerWorkoutPlanDayDto> Days { get; set; } = new();
 }
 
@@ -29,6 +38,15 @@ public class CustomerWorkoutPlanDayDto
 {
     /// <summary>"Monday" | "Tuesday" | ... (System.DayOfWeek.ToString()).</summary>
     public string DayOfWeek { get; set; } = string.Empty;
+
+    /// <summary>Plan gununun kimligi (antrenmani bu kimlikle baslat).</summary>
+    public long WorkoutPlanDayId { get; set; }
+
+    /// <summary>Gun basligi (motor gunlerinde "Ust Vucut A" gibi).</summary>
+    public string? Title { get; set; }
+
+    /// <summary>Gunun odagi (Upper, Lower, Push, Pull, Legs, FullBody).</summary>
+    public string? Focus { get; set; }
 
     public CustomerWorkoutPlanWorkoutDto Workout { get; set; } = new();
     public List<CustomerWorkoutPlanExerciseDto> Exercises { get; set; } = new();
@@ -42,7 +60,8 @@ public class CustomerWorkoutPlanDayDto
 
 public class CustomerWorkoutPlanWorkoutDto
 {
-    public long Id { get; set; }
+    /// <summary>Katalog antrenmani kimligi. Antrenman motoru gunlerinde bos.</summary>
+    public long? Id { get; set; }
     public string Title { get; set; } = string.Empty;
     public int DurationMin { get; set; }
     public string? ImageUrl { get; set; }
@@ -66,6 +85,17 @@ public class CustomerWorkoutPlanExerciseDto
 
     /// <summary>Egzersizin katalog gorseli (Exercise.ImageUrl); yoksa null. Ana sayfa karti bunu gosterir.</summary>
     public string? ImageUrl { get; set; }
+
+    /// <summary>Hedef RIR (motor planlarinda).</summary>
+    public int? TargetRir { get; set; }
+
+    /// <summary>"FromHistory" | "RampUp" | "Bodyweight".</summary>
+    public string? WeightGuidance { get; set; }
+
+    /// <summary>Gecmisten hesaplanan baslangic agirligi.</summary>
+    public decimal? SuggestedWeightKg { get; set; }
+
+    public List<long> AlternativeExerciseIds { get; set; } = new();
 }
 
 /// <summary>

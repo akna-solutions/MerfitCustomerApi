@@ -253,16 +253,26 @@ public class EnergyBalanceService : IEnergyBalanceService
                 && s.CompletedAt != null
                 && s.CompletedAt >= rangeStartUtc
                 && s.CompletedAt < rangeEndUtc)
-            .Select(s => new { s.Id, s.WorkoutId, s.StartedAt, CompletedAt = s.CompletedAt!.Value, s.DurationSeconds, s.CaloriesBurned })
+            .Select(s => new { s.Id, s.WorkoutId, s.WorkoutPlanDayId, s.StartedAt, CompletedAt = s.CompletedAt!.Value, s.DurationSeconds, s.CaloriesBurned })
             .ToListAsync(cancellationToken);
         var workoutProfiles = await WorkoutCalorieEstimator.LoadProfilesAsync(
-            _unitOfWork, sessions.Select(s => s.WorkoutId).Distinct().ToList(), cancellationToken);
+            _unitOfWork, sessions.Where(s => s.WorkoutId.HasValue).Select(s => s.WorkoutId!.Value).Distinct().ToList(), cancellationToken);
+        var sessionTitles = await WorkoutSessions.WorkoutSessionTitles.LoadAsync(
+            _unitOfWork, sessions.Select(s => (s.WorkoutId, s.WorkoutPlanDayId)), cancellationToken);
 
         var context = new LoadedContext(clock, profile, mealsByDay, stepsByDay, weights);
         foreach (var s in sessions)
         {
             var day = DateOnly.FromDateTime(NotificationClock.ToLocal(s.CompletedAt, clock.Zone));
-            workoutProfiles.TryGetValue(s.WorkoutId, out var meta);
+            WorkoutEnergyProfile? meta = null;
+            if (s.WorkoutId is long workoutId)
+            {
+                workoutProfiles.TryGetValue(workoutId, out meta);
+            }
+            else if (s.WorkoutPlanDayId.HasValue)
+            {
+                meta = WorkoutEnergyProfile.ForEngineSession(sessionTitles.Resolve(null, s.WorkoutPlanDayId));
+            }
             var active = WorkoutCalorieEstimator.ActiveSeconds(s.DurationSeconds, s.StartedAt, s.CompletedAt, _options.MaxWorkoutMinutes);
             // Saklanan deger tek kaynaktir (oturum tamamlanirken sunucuda hesaplanir). Eski/eksik kayitlarda ayni
             // formulle o gunun kilosundan hesaplanir; o da mumkun degilse antrenman kaloriye katilmaz.

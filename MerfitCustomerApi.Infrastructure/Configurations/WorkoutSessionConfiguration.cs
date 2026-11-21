@@ -47,10 +47,11 @@ public class WorkoutSessionConfiguration : IEntityTypeConfiguration<WorkoutSessi
             .HasForeignKey(x => x.UserId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Gerceklestirilen antrenmanin kimligi.
+        // Gerceklestirilen katalog antrenmaninin kimligi (motor plan gununden baslatilan oturumda bos olabilir).
         builder.HasOne<Workout>()
             .WithMany()
             .HasForeignKey(x => x.WorkoutId)
+            .IsRequired(false)
             .OnDelete(DeleteBehavior.Restrict);
 
         // Oturum kisisellestirilmis bir plan gununden baslatildiysa referans verdigi WorkoutPlanDay.

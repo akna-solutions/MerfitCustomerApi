@@ -66,4 +66,19 @@ public class Exercise : BaseEntity
     /// Egzersizin aktif/yayinda olup olmadigi.
     /// </summary>
     public bool IsActive { get; set; }
+
+    /// <summary>
+    /// Bilesik / izolasyon bilgisi. Bos ise antrenman motoru acik bir kurala gore tahmin eder ve tahmini raporlar.
+    /// </summary>
+    public ExerciseMechanicType? MechanicType { get; set; }
+
+    /// <summary>
+    /// Temel hareket paterni (yatay itis, squat...). Bos olabilir.
+    /// </summary>
+    public MovementPattern? MovementPattern { get; set; }
+
+    /// <summary>
+    /// Bu egzersizde kullanilabilir en kucuk agirlik artisi (kg). Bos ise ekipman turune gore varsayilan kullanilir.
+    /// </summary>
+    public decimal? LoadIncrementKg { get; set; }
 }

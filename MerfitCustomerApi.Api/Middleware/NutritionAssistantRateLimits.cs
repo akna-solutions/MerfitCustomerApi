@@ -17,6 +17,9 @@ public static class NutritionAssistantRateLimits
 {
     public const string ChatPath = "/api/nutrition-assistant/chat";
 
+    /// <summary>Antrenman kocu ayni AI saglayici zincirini kullandigi icin ayni dakika limitlerini paylasir.</summary>
+    public const string TrainingCoachPath = "/api/training/coach";
+
     private static readonly JsonSerializerOptions SerializerOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public static PartitionedRateLimiter<HttpContext> Create(NutritionAssistantOptions options)
@@ -62,7 +65,8 @@ public static class NutritionAssistantRateLimits
 
     private static bool IsChat(HttpContext context) =>
         HttpMethods.IsPost(context.Request.Method)
-        && context.Request.Path.Equals(ChatPath, StringComparison.OrdinalIgnoreCase);
+        && (context.Request.Path.Equals(ChatPath, StringComparison.OrdinalIgnoreCase)
+            || context.Request.Path.Equals(TrainingCoachPath, StringComparison.OrdinalIgnoreCase));
 
     private static SlidingWindowRateLimiterOptions Window(int permitsPerMinute) => new()
     {

@@ -274,11 +274,11 @@ public class WorkoutPlanSimulationProcessor : IWorkoutPlanSimulationProcessor
             ?? throw new InvalidOperationException("Generator tani bilgisi donmedi.");
         var insights = diagnostics.Candidates.ToDictionary(c => c.WorkoutId);
 
-        var workoutIds = generated.Days.Select(d => d.Day.WorkoutId)
+        var workoutIds = generated.Days.Select(d => d.Day.WorkoutId!.Value)
             .Concat(generated.Days.Where(d => d.Day.CardioWorkoutId.HasValue).Select(d => d.Day.CardioWorkoutId!.Value))
             .Distinct()
             .ToList();
-        var mainWorkoutIds = generated.Days.Select(d => d.Day.WorkoutId).Distinct().ToList();
+        var mainWorkoutIds = generated.Days.Select(d => d.Day.WorkoutId!.Value).Distinct().ToList();
         var cardioWorkoutIds = generated.Days.Where(d => d.Day.CardioWorkoutId.HasValue).Select(d => d.Day.CardioWorkoutId!.Value).Distinct().ToList();
 
         var workouts = await _unitOfWork.Repository<Workout>().GetQueryable()
@@ -367,9 +367,9 @@ public class WorkoutPlanSimulationProcessor : IWorkoutPlanSimulationProcessor
         var days = generated.Days
             .Select(d =>
             {
-                var main = MapWorkout(d.Day.WorkoutId);
+                var main = MapWorkout(d.Day.WorkoutId!.Value);
                 var cardio = d.Day.CardioWorkoutId is long cardioId ? MapWorkout(cardioId) : null;
-                var catalogCount = catalogExerciseRows.Count(r => r.WorkoutId == d.Day.WorkoutId);
+                var catalogCount = catalogExerciseRows.Count(r => r.WorkoutId == d.Day.WorkoutId!.Value);
                 return new SimulationDay
                 {
                     DayOfWeek = TrainingDayCodes.ToCode(d.Day.DayOfWeek),

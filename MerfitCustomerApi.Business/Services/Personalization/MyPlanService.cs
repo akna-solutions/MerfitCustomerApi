@@ -49,6 +49,9 @@ public class MyPlanService : IMyPlanService
             IsActive = plan.IsActive,
             // WorkoutPlanGenerator, kural-tabanli aciklamayi (Reason/Summary) Description alanina yazar.
             Summary = plan.Description,
+            Source = plan.Source.ToString(),
+            ProgramVersion = plan.ProgramVersion,
+            SplitType = plan.SplitType,
             Days = dayDtos,
         };
     }
@@ -104,7 +107,7 @@ public class MyPlanService : IMyPlanService
         }
 
         var dayIds = days.Select(d => d.Id).ToList();
-        var workoutIds = days.Select(d => d.WorkoutId)
+        var workoutIds = days.Where(d => d.WorkoutId.HasValue).Select(d => d.WorkoutId!.Value)
             .Concat(days.Where(d => d.CardioWorkoutId.HasValue).Select(d => d.CardioWorkoutId!.Value))
             .Distinct()
             .ToList();
@@ -128,17 +131,21 @@ public class MyPlanService : IMyPlanService
 
         return days.Select(day =>
         {
-            var workout = workouts.GetValueOrDefault(day.WorkoutId);
-            var exercisesForDay = planExercises.Where(pe => pe.WorkoutPlanDayId == day.Id);
+            var workout = day.WorkoutId is long workoutId ? workouts.GetValueOrDefault(workoutId) : null;
+            var exercisesForDay = planExercises.Where(pe => pe.WorkoutPlanDayId == day.Id).ToList();
 
             return new CustomerWorkoutPlanDayDto
             {
                 DayOfWeek = day.DayOfWeek.ToString(),
+                WorkoutPlanDayId = day.Id,
+                Title = day.Title ?? workout?.Title,
+                Focus = day.Focus,
+                // Antrenman motoru gunlerinde katalog antrenmani yoktur: Id bos, baslik gunun basligi, sure tahmini.
                 Workout = new CustomerWorkoutPlanWorkoutDto
                 {
                     Id = day.WorkoutId,
-                    Title = workout?.Title ?? string.Empty,
-                    DurationMin = workout?.DurationMin ?? 0,
+                    Title = workout?.Title ?? day.Title ?? string.Empty,
+                    DurationMin = workout?.DurationMin ?? EstimateMinutes(exercisesForDay),
                     ImageUrl = workout?.ImageUrl,
                 },
                 CardioFinisher = day.CardioWorkoutId is long cardioId && workouts.TryGetValue(cardioId, out var cardio)
@@ -161,8 +168,19 @@ public class MyPlanService : IMyPlanService
                     RestSeconds = pe.RestSeconds,
                     DurationSeconds = pe.DurationSeconds,
                     ImageUrl = exercises.GetValueOrDefault(pe.ExerciseId)?.ImageUrl,
+                    TargetRir = pe.TargetRir,
+                    WeightGuidance = pe.WeightGuidance?.ToString(),
+                    SuggestedWeightKg = pe.SuggestedWeightKg,
+                    AlternativeExerciseIds = Training.IdList.Parse(pe.AlternativeExerciseIds).ToList(),
                 }).ToList(),
             };
         }).ToList();
+    }
+
+    /// <summary>Motor gunu icin tahmini sure: 5 dk isinma + set x (40 sn + dinlenme).</summary>
+    internal static int EstimateMinutes(IEnumerable<WorkoutPlanExercise> exercises)
+    {
+        var seconds = exercises.Sum(e => e.Sets * ((e.DurationSeconds ?? 40) + (e.RestSeconds ?? 60)));
+        return seconds == 0 ? 0 : 5 + (int)Math.Ceiling(seconds / 60m);
     }
 }

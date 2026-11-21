@@ -485,7 +485,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
 
         var workoutsById = eligible.ToDictionary(w => w.Id);
         var mixedDays = days
-            .Where(d => profiles.TryGetValue(d.Day.WorkoutId, out var p) && p.Cardio >= _options.MixedWorkoutCardioScoreThreshold)
+            .Where(d => profiles.TryGetValue(d.Day.WorkoutId!.Value, out var p) && p.Cardio >= _options.MixedWorkoutCardioScoreThreshold)
             .ToList();
         var remaining = target - mixedDays.Count;
         if (remaining <= 0)
@@ -524,7 +524,7 @@ public class WorkoutPlanGenerator : IWorkoutPlanGenerator
                 break;
             }
 
-            var mainDuration = workoutsById.TryGetValue(day.Day.WorkoutId, out var main) ? main.DurationMin : 0;
+            var mainDuration = workoutsById.TryGetValue(day.Day.WorkoutId!.Value, out var main) ? main.DurationMin : 0;
             var budget = maxDuration - mainDuration;
             var cardio = cardioCandidates
                 .Where(c => c.DurationMin <= budget && c.Id != day.Day.WorkoutId)

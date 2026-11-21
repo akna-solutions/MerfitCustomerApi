@@ -126,7 +126,7 @@ public class WorkoutPlanGeneratorScoringTests
         public async Task<List<long>> GeneratePickedWorkoutIdsAsync(WorkoutPlanGenerationOptions? options = null)
         {
             var result = await CreateGenerator(options).GenerateAsync(UserId);
-            return result.Days.Select(d => d.Day.WorkoutId).ToList();
+            return result.Days.Select(d => d.Day.WorkoutId!.Value).ToList();
         }
     }
 
@@ -385,7 +385,7 @@ public class WorkoutPlanGeneratorScoringTests
         var result = await catalog.CreateGenerator().GenerateAsync(UserId);
 
         Assert.Equal(4, result.Days.Count);
-        Assert.Equal(new long[] { 1, 2, 1, 2 }, result.Days.Select(d => d.Day.WorkoutId));
+        Assert.Equal(new long[] { 1, 2, 1, 2 }, result.Days.Select(d => d.Day.WorkoutId!.Value));
     }
 
     [Fact]
@@ -501,7 +501,7 @@ public class WorkoutPlanGeneratorScoringTests
         var result = await catalog.CreateGenerator().GenerateAsync(UserId);
 
         // Program yalnizca kardiyodan olusmaz: ana gunler direnc antrenmanidir.
-        Assert.All(result.Days, d => Assert.Contains(d.Day.WorkoutId, new long[] { 1, 2, 3 }));
+        Assert.All(result.Days, d => Assert.Contains(d.Day.WorkoutId!.Value, new long[] { 1, 2, 3 }));
         // Yag kaybinda haftada 3 kardiyo: her gun antrenman sonu kardiyo.
         Assert.All(result.Days, d => Assert.Contains(d.Day.CardioWorkoutId!.Value, new long[] { 4, 5 }));
         Assert.Equal(FitnessGoal.LoseWeight, result.Plan.Goal);
