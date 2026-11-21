@@ -273,37 +273,44 @@ public class StepActivityServiceTests
     }
 
     [Fact]
-    public async Task UpdateGoal_ChangesTodaysCompletionImmediately()
+    public async Task UpdateGoal_IsRejected_AndNothingIsWritten()
     {
         await CreateService().SyncAsync(UserId, Request(Today, Hours((9, 6000))));
 
-        var settings = await CreateService().UpdateGoalAsync(UserId, new UpdateStepGoalRequest { DailyGoal = 5000, Date = Today });
-        var day = await CreateService().GetDayAsync(UserId, Today);
+        var ex = await Assert.ThrowsAsync<AppValidationException>(() =>
+            CreateService().UpdateGoalAsync(UserId, new UpdateStepGoalRequest { DailyGoal = 5000, Date = Today }));
 
-        Assert.Equal(5000, settings.DailyGoal);
-        Assert.Equal(5000, Assert.Single(_settings).DailyStepGoal);
-        Assert.Equal(5000, day.DailyGoal);
-        Assert.True(day.GoalCompleted);
-        Assert.Equal(120, day.CompletionPercent);
+        Assert.Contains("otomatik", ex.Message + string.Join(" ", ex.Errors.SelectMany(e => e.Value)));
+        Assert.Empty(_settings);
+        Assert.Equal(10_000, Assert.Single(_days).DailyGoal);
     }
 
     [Fact]
-    public async Task UpdateGoal_DoesNotRewriteOldDaysGoal()
+    public async Task GetSettings_IgnoresOldUserChosenGoal()
     {
-        _days.Add(new DailyActivity { Id = 1, UserId = UserId, Date = Today.AddDays(-5), HourlySteps = Hours((9, 4000)), TotalSteps = 4000, DailyGoal = 10000, Source = "pedometer" });
+        _settings.Add(new UserActivitySetting { Id = 1, UserId = UserId, DailyStepGoal = 1000 });
 
-        await CreateService().UpdateGoalAsync(UserId, new UpdateStepGoalRequest { DailyGoal = 1000, Date = Today.AddDays(-5) });
+        var settings = await CreateService().GetSettingsAsync(UserId);
 
-        Assert.Equal(10000, _days.Single().DailyGoal);
+        Assert.Equal(10_000, settings.DailyGoal);
+        Assert.Equal("auto", settings.GoalSource);
     }
 
-    [Theory]
-    [InlineData(999)]
-    [InlineData(100_001)]
-    public async Task UpdateGoal_OutOfRange_Throws(int goal)
+    [Fact]
+    public async Task ProfileBasedGoal_IsAppliedToTodayOnNextSync_PastDaysKeepTheirGoal()
     {
-        await Assert.ThrowsAsync<AppValidationException>(() =>
-            CreateService().UpdateGoalAsync(UserId, new UpdateStepGoalRequest { DailyGoal = goal }));
+        _days.Add(new DailyActivity { Id = 1, UserId = UserId, Date = Today.AddDays(-1), HourlySteps = Hours((9, 4000)), TotalSteps = 4000, DailyGoal = 10000, Source = "pedometer" });
+        var profile = _profiles.Single();
+        profile.ActivityLevel = ActivityLevel.Sedentary;
+        profile.Goal = FitnessGoal.LoseWeight;
+
+        var result = await CreateService().SyncAsync(UserId, Request(Today, Hours((9, 7000))));
+
+        // Hareketsiz 6.000 + kilo verme 1.500 = 7.500
+        var today = Assert.Single(result.Days);
+        Assert.Equal(7_500, today.DailyGoal);
+        Assert.False(today.GoalCompleted);
+        Assert.Equal(10_000, _days.Single(d => d.Date == Today.AddDays(-1)).DailyGoal);
     }
 
     [Fact]
