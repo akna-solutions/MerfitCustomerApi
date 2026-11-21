@@ -49,7 +49,14 @@ public class UpdateStepGoalRequest
 /// <summary>Adim hedefi ve istemcinin yerel (henuz senkronize edilmemis) adimlar icin kullanacagi katsayilar.</summary>
 public class StepSettingsDto
 {
+    /// <summary>Sunucunun profile gore belirledigi gunluk adim hedefi (kullanici degistiremez).</summary>
     public int DailyGoal { get; set; }
+
+    /// <summary>Hedefin kaynagi; her zaman "auto".</summary>
+    public string GoalSource { get; set; } = "auto";
+
+    /// <summary>Hedefin neye gore belirlendigini anlatan kisa aciklama.</summary>
+    public string GoalReason { get; set; } = string.Empty;
 
     public int DefaultDailyGoal { get; set; }
 

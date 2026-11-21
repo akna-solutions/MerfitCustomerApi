@@ -9,8 +9,14 @@ public class StepActivityOptions
 {
     public const string SectionName = "StepActivity";
 
-    /// <summary>Kullanici hedef belirlemediyse kullanilan gunluk adim hedefi.</summary>
+    /// <summary>Profilde aktivite seviyesi yoksa kullanilan gunluk adim hedefi.</summary>
     public int DefaultDailyGoal { get; set; } = 10_000;
+
+    /// <summary>Otomatik adim hedefinin alt siniri.</summary>
+    public int AutoGoalMin { get; set; } = 5_000;
+
+    /// <summary>Otomatik adim hedefinin ust siniri.</summary>
+    public int AutoGoalMax { get; set; } = 12_500;
 
     public int MinDailyGoal { get; set; } = 1_000;
 

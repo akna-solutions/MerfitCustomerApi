@@ -30,7 +30,7 @@ public class StepActivityController : ControllerBase
         return Ok(await _service.SyncAsync(userId, request, cancellationToken));
     }
 
-    /// <summary>Gunluk hedef ve mesafe/kalori katsayilari.</summary>
+    /// <summary>Profile gore otomatik gunluk hedef (ve aciklamasi), mesafe/kalori katsayilari.</summary>
     [HttpGet("settings")]
     public async Task<ActionResult<StepSettingsDto>> GetSettings(CancellationToken cancellationToken)
     {
@@ -38,7 +38,10 @@ public class StepActivityController : ControllerBase
         return Ok(await _service.GetSettingsAsync(userId, cancellationToken));
     }
 
-    /// <summary>Gunluk adim hedefini gunceller (1.000 - 100.000).</summary>
+    /// <summary>
+    /// Kullanilmiyor: gunluk adim hedefi profile gore sunucuda otomatik belirlenir. Eski uygulama surumleri icin
+    /// birakildi; her zaman 400 (dogrulama hatasi) doner ve hicbir sey yazmaz.
+    /// </summary>
     [HttpPut("goal")]
     public async Task<ActionResult<StepSettingsDto>> UpdateGoal([FromBody] UpdateStepGoalRequest request, CancellationToken cancellationToken)
     {

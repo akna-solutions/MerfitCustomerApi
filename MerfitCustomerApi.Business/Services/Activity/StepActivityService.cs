@@ -254,80 +254,39 @@ public class StepActivityService : IStepActivityService
 
     public async Task<StepSettingsDto> GetSettingsAsync(long userId, CancellationToken cancellationToken = default)
     {
-        var setting = await _unitOfWork.Repository<UserActivitySetting>()
-            .FirstOrDefaultAsync(s => s.UserId == userId, cancellationToken);
         var profile = await _unitOfWork.Repository<UserProfile>().GetQueryable()
             .Where(p => p.UserId == userId)
-            .Select(p => new { p.HeightCm, p.WeightKg, p.Gender })
+            .Select(p => new { p.HeightCm, p.WeightKg, p.Gender, p.ActivityLevel, p.Goal, p.DateOfBirth })
             .FirstOrDefaultAsync(cancellationToken);
 
         var stride = StepMetrics.StrideLengthMeters(profile?.HeightCm, profile?.Gender, _options.DefaultStrideMeters);
         var weight = profile?.WeightKg is > 0 ? (double)profile.WeightKg.Value : _options.DefaultWeightKg;
+        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
+        int? age = profile?.DateOfBirth is { } dob ? StepGoalCalculator.AgeAt(dob, today) : null;
+
+        // Hedef kullanici tarafindan secilmez; profile gore sunucu belirler (eski UserActivitySetting kayitlari yok sayilir).
+        var goal = StepGoalCalculator.Calculate(profile?.ActivityLevel, profile?.Goal, age, _options);
 
         return new StepSettingsDto
         {
-            DailyGoal = setting?.DailyStepGoal ?? _options.DefaultDailyGoal,
+            DailyGoal = goal.Goal,
+            GoalSource = StepGoalCalculator.SourceAuto,
+            GoalReason = goal.Reason,
             DefaultDailyGoal = _options.DefaultDailyGoal,
-            MinDailyGoal = _options.MinDailyGoal,
-            MaxDailyGoal = _options.MaxDailyGoal,
+            MinDailyGoal = _options.AutoGoalMin,
+            MaxDailyGoal = _options.AutoGoalMax,
             StrideLengthMeters = Math.Round(stride, 3),
             CaloriesPerStep = Math.Round(StepMetrics.CaloriesPerStep(stride, weight, _options.WalkingKcalPerKgPerKm), 5),
         };
     }
 
+    /// <summary>
+    /// Gunluk adim hedefi artik kullanici tarafindan degistirilemez; sunucu profile gore belirler. Eski uygulama
+    /// surumleri bu ucu cagirirsa anlasilir bir dogrulama hatasi alir ve hicbir sey yazilmaz.
+    /// </summary>
     public Task<StepSettingsDto> UpdateGoalAsync(long userId, UpdateStepGoalRequest request, CancellationToken cancellationToken = default) =>
-        UpdateGoalAsync(userId, request, cancellationToken, attempt: 1);
-
-    private async Task<StepSettingsDto> UpdateGoalAsync(long userId, UpdateStepGoalRequest request, CancellationToken cancellationToken, int attempt)
-    {
-        if (request.DailyGoal < _options.MinDailyGoal || request.DailyGoal > _options.MaxDailyGoal)
-        {
-            throw new AppValidationException(nameof(request.DailyGoal),
-                $"Günlük adım hedefi {_options.MinDailyGoal:N0} ile {_options.MaxDailyGoal:N0} arasında olmalı.");
-        }
-
-        var nowUtc = _clock.GetUtcNow().UtcDateTime;
-        var repository = _unitOfWork.Repository<UserActivitySetting>();
-        var setting = await repository.GetQueryable(asNoTracking: false)
-            .FirstOrDefaultAsync(s => s.UserId == userId, cancellationToken);
-        if (setting is null)
-        {
-            await repository.AddAsync(new UserActivitySetting { UserId = userId, DailyStepGoal = request.DailyGoal, CreatedAt = nowUtc }, cancellationToken);
-        }
-        else
-        {
-            setting.DailyStepGoal = request.DailyGoal;
-            setting.UpdatedAt = nowUtc;
-            repository.Update(setting);
-        }
-
-        // Bugunun kaydi varsa hedefi de guncellenir; tarih ancak sunucu saatine gore bugun/dun olabilir
-        // (gecmis gunlerin hedefini sonradan dusurup basari kazanmak engellenir).
-        if (request.Date is { } date && Math.Abs(date.DayNumber - DateOnly.FromDateTime(nowUtc).DayNumber) <= 1)
-        {
-            var today = await _unitOfWork.Repository<DailyActivity>().GetQueryable(asNoTracking: false)
-                .FirstOrDefaultAsync(a => a.UserId == userId && a.Date == date, cancellationToken);
-            if (today is not null && today.DailyGoal != request.DailyGoal)
-            {
-                today.DailyGoal = request.DailyGoal;
-                today.UpdatedAt = nowUtc;
-                _unitOfWork.Repository<DailyActivity>().Update(today);
-            }
-        }
-
-        try
-        {
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException ex) when (attempt < MaxSaveAttempts && IsRetryableConflict(ex))
-        {
-            // Eszamanli ilk hedef kaydi ya da ayni anda guncellenen gun satiri: guncel veriyle tekrar denenir.
-            _unitOfWork.ClearTracking();
-            return await UpdateGoalAsync(userId, request, cancellationToken, attempt + 1);
-        }
-
-        return await GetSettingsAsync(userId, cancellationToken);
-    }
+        throw new AppValidationException(nameof(request.DailyGoal),
+            "Günlük adım hedefin profiline göre otomatik belirlenir ve değiştirilemez.");
 
     public async Task<StepDayDto> GetDayAsync(long userId, DateOnly date, CancellationToken cancellationToken = default)
     {
