@@ -85,6 +85,8 @@ public sealed class ContentModerationService : IContentModerationService
         ContentModerationType.LastName => "Soyad",
         ContentModerationType.Username => "Kullanıcı adı",
         ContentModerationType.ProfileBio => "Profil açıklaması",
+        ContentModerationType.ReviewTitle => "Yorum başlığı",
+        ContentModerationType.ReviewComment => "Yorum",
         _ => "Metin",
     };
 

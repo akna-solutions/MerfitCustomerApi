@@ -10,4 +10,8 @@ public enum ContentModerationType
     LastName,
     Username,
     ProfileBio,
+    /// <summary>MB Shop urun yorumu basligi.</summary>
+    ReviewTitle,
+    /// <summary>MB Shop urun yorumu metni.</summary>
+    ReviewComment,
 }
