@@ -1,3 +1,4 @@
+using MerfitCustomerApi.Business.Services.Energy;
 using MerfitCustomerApi.Business.Services.WorkoutLab;
 ﻿using MerfitCustomerApi.Business.Services.Notifications;
 using MerfitCustomerApi.Business.Services.Notifications.Engine;
@@ -247,6 +248,11 @@ builder.Services.AddScoped<IMiniGameService, MiniGameService>();
 // vermez; dogrulanmis gunler adim basarilarini (MerfitScoreService step_* kosullari) tetikler.
 builder.Services.Configure<StepActivityOptions>(builder.Configuration.GetSection(StepActivityOptions.SectionName));
 builder.Services.AddScoped<IStepActivityService, StepActivityService>();
+
+// Gunluk kalori dengesi: Meal/MealItem, DailyActivity, WorkoutSession, BodyMeasurement ve NutritionGoal'dan okur;
+// yeni tablo yoktur. Harcanan = BMR + adim (antrenmanla cakisan adimlar haric) + antrenman (net) + termik etki.
+builder.Services.Configure<EnergyBalanceOptions>(builder.Configuration.GetSection(EnergyBalanceOptions.SectionName));
+builder.Services.AddScoped<IEnergyBalanceService, EnergyBalanceService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<IFitnessProfileService, FitnessProfileService>();
 builder.Services.AddScoped<IEquipmentService, EquipmentService>();

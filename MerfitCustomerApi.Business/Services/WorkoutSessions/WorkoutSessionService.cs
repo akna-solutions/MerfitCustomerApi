@@ -10,6 +10,8 @@ using MerfitCustomerApi.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
+using MerfitCustomerApi.Business.Services.Energy;
+
 namespace MerfitCustomerApi.Business.Services.WorkoutSessions;
 
 /// <summary>
@@ -298,7 +300,7 @@ public class WorkoutSessionService : IWorkoutSessionService
         session.Status = WorkoutSessionStatus.Completed;
         session.CompletedAt = DateTime.UtcNow;
         session.DurationSeconds = request.DurationSeconds;
-        session.CaloriesBurned = request.CaloriesBurned;
+        session.CaloriesBurned = await EstimateCaloriesAsync(userId, session, request.CaloriesBurned, cancellationToken);
         session.Notes = request.Notes;
         _unitOfWork.Repository<WorkoutSession>().Update(session);
 
@@ -319,10 +321,42 @@ public class WorkoutSessionService : IWorkoutSessionService
         {
             SessionId = session.Id,
             DurationSeconds = request.DurationSeconds,
-            CaloriesBurned = request.CaloriesBurned,
+            CaloriesBurned = session.CaloriesBurned,
             NewPersonalRecords = newRecords,
         };
     }
+
+    /// <summary>
+    /// Antrenman kalorisi sunucuda, uygulama genelindeki tek formulle hesaplanir (WorkoutCalorieEstimator: net
+    /// (MET-1) x kg x saat; tur ve zorluk antrenman katalogundan). Takvim, ana sayfa, ilerleme ve kalori dengesi bu
+    /// saklanan degeri okur. Kilo bilinmiyorsa (profil eksik) istemcinin gonderdigi tahmin oldugu gibi saklanir.
+    /// </summary>
+    private async Task<decimal?> EstimateCaloriesAsync(long userId, WorkoutSession session, decimal? clientEstimate, CancellationToken cancellationToken)
+    {
+        var weightKg = await _unitOfWork.Repository<BodyMeasurement>().GetQueryable()
+            .Where(m => m.UserId == userId && m.WeightKg != null)
+            .OrderByDescending(m => m.RecordedAt).ThenByDescending(m => m.Id)
+            .Select(m => m.WeightKg)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? await _unitOfWork.Repository<UserProfile>().GetQueryable()
+                .Where(p => p.UserId == userId)
+                .Select(p => p.WeightKg)
+                .FirstOrDefaultAsync(cancellationToken);
+
+        var profiles = await WorkoutCalorieEstimator.LoadProfilesAsync(_unitOfWork, new[] { session.WorkoutId }, cancellationToken);
+        if (!profiles.TryGetValue(session.WorkoutId, out var meta))
+        {
+            return clientEstimate;
+        }
+
+        var activeSeconds = WorkoutCalorieEstimator.ActiveSeconds(
+            session.DurationSeconds, session.StartedAt, session.CompletedAt, MaxCaloriesWorkoutMinutes);
+        var estimate = WorkoutCalorieEstimator.EstimateNetKcal(meta.Kind, meta.Difficulty, weightKg, activeSeconds);
+        return estimate is null ? clientEstimate : estimate.Value;
+    }
+
+    /// <summary>Kaloriye sayilan en uzun antrenman suresi (EnergyBalanceOptions.MaxWorkoutMinutes varsayilani ile ayni).</summary>
+    private const int MaxCaloriesWorkoutMinutes = 240;
 
     public async Task CancelSessionAsync(long userId, long sessionId, CancellationToken cancellationToken = default)
     {

@@ -59,8 +59,17 @@ public class WorkoutSessionServiceTests
         _unitOfWork.Setup(u => u.Repository<WorkoutPlan>()).Returns(MockRepositoryFactory.Create(_plans).Object);
         _unitOfWork.Setup(u => u.Repository<WorkoutPlanDay>()).Returns(MockRepositoryFactory.Create(_planDays).Object);
         _unitOfWork.Setup(u => u.Repository<WorkoutPlanExercise>()).Returns(MockRepositoryFactory.Create(new List<WorkoutPlanExercise>()).Object);
+        _unitOfWork.Setup(u => u.Repository<WorkoutCategory>()).Returns(MockRepositoryFactory.Create(_categories).Object);
+        _unitOfWork.Setup(u => u.Repository<WorkoutAttributeScore>()).Returns(MockRepositoryFactory.Create(_attributeScores).Object);
+        _unitOfWork.Setup(u => u.Repository<BodyMeasurement>()).Returns(MockRepositoryFactory.Create(_measurements).Object);
+        _unitOfWork.Setup(u => u.Repository<UserProfile>()).Returns(MockRepositoryFactory.Create(_profiles).Object);
         _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
     }
+
+    private readonly List<WorkoutCategory> _categories = new();
+    private readonly List<WorkoutAttributeScore> _attributeScores = new();
+    private readonly List<BodyMeasurement> _measurements = new();
+    private readonly List<UserProfile> _profiles = new();
 
     private WorkoutSessionService CreateService() => new(_unitOfWork.Object, _scoreService.Object);
 
@@ -161,6 +170,48 @@ public class WorkoutSessionServiceTests
         Assert.Equal(WorkoutSessionStatus.Completed, session.Status);
         Assert.NotNull(session.CompletedAt);
         _scoreService.Verify(s => s.TryRefreshUserAsync(UserId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Complete_StoresServerSideNetCalories_FromDurationDifficultyAndWeight()
+    {
+        _profiles.Add(new UserProfile { UserId = UserId, WeightKg = 80 });
+        _workouts[0].Difficulty = DifficultyLevel.Intermediate;
+        var session = SeedActiveSession();
+        _setLogs.Add(new WorkoutSetLog { Id = 1, WorkoutSessionExerciseId = 11, SetNumber = 1, WeightKg = 40, Reps = 10 });
+
+        // Istemcinin set sayisina dayali tahmini (17,5 kcal/set) yok sayilir; sunucu tek formulu kullanir.
+        var summary = await CreateService().CompleteSessionAsync(UserId, 10,
+            new CompleteWorkoutSessionRequest { DurationSeconds = 3600, CaloriesBurned = 17.5m });
+
+        // Agirlik antrenmani, orta seviye: MET 5 -> (5 - 1) x 80 kg x 1 saat = 320 kcal (net).
+        Assert.Equal(320m, session.CaloriesBurned);
+        Assert.Equal(320m, summary.CaloriesBurned);
+    }
+
+    [Fact]
+    public async Task Complete_UsesLatestWeighIn_OverProfileWeight()
+    {
+        _profiles.Add(new UserProfile { UserId = UserId, WeightKg = 80 });
+        _measurements.Add(new BodyMeasurement { Id = 1, UserId = UserId, RecordedAt = DateTime.UtcNow.Date.AddDays(-1), WeightKg = 70 });
+        _workouts[0].Difficulty = DifficultyLevel.Intermediate;
+        var session = SeedActiveSession();
+        _setLogs.Add(new WorkoutSetLog { Id = 1, WorkoutSessionExerciseId = 11, SetNumber = 1, WeightKg = 40, Reps = 10 });
+
+        await CreateService().CompleteSessionAsync(UserId, 10, new CompleteWorkoutSessionRequest { DurationSeconds = 1800 });
+
+        Assert.Equal(140m, session.CaloriesBurned); // (5 - 1) x 70 x 0,5
+    }
+
+    [Fact]
+    public async Task Complete_WithoutKnownWeight_KeepsClientEstimate()
+    {
+        var session = SeedActiveSession();
+        _setLogs.Add(new WorkoutSetLog { Id = 1, WorkoutSessionExerciseId = 11, SetNumber = 1, WeightKg = 40, Reps = 10 });
+
+        await CreateService().CompleteSessionAsync(UserId, 10, new CompleteWorkoutSessionRequest { DurationSeconds = 1800, CaloriesBurned = 35m });
+
+        Assert.Equal(35m, session.CaloriesBurned);
     }
 
     [Fact]
