@@ -206,6 +206,7 @@ builder.Services.AddScoped<IStoreAddressService, StoreAddressService>();
 builder.Services.AddScoped<IStoreOrderService, StoreOrderService>();
 builder.Services.AddScoped<IStorePaymentResultService, StorePaymentResultService>();
 builder.Services.AddScoped<IStoreReviewService, StoreReviewService>();
+builder.Services.AddScoped<IStoreRecommendationService, StoreRecommendationService>();
 
 // Sohbet ve fotograf analizi uclari icin kullanici ve IP basina dakikalik hiz siniri; e-posta dogrulama /
 // sifre sifirlama uclari icin IP basina pencere siniri; MB Shop yazma uclari icin kullanici basina sinir.
