@@ -22,6 +22,9 @@ public interface ITrainingProgramService
 
     Task<IReadOnlyList<TrainingProgramSummaryDto>> GetVersionsAsync(long userId, CancellationToken cancellationToken = default);
 
+    /// <summary>Versiyonlarin bir dilimi (en yeniden eskiye). offset/limit verilmezse tum versiyonlar.</summary>
+    Task<IReadOnlyList<TrainingProgramSummaryDto>> GetVersionsAsync(long userId, int? offset, int? limit, CancellationToken cancellationToken = default);
+
     Task<TrainingProgramDto> GetProgramAsync(long userId, long programId, CancellationToken cancellationToken = default);
 
     /// <summary>Guncelleme gerekli mi (blok bitti, toparlanma sinyali, agri)? Yazma yapmaz.</summary>

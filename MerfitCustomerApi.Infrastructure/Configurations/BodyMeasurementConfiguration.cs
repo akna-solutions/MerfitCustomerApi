@@ -21,6 +21,9 @@ public class BodyMeasurementConfiguration : IEntityTypeConfiguration<BodyMeasure
         // Tablo adini belirtir.
         builder.ToTable("BodyMeasurement", "profile");
 
+        // Performans: Olcum gecmisi ve son olcum kullanici + tarih sirasiyla okunur.
+        builder.HasIndex(x => new { x.UserId, x.RecordedAt });
+
         // Birincil anahtari tanimlar.
         builder.HasKey(x => x.Id);
 

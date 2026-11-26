@@ -17,6 +17,13 @@ public interface IMerfitScoreService
     Task<List<MerfitRankedUser>> RankUsersAsync(DateTime? fromUtc, DateTime? toUtc, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// <see cref="RankUsersAsync"/> ile ayni siralama; ancak tum kullanicilarin puan olaylarini her istekte
+    /// yeniden okumamak icin kisa sureli onbellekten gelir. <paramref name="userId"/> kullanicisinin satiri her
+    /// zaman canli hesaplanip siralamaya yerlestirilir; boylece kullanici kendi aksiyonunu aninda gorur.
+    /// </summary>
+    Task<List<MerfitRankedUser>> RankUsersForUserAsync(DateTime? fromUtc, DateTime? toUtc, long userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Donem turune gore siralama araligini ve odul donemini cozer. Bugunu kapsayan aktif bir
     /// LeaderboardPeriod varsa onun tarihleri, yoksa takvim haftasi/ayi kullanilir. AllTime sinirsizdir.
     /// </summary>

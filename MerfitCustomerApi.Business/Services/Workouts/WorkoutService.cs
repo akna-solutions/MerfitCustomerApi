@@ -67,18 +67,16 @@ public class WorkoutService : IWorkoutService
         var equipmentSlugs = SplitCsv(request.Equipment);
         if (equipmentSlugs.Count > 0)
         {
-            var equipmentIds = await _unitOfWork.Repository<EquipmentEntity>()
+            // Tek SQL icinde alt sorgu olarak calisir (ara id listeleri bellege cekilmez).
+            var equipmentIds = _unitOfWork.Repository<EquipmentEntity>()
                 .GetQueryable()
                 .Where(e => equipmentSlugs.Contains(e.Slug))
-                .Select(e => e.Id)
-                .ToListAsync(cancellationToken);
+                .Select(e => e.Id);
 
-            var workoutIdsWithEquipment = await _unitOfWork.Repository<WorkoutEquipment>()
+            var workoutIdsWithEquipment = _unitOfWork.Repository<WorkoutEquipment>()
                 .GetQueryable()
                 .Where(we => equipmentIds.Contains(we.EquipmentId))
-                .Select(we => we.WorkoutId)
-                .Distinct()
-                .ToListAsync(cancellationToken);
+                .Select(we => we.WorkoutId);
 
             query = query.Where(w => workoutIdsWithEquipment.Contains(w.Id));
         }
@@ -117,16 +115,38 @@ public class WorkoutService : IWorkoutService
 
         query = query.OrderByDescending(w => w.IsFeatured).ThenBy(w => w.Title);
 
-        var paged = await query.ToPagedResultAsync(request.Page, request.PageSize, cancellationToken);
+        // Performans: liste kartinda gosterilmeyen Description gibi alanlar okunmaz.
+        var paged = await query
+            .Select(w => new Workout
+            {
+                Id = w.Id,
+                Title = w.Title,
+                Tagline = w.Tagline,
+                DurationMin = w.DurationMin,
+                Difficulty = w.Difficulty,
+                CategoryId = w.CategoryId,
+                MuscleGroupId = w.MuscleGroupId,
+                ImageUrl = w.ImageUrl,
+                IsFeatured = w.IsFeatured,
+                IsActive = w.IsActive,
+            })
+            .ToPagedResultAsync(request.Page, request.PageSize, cancellationToken);
 
         var workoutIds = paged.Items.Select(w => w.Id).ToList();
 
+        // Tum kategori/kas grubu tablolari yerine yalnizca bu sayfadaki antrenmanlarin ihtiyac duydugu adlar okunur.
+        var categoryIds = paged.Items.Select(w => w.CategoryId).Distinct().ToList();
         var categoryNames = await _unitOfWork.Repository<WorkoutCategory>()
             .GetQueryable()
+            .Where(c => categoryIds.Contains(c.Id))
+            .Select(c => new { c.Id, c.Name })
             .ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
 
+        var pageMuscleGroupIds = paged.Items.Where(w => w.MuscleGroupId.HasValue).Select(w => w.MuscleGroupId!.Value).Distinct().ToList();
         var muscleGroupNames = await _unitOfWork.Repository<MuscleGroup>()
             .GetQueryable()
+            .Where(m => pageMuscleGroupIds.Contains(m.Id))
+            .Select(m => new { m.Id, m.Name })
             .ToDictionaryAsync(m => m.Id, m => m.Name, cancellationToken);
 
         var equipmentByWorkout = await _unitOfWork.Repository<WorkoutEquipment>()
@@ -155,10 +175,14 @@ public class WorkoutService : IWorkoutService
 
         var categoryNames = await _unitOfWork.Repository<WorkoutCategory>()
             .GetQueryable()
+            .Where(c => c.Id == workout.CategoryId)
+            .Select(c => new { c.Id, c.Name })
             .ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
 
         var muscleGroupNames = await _unitOfWork.Repository<MuscleGroup>()
             .GetQueryable()
+            .Where(m => m.Id == workout.MuscleGroupId)
+            .Select(m => new { m.Id, m.Name })
             .ToDictionaryAsync(m => m.Id, m => m.Name, cancellationToken);
 
         var equipmentNames = await _unitOfWork.Repository<WorkoutEquipment>()

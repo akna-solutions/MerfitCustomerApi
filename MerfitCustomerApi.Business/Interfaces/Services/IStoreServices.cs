@@ -41,6 +41,9 @@ public interface IStoreFavoriteService
     /// <summary>Favori urunler (yalnizca hala aktif olanlar), son eklenen once.</summary>
     Task<List<StoreProductListItemDto>> GetAsync(long userId, CancellationToken cancellationToken = default);
 
+    /// <summary>Favorilerin bir dilimi (en yeni eklenen once). offset/limit verilmezse tum liste (en fazla MaxFavorites).</summary>
+    Task<List<StoreProductListItemDto>> GetAsync(long userId, int? offset, int? limit, CancellationToken cancellationToken = default);
+
     /// <summary>Idempotent: zaten favoriyse bir sey yapmaz.</summary>
     Task AddAsync(long userId, long productId, CancellationToken cancellationToken = default);
 

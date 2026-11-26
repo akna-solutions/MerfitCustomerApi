@@ -20,6 +20,12 @@ public class BodyCompositionService : IBodyCompositionService
 {
     private const int MaxBackfillDays = 365;
 
+    /// <summary>Gecmis listesinde varsayilan olcum sayisi (uygulama ekrani son 10 olcumu gosterir).</summary>
+    public const int DefaultHistoryLimit = 20;
+
+    /// <summary>Gecmis listesinde istenebilecek en fazla olcum sayisi.</summary>
+    public const int MaxHistoryLimit = 200;
+
     private readonly IUnitOfWork _unitOfWork;
     private readonly BodyCompositionOptions _options;
 
@@ -29,10 +35,10 @@ public class BodyCompositionService : IBodyCompositionService
         _options = options?.Value ?? new BodyCompositionOptions();
     }
 
-    public async Task<BodyMeasurementHistoryResponse> GetHistoryAsync(long userId, CancellationToken cancellationToken = default)
+    public async Task<BodyMeasurementHistoryResponse> GetHistoryAsync(long userId, int? limit = null, CancellationToken cancellationToken = default)
     {
         var profile = await GetProfileAsync(userId, cancellationToken);
-        return await BuildHistoryAsync(profile, cancellationToken);
+        return await BuildHistoryAsync(profile, cancellationToken, limit);
     }
 
     public async Task<BodyMeasurementHistoryResponse> AddMeasurementAsync(
@@ -118,16 +124,35 @@ public class BodyCompositionService : IBodyCompositionService
         await _unitOfWork.Repository<UserProfile>().FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken)
         ?? throw new NotFoundException(nameof(UserProfile), userId);
 
-    private async Task<BodyMeasurementHistoryResponse> BuildHistoryAsync(UserProfile profile, CancellationToken cancellationToken)
+    private async Task<BodyMeasurementHistoryResponse> BuildHistoryAsync(UserProfile profile, CancellationToken cancellationToken, int? limit = null)
     {
-        var measurements = await _unitOfWork.Repository<BodyMeasurement>()
+        var take = Math.Clamp(limit ?? DefaultHistoryLimit, 1, MaxHistoryLimit);
+        var userMeasurements = _unitOfWork.Repository<BodyMeasurement>()
             .GetQueryable()
-            .Where(m => m.UserId == profile.UserId)
+            .Where(m => m.UserId == profile.UserId);
+
+        // Performans: tum gecmis yerine yalnizca listelenecek en yeni olcumler okunur.
+        var measurements = await userMeasurements
             .OrderByDescending(m => m.RecordedAt)
             .ThenByDescending(m => m.Id)
+            .Take(take)
             .ToListAsync(cancellationToken);
+        var totalCount = measurements.Count < take
+            ? measurements.Count
+            : await userMeasurements.CountAsync(cancellationToken);
 
-        var assessment = BodyFatAssessor.Assess(profile, measurements, DateTime.UtcNow, _options);
+        // Yag orani degerlendirmesi yalnizca son N gunun olcumlerine bakar (bkz. BodyFatAssessor); listenin
+        // disinda kalan ama pencere icindeki olcumler de degerlendirmeye katilsin diye pencere ayrica okunur.
+        var now = DateTime.UtcNow;
+        var assessmentCutoff = now.AddDays(-Math.Max(_options.MeasuredBodyFatMaxAgeDays, _options.CircumferenceMaxAgeDays));
+        var oldestListed = measurements.Count > 0 ? measurements[^1].RecordedAt : (DateTime?)null;
+        var assessmentInput = measurements.Count < totalCount && oldestListed > assessmentCutoff
+            ? await userMeasurements
+                .Where(m => m.RecordedAt >= assessmentCutoff)
+                .ToListAsync(cancellationToken)
+            : measurements;
+
+        var assessment = BodyFatAssessor.Assess(profile, assessmentInput, now, _options);
         var activeGoal = await _unitOfWork.Repository<UserGoal>()
             .FirstOrDefaultAsync(g => g.UserId == profile.UserId && g.IsActive, cancellationToken);
         var goal = FitnessGoals.Normalize(activeGoal?.GoalType ?? profile.Goal);
@@ -159,6 +184,8 @@ public class BodyCompositionService : IBodyCompositionService
                 ThighCm = m.ThighCm,
                 Bmi = m.BMI,
             }).ToList(),
+            TotalCount = totalCount,
+            HasMore = totalCount > measurements.Count,
             BodyFat = BodyFatAssessmentDto.From(assessment),
             ShowLowBodyFatWarning = showWarning,
             LowBodyFatWarningMessage = showWarning ? LowBodyFatGoalGuard.WarningMessage : null,

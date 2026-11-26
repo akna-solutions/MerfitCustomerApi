@@ -21,6 +21,9 @@ public class WaterLogConfiguration : IEntityTypeConfiguration<WaterLog>
         // Tablo adini belirtir.
         builder.ToTable("WaterLog", "nutrition");
 
+        // Performans: Gunluk su kayitlari kullanici + gun araligiyla sorgulanir.
+        builder.HasIndex(x => new { x.UserId, x.Date });
+
         // Birincil anahtari tanimlar.
         builder.HasKey(x => x.Id);
 

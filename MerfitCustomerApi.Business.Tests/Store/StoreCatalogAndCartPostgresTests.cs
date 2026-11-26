@@ -251,6 +251,32 @@ public class StoreCatalogAndCartPostgresTests
     }
 
     [PostgresFact]
+    public async Task Favorites_SupportOffsetLimitPaging_NewestFirst()
+    {
+        var data = new StoreTestData();
+        var user = await data.UserAsync();
+        var category = await data.CategoryAsync();
+        var ids = new List<long>();
+        for (var i = 0; i < 5; i++)
+        {
+            var product = await data.ProductAsync(category, 100m + i, 5);
+            await Run(uow => StoreTestData.Favorites(uow).AddAsync(user, product.Id));
+            ids.Add(product.Id);
+            await Task.Delay(5);
+        }
+
+        var all = await Run(uow => StoreTestData.Favorites(uow).GetAsync(user));
+        Assert.Equal(Enumerable.Reverse(ids).ToArray(), all.Select(p => p.Id).ToArray());
+
+        var page1 = await Run(uow => StoreTestData.Favorites(uow).GetAsync(user, 0, 2));
+        var page3 = await Run(uow => StoreTestData.Favorites(uow).GetAsync(user, 4, 2));
+        Assert.Equal(all.Take(2).Select(p => p.Id), page1.Select(p => p.Id));
+        Assert.Equal(all.Skip(4).Select(p => p.Id), page3.Select(p => p.Id));
+        // Liste kartinda gorunen alanlar projeksiyonla dolu gelir.
+        Assert.All(all, p => Assert.False(string.IsNullOrEmpty(p.Name)));
+    }
+
+    [PostgresFact]
     public async Task Addresses_FirstIsDefault_SingleDefault_AndOwnershipEnforced()
     {
         var data = new StoreTestData();

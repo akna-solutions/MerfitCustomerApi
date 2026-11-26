@@ -25,10 +25,16 @@ public class StoreFavoriteService : IStoreFavoriteService
         _badges = badges ?? new StoreBadgeService(unitOfWork, timeProvider: _timeProvider);
     }
 
-    public async Task<List<StoreProductListItemDto>> GetAsync(long userId, CancellationToken cancellationToken = default)
+    public Task<List<StoreProductListItemDto>> GetAsync(long userId, CancellationToken cancellationToken = default)
+        => GetAsync(userId, null, null, cancellationToken);
+
+    public async Task<List<StoreProductListItemDto>> GetAsync(long userId, int? offset, int? limit, CancellationToken cancellationToken = default)
     {
+        var skip = Math.Max(0, offset ?? 0);
+        var take = Math.Clamp(limit ?? MaxFavorites, 1, MaxFavorites);
         var activeCategories = _unitOfWork.Repository<StoreCategory>().GetQueryable().Where(c => c.IsActive).Select(c => c.Id);
-        var products = _unitOfWork.Repository<Product>().GetQueryable().Where(p => p.IsActive && activeCategories.Contains(p.CategoryId));
+        var products = _unitOfWork.Repository<Product>().GetQueryable().Where(p => p.IsActive && activeCategories.Contains(p.CategoryId))
+            .Select(StoreProductMapper.ListColumns);
         var images = _unitOfWork.Repository<ProductImage>().GetQueryable();
 
         var rows = await _unitOfWork.Repository<FavoriteProduct>().GetQueryable()
@@ -42,7 +48,8 @@ public class StoreFavoriteService : IStoreFavoriteService
                     .Select(i => i.ImageUrl)
                     .FirstOrDefault(),
             })
-            .Take(MaxFavorites)
+            .Skip(skip)
+            .Take(take)
             .ToListAsync(cancellationToken);
 
         var items = rows.Select(r => StoreProductMapper.ToListItem(r.Product, r.ImageUrl)).ToList();

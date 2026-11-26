@@ -39,20 +39,27 @@ public class DashboardService : IDashboardService
         var today = DateTime.UtcNow.Date;
         var weekStart = today.AddDays(-(int)today.DayOfWeek + (today.DayOfWeek == DayOfWeek.Sunday ? -6 : 1));
 
-        var completedSessions = await _unitOfWork.Repository<WorkoutSession>()
+        // Performans: kullanicinin tum antrenman gecmisi yerine yalnizca bu haftanin tamamlanan oturumlarinin
+        // gereken iki kolonu okunur; "ilk antrenman" bilgisi ayri bir EXISTS sorgusuyla alinir.
+        var completedQuery = _unitOfWork.Repository<WorkoutSession>()
             .GetQueryable()
-            .Where(s => s.UserId == userId && s.Status == WorkoutSessionStatus.Completed)
-            .ToListAsync(cancellationToken);
+            .Where(s => s.UserId == userId && s.Status == WorkoutSessionStatus.Completed);
 
-        var hasCompletedFirstWorkout = completedSessions.Count > 0;
+        var hasCompletedFirstWorkout = await completedQuery.AnyAsync(cancellationToken);
+        var sessionsThisWeek = hasCompletedFirstWorkout
+            ? await completedQuery
+                .Where(s => s.CompletedAt != null && s.CompletedAt >= weekStart)
+                .Select(s => new { CompletedAt = s.CompletedAt!.Value, s.CaloriesBurned })
+                .ToListAsync(cancellationToken)
+            : [];
+
         // Haftalik hedef "haftada X gun" oldugu icin ayni gun yapilan birden fazla antrenman tek gun sayilir.
-        var workoutsCompletedThisWeek = completedSessions
-            .Where(s => s.CompletedAt.HasValue && s.CompletedAt.Value.Date >= weekStart)
-            .Select(s => s.CompletedAt!.Value.Date)
+        var workoutsCompletedThisWeek = sessionsThisWeek
+            .Select(s => s.CompletedAt.Date)
             .Distinct()
             .Count();
-        var caloriesToday = completedSessions
-            .Where(s => s.CompletedAt.HasValue && s.CompletedAt.Value.Date == today)
+        var caloriesToday = sessionsThisWeek
+            .Where(s => s.CompletedAt.Date == today)
             .Sum(s => s.CaloriesBurned ?? 0);
 
         var weeklyTarget = await GetWeeklyWorkoutTargetAsync(userId, profile, cancellationToken);
@@ -85,7 +92,7 @@ public class DashboardService : IDashboardService
         CustomerDashboardWorkoutDto? todayWorkout = null;
         var recommended = new List<CustomerDashboardWorkoutDto>();
 
-        var hasWorkoutToday = completedSessions.Any(s => s.CompletedAt.HasValue && s.CompletedAt.Value.Date == today);
+        var hasWorkoutToday = sessionsThisWeek.Any(s => s.CompletedAt.Date == today);
         for (var i = 0; i < recommendedPage.Items.Count; i++)
         {
             var summary = MapToDashboardWorkout(recommendedPage.Items[i]);

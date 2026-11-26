@@ -256,7 +256,7 @@ public class StoreCatalogService : IStoreCatalogService
     private IQueryable<ProductRow> WithPrimaryImage(IQueryable<Product> query)
     {
         var images = _unitOfWork.Repository<ProductImage>().GetQueryable();
-        return query.Select(p => new ProductRow
+        return query.Select(StoreProductMapper.ListColumns).Select(p => new ProductRow
         {
             Product = p,
             ImageUrl = images.Where(i => i.ProductId == p.Id)
