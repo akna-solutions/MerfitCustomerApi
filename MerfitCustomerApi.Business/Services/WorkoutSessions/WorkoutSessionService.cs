@@ -170,23 +170,19 @@ public class WorkoutSessionService : IWorkoutSessionService
         var workoutTitles = await WorkoutSessionTitles.LoadAsync(
             _unitOfWork, sessions.Select(s => (s.WorkoutId, s.WorkoutPlanDayId)), cancellationToken);
 
-        var sessionExercises = await _unitOfWork.Repository<WorkoutSessionExercise>()
-            .GetQueryable()
-            .Where(se => sessionIds.Contains(se.WorkoutSessionId))
+        // Performans: sayfadaki oturumlarin isinma disi setlerinin yalnizca ozet icin gereken kolonlari tek sorguda okunur.
+        var setLogs = await (
+                from l in _unitOfWork.Repository<WorkoutSetLog>().GetQueryable()
+                join se in _unitOfWork.Repository<WorkoutSessionExercise>().GetQueryable() on l.WorkoutSessionExerciseId equals se.Id
+                where sessionIds.Contains(se.WorkoutSessionId) && !l.IsWarmup
+                select new { se.WorkoutSessionId, l.WorkoutSessionExerciseId, l.WeightKg, l.Reps })
             .ToListAsync(cancellationToken);
-        var sessionExerciseIds = sessionExercises.Select(se => se.Id).ToList();
-
-        var setLogs = await _unitOfWork.Repository<WorkoutSetLog>()
-            .GetQueryable()
-            .Where(l => sessionExerciseIds.Contains(l.WorkoutSessionExerciseId))
-            .ToListAsync(cancellationToken);
-        var sessionIdBySessionExercise = sessionExercises.ToDictionary(se => se.Id, se => se.WorkoutSessionId);
-        var setsBySession = setLogs.ToLookup(l => sessionIdBySessionExercise[l.WorkoutSessionExerciseId]);
+        var setsBySession = setLogs.ToLookup(l => l.WorkoutSessionId);
 
         var items = sessions.Select(s =>
         {
             // Isinma setleri hacme ve en yuksek agirliga katilmaz (eski kayitlarda isinma isareti yoktur).
-            var sets = setsBySession[s.Id].Where(l => !l.IsWarmup).ToList();
+            var sets = setsBySession[s.Id].ToList();
             var weights = sets.Where(l => l.WeightKg is > 0).Select(l => l.WeightKg!.Value).ToList();
             return new CustomerWorkoutSessionHistoryItemDto
             {

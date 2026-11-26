@@ -22,6 +22,9 @@ public class MealConfiguration : IEntityTypeConfiguration<Meal>
         // Tablo adini belirtir.
         builder.ToTable("Meal", "nutrition");
 
+        // Performans: Gunluk beslenme, enerji dengesi ve takvim kullanici + gun araligiyla sorgulanir.
+        builder.HasIndex(x => new { x.UserId, x.Date });
+
         // Birincil anahtari tanimlar.
         builder.HasKey(x => x.Id);
 

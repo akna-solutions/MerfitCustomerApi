@@ -5,6 +5,7 @@ using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -87,12 +88,17 @@ public class MerfitScoreService : IMerfitScoreService
     private readonly IUnitOfWork _unitOfWork;
     private readonly MerfitScoringOptions _options;
     private readonly ILogger<MerfitScoreService> _logger;
+    private readonly IMemoryCache? _cache;
 
-    public MerfitScoreService(IUnitOfWork unitOfWork, IOptions<MerfitScoringOptions> options, ILogger<MerfitScoreService> logger)
+    /// <summary>Tum kullanicilarin siralamasinin onbellekte tutulma suresi (kullanicinin kendi satiri her zaman canlidir).</summary>
+    public static readonly TimeSpan RankingCacheDuration = TimeSpan.FromSeconds(60);
+
+    public MerfitScoreService(IUnitOfWork unitOfWork, IOptions<MerfitScoringOptions> options, ILogger<MerfitScoreService> logger, IMemoryCache? cache = null)
     {
         _unitOfWork = unitOfWork;
         _options = options.Value;
         _logger = logger;
+        _cache = cache;
     }
 
     private TimeSpan Offset => TimeSpan.FromHours(_options.TimeZoneOffsetHours);
@@ -188,6 +194,53 @@ public class MerfitScoreService : IMerfitScoreService
             .GroupBy(e => e.UserId)
             .Select(g => new { UserId = g.Key, Points = g.Sum(e => e.Points), Workouts = workoutCounts.GetValueOrDefault(g.Key, 0) })
             .Where(x => x.Points > 0)
+            .OrderByDescending(x => x.Points)
+            .ThenByDescending(x => x.Workouts)
+            .ThenBy(x => x.UserId)
+            .Select((x, index) => new MerfitRankedUser(x.UserId, index + 1, x.Points, x.Workouts))
+            .ToList();
+    }
+
+    public async Task<List<MerfitRankedUser>> RankUsersForUserAsync(DateTime? fromUtc, DateTime? toUtc, long userId, CancellationToken cancellationToken = default)
+    {
+        if (_cache is null)
+        {
+            return await RankUsersAsync(fromUtc, toUtc, cancellationToken);
+        }
+
+        var key = $"merfit:ranking:{fromUtc?.Ticks}:{toUtc?.Ticks}";
+        if (!_cache.TryGetValue(key, out List<MerfitRankedUser>? cached) || cached is null)
+        {
+            var fresh = await RankUsersAsync(fromUtc, toUtc, cancellationToken);
+            _cache.Set(key, fresh, RankingCacheDuration);
+            return fresh;
+        }
+
+        // Onbellekteki siralama en fazla RankingCacheDuration kadar eskidir; istegi yapan kullanicinin
+        // puani ve antrenman sayisi (yalnizca kendi satirlari, indeksli) canli okunup siralamaya yerlestirilir.
+        var userEvents = await GetPointEventsAsync(fromUtc, toUtc, userId, cancellationToken);
+        var workoutQuery = _unitOfWork.Repository<WorkoutSession>().GetQueryable()
+            .Where(s => s.UserId == userId && s.Status == WorkoutSessionStatus.Completed && s.CompletedAt != null);
+        if (fromUtc.HasValue) workoutQuery = workoutQuery.Where(s => s.CompletedAt >= fromUtc.Value);
+        if (toUtc.HasValue) workoutQuery = workoutQuery.Where(s => s.CompletedAt < toUtc.Value);
+        var workouts = await workoutQuery.CountAsync(cancellationToken);
+
+        return MergeUser(cached, userId, userEvents.Sum(e => e.Points), workouts);
+    }
+
+    /// <summary>
+    /// Siralamadaki kullanicinin satirini verilen guncel degerlerle degistirir ve <see cref="RankUsersAsync"/> ile
+    /// ayni kurala gore (puan, antrenman sayisi, UserId) yeniden numaralandirir. Kaynak liste degistirilmez.
+    /// </summary>
+    public static List<MerfitRankedUser> MergeUser(IReadOnlyList<MerfitRankedUser> ranked, long userId, int points, int workouts)
+    {
+        var rows = ranked.Where(r => r.UserId != userId).Select(r => (r.UserId, r.Points, r.Workouts)).ToList();
+        if (points > 0)
+        {
+            rows.Add((userId, points, workouts));
+        }
+
+        return rows
             .OrderByDescending(x => x.Points)
             .ThenByDescending(x => x.Workouts)
             .ThenBy(x => x.UserId)

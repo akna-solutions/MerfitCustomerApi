@@ -451,7 +451,7 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "RecordedAt");
 
                     b.ToTable("BodyMeasurement", "profile");
                 });
@@ -1414,7 +1414,7 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "Date");
 
                     b.ToTable("Meal", "nutrition");
                 });
@@ -1843,7 +1843,9 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.HasIndex("UserId", "IsRead");
 
                     b.ToTable("Notification", "notification");
                 });
@@ -4988,7 +4990,7 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "Date");
 
                     b.ToTable("WaterLog", "nutrition");
                 });
@@ -5670,11 +5672,11 @@ namespace MerfitCustomerApi.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
-
                     b.HasIndex("WorkoutId");
 
                     b.HasIndex("WorkoutPlanDayId");
+
+                    b.HasIndex("UserId", "Status", "CompletedAt");
 
                     b.ToTable("WorkoutSession", "workout");
                 });

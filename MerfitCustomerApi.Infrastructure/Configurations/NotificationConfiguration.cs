@@ -22,6 +22,12 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
         // Tablo adini belirtir.
         builder.ToTable("Notification", "notification");
 
+        // Performans: Bildirim listesi kullaniciya gore en yeniden eskiye sayfalanir.
+        builder.HasIndex(x => new { x.UserId, x.CreatedAt });
+
+        // Performans: okunmamis bildirim sayaci (rozet) kullanici + okunma durumuna gore sayilir.
+        builder.HasIndex(x => new { x.UserId, x.IsRead });
+
         // Birincil anahtari tanimlar.
         builder.HasKey(x => x.Id);
 

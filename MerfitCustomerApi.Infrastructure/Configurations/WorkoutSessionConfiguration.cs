@@ -22,6 +22,9 @@ public class WorkoutSessionConfiguration : IEntityTypeConfiguration<WorkoutSessi
         // Tablo adini belirtir.
         builder.ToTable("WorkoutSession", "workout");
 
+        // Performans: Kullanicinin tamamlanan oturumlari tarih araligiyla sorgulanir (dashboard, ilerleme, gecmis, puan).
+        builder.HasIndex(x => new { x.UserId, x.Status, x.CompletedAt });
+
         // Birincil anahtari tanimlar.
         builder.HasKey(x => x.Id);
 

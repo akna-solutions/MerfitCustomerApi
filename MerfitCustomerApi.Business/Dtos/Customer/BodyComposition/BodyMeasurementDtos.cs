@@ -118,7 +118,14 @@ public class BodyMeasurementHistoryResponse
     /// <summary>Profildeki cinsiyet ("male" | "female" | "other" | null). Kadinlarda tahmin icin kalca da gerekir.</summary>
     public string? Gender { get; set; }
 
+    /// <summary>En yeni olcumler (yeniden eskiye); en fazla istenen <c>limit</c> kadar (varsayilan 20).</summary>
     public List<BodyMeasurementDto> Measurements { get; set; } = new();
+
+    /// <summary>Kullanicinin toplam olcum sayisi (sayfalama/"daha fazla" gostergesi icin).</summary>
+    public int TotalCount { get; set; }
+
+    /// <summary>Listelenenden daha eski olcum varsa true.</summary>
+    public bool HasMore { get; set; }
 
     public BodyFatAssessmentDto BodyFat { get; set; } = new();
 

@@ -22,12 +22,15 @@ public class BodyMeasurementsController : ControllerBase
         _bodyCompositionService = bodyCompositionService;
     }
 
-    /// <summary>Olcum gecmisi (yeniden eskiye) ve guncel yag orani degerlendirmesi.</summary>
+    /// <summary>
+    /// Olcum gecmisi (yeniden eskiye) ve guncel yag orani degerlendirmesi. <paramref name="limit"/> en yeni kac olcumun
+    /// donecegini belirler (varsayilan 20, en fazla 200); toplam sayi totalCount/hasMore alanlarindadir.
+    /// </summary>
     [HttpGet]
-    public async Task<ActionResult<BodyMeasurementHistoryResponse>> GetHistory(CancellationToken cancellationToken)
+    public async Task<ActionResult<BodyMeasurementHistoryResponse>> GetHistory([FromQuery] int? limit, CancellationToken cancellationToken)
     {
         var userId = User.GetUserId()!.Value;
-        return Ok(await _bodyCompositionService.GetHistoryAsync(userId, cancellationToken));
+        return Ok(await _bodyCompositionService.GetHistoryAsync(userId, limit, cancellationToken));
     }
 
     /// <summary>Yeni olcum ekler (eski kayitlar korunur). Govde metrik birimdedir: { "waistCm": 82, "neckCm": 38 }.</summary>

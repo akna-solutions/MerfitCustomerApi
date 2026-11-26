@@ -76,6 +76,34 @@ public class BodyCompositionServiceTests
     }
 
     [Fact]
+    public async Task History_ReturnsOnlyNewestMeasurements_WithTotalCount()
+    {
+        var fx = Create();
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < 30; i++)
+        {
+            fx.Measurements.Add(new BodyMeasurement { Id = i + 1, UserId = UserId, RecordedAt = now.AddDays(-i * 5), WeightKg = 80 - i * 0.1m });
+        }
+        // En yeni olcum listede olmasa bile pencere icindeki cevre olcumu yag orani degerlendirmesine katilir.
+        fx.Measurements.Add(new BodyMeasurement { Id = 100, UserId = UserId, RecordedAt = now.AddDays(-12), NeckCm = 38, WaistCm = 84 });
+
+        var history = await fx.Service.GetHistoryAsync(UserId, limit: 5);
+
+        Assert.Equal(5, history.Measurements.Count);
+        Assert.Equal(31, history.TotalCount);
+        Assert.True(history.HasMore);
+        Assert.Equal(1, history.Measurements[0].Id);
+        Assert.NotNull(history.BodyFat.Percentage);
+
+        var defaults = await fx.Service.GetHistoryAsync(UserId);
+        Assert.Equal(BodyCompositionService.DefaultHistoryLimit, defaults.Measurements.Count);
+
+        var all = await fx.Service.GetHistoryAsync(UserId, limit: 500);
+        Assert.Equal(31, all.Measurements.Count);
+        Assert.False(all.HasMore);
+    }
+
+    [Fact]
     public async Task CircumferenceEntry_StoresEstimateSeparately_AndLabelsItEstimated()
     {
         var fx = Create();

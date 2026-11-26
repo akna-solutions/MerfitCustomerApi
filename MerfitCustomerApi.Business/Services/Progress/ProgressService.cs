@@ -83,12 +83,20 @@ public class ProgressService : IProgressService
             : null;
 
         var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        var completedSessions = await _unitOfWork.Repository<WorkoutSession>()
+        var weekStart = now.Date.AddDays(-(int)now.DayOfWeek + (now.DayOfWeek == DayOfWeek.Sunday ? -6 : 1));
+
+        // Performans: kullanicinin tum antrenman gecmisi yerine yalnizca bu ay/bu hafta penceresindeki oturumlarin
+        // gereken kolonlari okunur. Son aktiviteler ve "ilk antrenman" bilgisi ayri, sinirli sorgularla alinir.
+        var completedQuery = _unitOfWork.Repository<WorkoutSession>()
             .GetQueryable()
-            .Where(s => s.UserId == userId && s.Status == WorkoutSessionStatus.Completed)
+            .Where(s => s.UserId == userId && s.Status == WorkoutSessionStatus.Completed);
+        var windowStart = weekStart < monthStart ? weekStart : monthStart;
+        var windowSessions = await completedQuery
+            .Where(s => s.CompletedAt != null && s.CompletedAt >= windowStart)
+            .Select(s => new { CompletedAt = s.CompletedAt!.Value, s.CaloriesBurned, s.DurationSeconds })
             .ToListAsync(cancellationToken);
 
-        var sessionsThisMonth = completedSessions.Where(s => s.CompletedAt >= monthStart).ToList();
+        var sessionsThisMonth = windowSessions.Where(s => s.CompletedAt >= monthStart).ToList();
         var workoutsThisMonth = sessionsThisMonth.Count;
         var caloriesThisMonth = (int)Math.Round(sessionsThisMonth.Sum(s => s.CaloriesBurned ?? 0));
         var trainingMinutesThisMonth = (int)Math.Round(sessionsThisMonth.Sum(s => (s.DurationSeconds ?? 0) / 60m));
@@ -96,12 +104,11 @@ public class ProgressService : IProgressService
         var streak = await _unitOfWork.Repository<UserStreak>()
             .FirstOrDefaultAsync(s => s.UserId == userId, cancellationToken);
 
-        var weekStart = now.Date.AddDays(-(int)now.DayOfWeek + (now.DayOfWeek == DayOfWeek.Sunday ? -6 : 1));
         var weeklyWorkouts = Enumerable.Range(0, 7)
             .Select(offset =>
             {
                 var day = weekStart.AddDays(offset);
-                return completedSessions.Any(s => s.CompletedAt.HasValue && s.CompletedAt.Value.Date == day);
+                return windowSessions.Any(s => s.CompletedAt.Date == day);
             })
             .ToList();
 
@@ -163,11 +170,12 @@ public class ProgressService : IProgressService
             bodyMetrics.Add(new CustomerBodyMetricDto { Id = "waist", Label = "Bel", Value = $"{latestWaist.WaistCm:0.#} cm" });
         }
 
-        var recentSessions = completedSessions
-            .Where(s => s.CompletedAt.HasValue)
+        var recentSessions = await completedQuery
+            .Where(s => s.CompletedAt != null)
             .OrderByDescending(s => s.CompletedAt)
             .Take(5)
-            .ToList();
+            .Select(s => new { s.Id, s.WorkoutId, s.WorkoutPlanDayId, s.CompletedAt, s.DurationSeconds })
+            .ToListAsync(cancellationToken);
         var workoutTitles = await WorkoutSessions.WorkoutSessionTitles.LoadAsync(
             _unitOfWork, recentSessions.Select(s => (s.WorkoutId, s.WorkoutPlanDayId)), cancellationToken);
 
@@ -179,13 +187,15 @@ public class ProgressService : IProgressService
             DateLabel = FormatRelativeDateLabel(s.CompletedAt!.Value, now),
         }).ToList();
 
+        var hasCompletedFirstWorkout = recentSessions.Count > 0 || await completedQuery.AnyAsync(cancellationToken);
+
         var score = await BuildScoreSummaryAsync(userId, cancellationToken);
 
         var goalType = FitnessGoals.Normalize(activeGoal?.GoalType ?? profile.Goal);
 
         return new CustomerProgressResponse
         {
-            HasCompletedFirstWorkout = completedSessions.Count > 0,
+            HasCompletedFirstWorkout = hasCompletedFirstWorkout,
             GoalType = MapGoalType(goalType),
             GoalLabel = MapGoalLabel(goalType),
             // Uc ana hedefin hepsinde baslangictan hedef kiloya kat edilen yol.
@@ -220,7 +230,7 @@ public class ProgressService : IProgressService
     /// </summary>
     private async Task<CustomerScoreSummaryDto> BuildScoreSummaryAsync(long userId, CancellationToken cancellationToken)
     {
-        var ranked = await _scoreService.RankUsersAsync(null, null, cancellationToken);
+        var ranked = await _scoreService.RankUsersForUserAsync(null, null, userId, cancellationToken);
         var current = ranked.FirstOrDefault(r => r.UserId == userId);
 
         var weekAgo = DateTime.UtcNow.AddDays(-7);

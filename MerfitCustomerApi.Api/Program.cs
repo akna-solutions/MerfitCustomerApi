@@ -51,6 +51,20 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
+
+// Performans: JSON yanitlari Brotli/Gzip ile sikistirilir (mobil agda yuk boyutu ~%70-85 azalir).
+// Yalnizca metin tabanli MIME turleri sikistirilir; gorseller (review-images) zaten sikistirilmis oldugu icin haric.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+});
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProviderOptions>(o => o.Level = System.IO.Compression.CompressionLevel.Fastest);
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(o => o.Level = System.IO.Compression.CompressionLevel.Fastest);
+
+// Performans: tum kullanicilar icin ayni olan pahali hesaplamalar (siralama, cok satanlar) kisa sureli onbellekte tutulur.
+builder.Services.AddMemoryCache();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -396,6 +410,8 @@ if (!app.Services.GetRequiredService<IGoogleIdTokenValidator>().IsConfigured)
 // Pipeline'daki tum istisnalari yakalayip tutarli bir ApiResponse govdesine ceviren middleware;
 // dogru HTTP status kodlarinin donmesi icin (bkz. madde 38) pipeline'in en basina eklenir.
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+app.UseResponseCompression();
 
 if (app.Environment.IsDevelopment())
 {

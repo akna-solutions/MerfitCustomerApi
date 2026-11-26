@@ -814,11 +814,34 @@ public sealed class TrainingProgramService : ITrainingProgramService
         return plan is null ? null : await MapAsync(plan, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<TrainingProgramSummaryDto>> GetVersionsAsync(long userId, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<TrainingProgramSummaryDto>> GetVersionsAsync(long userId, CancellationToken cancellationToken = default)
+        => GetVersionsAsync(userId, null, null, cancellationToken);
+
+    /// <summary>Versiyon listesinde tek istekte donebilecek en fazla kayit.</summary>
+    public const int MaxVersionPageSize = 100;
+
+    public async Task<IReadOnlyList<TrainingProgramSummaryDto>> GetVersionsAsync(long userId, int? offset, int? limit, CancellationToken cancellationToken = default)
     {
-        var plans = await _unitOfWork.Repository<WorkoutPlan>().GetQueryable()
+        IQueryable<WorkoutPlan> query = _unitOfWork.Repository<WorkoutPlan>().GetQueryable()
             .Where(p => p.UserId == userId && p.ProgramVersion != null)
-            .OrderByDescending(p => p.ProgramVersion)
+            .OrderByDescending(p => p.ProgramVersion);
+        if (offset is > 0) query = query.Skip(offset.Value);
+        if (limit.HasValue) query = query.Take(Math.Clamp(limit.Value, 1, MaxVersionPageSize));
+
+        // Performans: ozet kartinda kullanilmayan alanlar (Description vb.) okunmaz.
+        var plans = await query
+            .Select(p => new WorkoutPlan
+            {
+                Id = p.Id,
+                ProgramVersion = p.ProgramVersion,
+                Status = p.Status,
+                Source = p.Source,
+                ChangeSummary = p.ChangeSummary,
+                IsDeload = p.IsDeload,
+                StartDate = p.StartDate,
+                EndDate = p.EndDate,
+                CreatedAt = p.CreatedAt,
+            })
             .ToListAsync(cancellationToken);
         var planIds = plans.Select(p => p.Id).ToList();
         var completed = await (

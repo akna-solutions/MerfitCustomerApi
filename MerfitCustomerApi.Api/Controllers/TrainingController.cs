@@ -48,10 +48,13 @@ public class TrainingController : ControllerBase
         return result is null ? NoContent() : Ok(result);
     }
 
-    /// <summary>Tum versiyonlar (aktif, onerilen, arsivlenmis, reddedilmis), en yeniden eskiye.</summary>
+    /// <summary>
+    /// Versiyonlar (aktif, onerilen, arsivlenmis, reddedilmis), en yeniden eskiye. Istege bagli sayfalama:
+    /// ?offset=0&amp;limit=20 (limit en fazla 100). Parametre verilmezse tum liste doner (eski davranis).
+    /// </summary>
     [HttpGet("programs")]
-    public async Task<ActionResult<IReadOnlyList<TrainingProgramSummaryDto>>> GetVersions(CancellationToken ct)
-        => Ok(await _programs.GetVersionsAsync(UserId, ct));
+    public async Task<ActionResult<IReadOnlyList<TrainingProgramSummaryDto>>> GetVersions([FromQuery] int? offset, [FromQuery] int? limit, CancellationToken ct)
+        => Ok(await _programs.GetVersionsAsync(UserId, offset, limit, ct));
 
     [HttpGet("programs/{id:long}")]
     public async Task<ActionResult<TrainingProgramDto>> GetProgram(long id, CancellationToken ct)

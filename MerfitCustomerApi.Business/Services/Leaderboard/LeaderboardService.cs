@@ -57,7 +57,7 @@ public class LeaderboardService : ILeaderboardService
         var periodType = MapPeriodType(period);
         var window = await _scoreService.ResolveWindowAsync(periodType, cancellationToken);
 
-        var ranked = await _scoreService.RankUsersAsync(window.FromUtc, window.ToUtc, cancellationToken);
+        var ranked = await _scoreService.RankUsersForUserAsync(window.FromUtc, window.ToUtc, userId, cancellationToken);
 
         var currentUserRank = ranked.FirstOrDefault(r => r.UserId == userId);
         var hasScoreData = currentUserRank is not null;
@@ -132,6 +132,8 @@ public class LeaderboardService : ILeaderboardService
         return await _unitOfWork.Repository<UserProfile>()
             .GetQueryable()
             .Where(p => userIds.Contains(p.UserId))
+            // Yalnizca gereken iki kolon okunur (tum profil satiri degil).
+            .Select(p => new { p.UserId, p.FirstName })
             .ToDictionaryAsync(p => p.UserId, p => p.FirstName, cancellationToken);
     }
 
@@ -140,6 +142,7 @@ public class LeaderboardService : ILeaderboardService
         var achievements = await _unitOfWork.Repository<Achievement>()
             .GetQueryable()
             .Where(a => a.IsActive)
+            .Select(a => new { a.Id, a.Code, a.Title, a.Description, a.Icon })
             .ToListAsync(cancellationToken);
 
         var earnedIds = await _unitOfWork.Repository<UserAchievement>()

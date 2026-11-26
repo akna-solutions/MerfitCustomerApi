@@ -23,9 +23,13 @@ public class StoreAccountController : ControllerBase
 
     private long UserId => User.GetUserId()!.Value;
 
+    /// <summary>
+    /// Favoriler (en yeni eklenen once). Istege bagli sayfalama: ?offset=0&amp;limit=20. Parametre verilmezse
+    /// eski davranis korunur (tum liste, en fazla 200). Yanit sekli degismez (dizi); limit'ten az oge = son sayfa.
+    /// </summary>
     [HttpGet("favorites")]
-    public async Task<ActionResult<List<StoreProductListItemDto>>> GetFavorites(CancellationToken cancellationToken)
-        => Ok(await _favorites.GetAsync(UserId, cancellationToken));
+    public async Task<ActionResult<List<StoreProductListItemDto>>> GetFavorites([FromQuery] int? offset, [FromQuery] int? limit, CancellationToken cancellationToken)
+        => Ok(await _favorites.GetAsync(UserId, offset, limit, cancellationToken));
 
     /// <summary>Idempotent ekleme.</summary>
     [HttpPut("favorites/{productId:long}")]

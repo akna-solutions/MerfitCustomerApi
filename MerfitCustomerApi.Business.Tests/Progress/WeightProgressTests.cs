@@ -243,6 +243,8 @@ public class WeightProgressTests
             var score = new Mock<IMerfitScoreService>();
             score.Setup(s => s.RankUsersAsync(It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new List<MerfitRankedUser>());
+            score.Setup(s => s.RankUsersForUserAsync(It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new List<MerfitRankedUser>());
             score.Setup(s => s.GetPointEventsAsync(It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new List<MerfitPointEvent>());
 

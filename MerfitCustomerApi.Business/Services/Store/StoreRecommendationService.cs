@@ -105,7 +105,7 @@ public class StoreRecommendationService : IStoreRecommendationService
         var candidatesById = new Dictionary<long, Product>();
         foreach (var pool in pools)
         {
-            foreach (var p in await pool.ToListAsync(cancellationToken)) candidatesById.TryAdd(p.Id, p);
+            foreach (var p in await pool.Select(StoreProductMapper.ListColumns).ToListAsync(cancellationToken)) candidatesById.TryAdd(p.Id, p);
         }
         if (candidatesById.Count == 0) return new StoreProductRecommendationsDto { ProductId = productId, Personalized = personalized };
 

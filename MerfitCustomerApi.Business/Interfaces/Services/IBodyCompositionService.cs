@@ -7,7 +7,8 @@ public interface IBodyCompositionService
 {
     /// <summary>Olcum gecmisi (yeniden eskiye) ve guncel yag orani degerlendirmesi.</summary>
     /// <exception cref="Domain.Exceptions.NotFoundException">Kullanici profili bulunamazsa.</exception>
-    Task<BodyMeasurementHistoryResponse> GetHistoryAsync(long userId, CancellationToken cancellationToken = default);
+    /// <param name="limit">Donecek en fazla olcum sayisi (null = varsayilan 20, ust sinir 200).</param>
+    Task<BodyMeasurementHistoryResponse> GetHistoryAsync(long userId, int? limit = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Yeni bir olcum kaydi ekler (eski kayitlara dokunmaz). Cevre olcumleri yeterliyse tahmini yag orani

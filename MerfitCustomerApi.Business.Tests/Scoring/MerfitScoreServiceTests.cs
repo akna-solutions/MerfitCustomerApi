@@ -1,10 +1,12 @@
 using System.Linq.Expressions;
 using MerfitCustomerApi.Business.Common;
+using MerfitCustomerApi.Business.Interfaces.Services;
 using MerfitCustomerApi.Business.Services.Scoring;
 using MerfitCustomerApi.Business.Tests.TestHelpers;
 using MerfitCustomerApi.Domain.Entities;
 using MerfitCustomerApi.Domain.Entities.Enums;
 using MerfitCustomerApi.Domain.Interfaces;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -141,6 +143,47 @@ public class MerfitScoreServiceTests
             new DateTime(2026, 10, 5, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 10, 12, 0, 0, 0, DateTimeKind.Utc), UserA);
 
         Assert.Single(events);
+    }
+
+    [Fact]
+    public async Task RankUsersForUser_UsesCachedRanking_ButKeepsRequestingUserLive()
+    {
+        var day = new DateTime(2026, 10, 5, 9, 0, 0, DateTimeKind.Utc);
+        AddCompletedWorkout(UserA, day);
+        AddCompletedWorkout(UserB, day);
+        AddCompletedWorkout(UserB, day.AddDays(1));
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var service = new MerfitScoreService(_unitOfWork.Object, Options.Create(new MerfitScoringOptions()), NullLogger<MerfitScoreService>.Instance, cache);
+
+        var first = await service.RankUsersForUserAsync(null, null, UserA);
+        Assert.Equal(new[] { UserB, UserA }, first.Select(r => r.UserId).ToArray());
+
+        // Onbellek suresi icinde: A iki antrenman daha yapar, C ilk antrenmanini yapar.
+        AddCompletedWorkout(UserA, day.AddDays(2));
+        AddCompletedWorkout(UserA, day.AddDays(3));
+        AddCompletedWorkout(UserC, day.AddDays(2));
+
+        // A kendi guncel puaniyla zirveye cikar; C henuz onbellekteki siralamada yok (en fazla 60 sn gecikme).
+        var forA = await service.RankUsersForUserAsync(null, null, UserA);
+        Assert.Equal(new[] { UserA, UserB }, forA.Select(r => r.UserId).ToArray());
+        Assert.Equal(new[] { 1, 2 }, forA.Select(r => r.Rank).ToArray());
+        Assert.Equal(300, forA[0].Points);
+
+        // C kendi istegi icin canli hesaplanir ve siralamaya girer.
+        var forC = await service.RankUsersForUserAsync(null, null, UserC);
+        Assert.Contains(forC, r => r.UserId == UserC && r.Points == 100);
+    }
+
+    [Fact]
+    public void MergeUser_RemovesUserWithoutPoints_AndRenumbers()
+    {
+        var ranked = new List<MerfitRankedUser> { new(UserA, 1, 300, 3), new(UserB, 2, 200, 2), new(UserC, 3, 100, 1) };
+
+        var merged = MerfitScoreService.MergeUser(ranked, UserA, 0, 0);
+
+        Assert.Equal(new[] { UserB, UserC }, merged.Select(r => r.UserId).ToArray());
+        Assert.Equal(new[] { 1, 2 }, merged.Select(r => r.Rank).ToArray());
+        Assert.Equal(3, ranked.Count);
     }
 
     [Fact]
